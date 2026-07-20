@@ -34,6 +34,9 @@ lives in a SQLite database on the device — there is no backend.
 
 ## Data & privacy
 
+- **Export**: Settings → Your data → Export database produces a consistent
+  `VACUUM INTO` snapshot of the raw SQLite DB and hands it to the Android
+  share sheet (desktop: shows the file path).
 - SQLite DB: app data dir → `tally.db`. Photos: app data dir → `photos/`;
   they never leave the phone except as the payload sent to the model you chose
   when you tap "Analyze". The API key is stored in the local DB only.

@@ -13,6 +13,7 @@
     "sql:allow-select",
     "fasting:default",
     "health-connect:default",
+    "share:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://openrouter.ai/*" }]
