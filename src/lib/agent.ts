@@ -337,7 +337,11 @@ async function runCapture(capture: Capture): Promise<void> {
   let lastText: string | null = null;
   let nudged = false;
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const turn = await chatWithTools(apiKey, model, messages, DIARY_TOOLS);
+    // Once something is logged, an empty completion just means "done" — it
+    // must not fail the capture (retrying would log the items twice).
+    const turn = await chatWithTools(apiKey, model, messages, DIARY_TOOLS, {
+      allowEmpty: ctx.logged > 0,
+    });
     if (turn.content?.trim()) lastText = turn.content.trim();
     if (turn.tool_calls.length === 0) {
       // Text-only reply with nothing logged yet: vision models occasionally

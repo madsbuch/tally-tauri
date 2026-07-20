@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteSetting, getSetting, setSetting } from "../lib/db";
+import {
+  deleteSetting,
+  getSetting,
+  listAllHealthMetrics,
+  listAllSleepSessions,
+  listSyncedWorkouts,
+  setSetting,
+} from "../lib/db";
 import {
   chat,
   fetchModels,
@@ -13,7 +20,7 @@ import {
   DEFAULT_VISION_MODEL,
   SETTING_KEYS,
 } from "../lib/types";
-import type { ORModel } from "../lib/types";
+import type { HealthMetric, ORModel, SleepSession, Workout } from "../lib/types";
 import {
   getHealthConnectStatus,
   openHealthConnectSettings,
@@ -53,6 +60,76 @@ function relativeTime(iso: string): string {
   if (h < 24) return `${h} h ago`;
   const d = Math.floor(h / 24);
   return `${d} d ago`;
+}
+
+function fmtDay(day: string): string {
+  return new Date(`${day}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** Local calendar day of a UTC ISO timestamp, e.g. "Mon, Jul 20". */
+function fmtDayIso(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fmtDuration(min: number | null): string | null {
+  if (min == null || min <= 0) return null;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
+function metricLine(m: HealthMetric): string {
+  const parts: string[] = [];
+  if (m.steps != null) parts.push(`${m.steps.toLocaleString()} steps`);
+  if (m.calories_total != null) parts.push(`${Math.round(m.calories_total)} kcal`);
+  if (m.resting_hr != null) parts.push(`RHR ${Math.round(m.resting_hr)}`);
+  if (m.hrv_ms != null) parts.push(`HRV ${Math.round(m.hrv_ms)} ms`);
+  if (m.spo2_pct != null) parts.push(`SpO2 ${Math.round(m.spo2_pct)}%`);
+  if (m.weight_kg != null) parts.push(`${m.weight_kg.toFixed(1)} kg`);
+  if (m.vo2_max != null) parts.push(`VO2 ${m.vo2_max.toFixed(1)}`);
+  return parts.length > 0 ? parts.join(" · ") : "no values";
+}
+
+function sleepLine(s: SleepSession): string {
+  const parts: string[] = [fmtDuration(s.duration_min) ?? "—"];
+  if (s.deep_min != null) parts.push(`deep ${Math.round(s.deep_min)}m`);
+  if (s.rem_min != null) parts.push(`REM ${Math.round(s.rem_min)}m`);
+  if (s.light_min != null) parts.push(`light ${Math.round(s.light_min)}m`);
+  if (s.awake_min != null) parts.push(`awake ${Math.round(s.awake_min)}m`);
+  return parts.join(" · ");
+}
+
+function workoutLine(w: Workout): string {
+  const parts: string[] = [];
+  if (w.description) parts.push(w.description);
+  if (w.calories_burned > 0) parts.push(`${w.calories_burned} kcal`);
+  const dur = fmtDuration(w.duration_min);
+  if (dur) parts.push(dur);
+  return parts.join(" · ");
+}
+
+/** Everything Health Connect sync has written into the local database. */
+interface HcData {
+  workouts: Workout[];
+  sleep: SleepSession[];
+  metrics: HealthMetric[];
 }
 
 function priceLabel(m: ORModel): string | null {
@@ -128,6 +205,9 @@ export default function SettingsPage() {
   // Garmin / Health Connect
   const [hcStatus, setHcStatus] = useState<HealthConnectStatus | null>(null);
   const [hcLastSync, setHcLastSync] = useState<string | null>(null);
+  const [hcData, setHcData] = useState<HcData | null>(null);
+  const [hcDataOpen, setHcDataOpen] = useState(false);
+  const [hcDataBusy, setHcDataBusy] = useState(false);
   const [hcBusy, setHcBusy] = useState(false);
   const [hcMessage, setHcMessage] = useState<string | null>(null);
   const [hcError, setHcError] = useState<string | null>(null);
@@ -326,6 +406,33 @@ export default function SettingsPage() {
     } finally {
       setHcBusy(false);
     }
+    // Keep the open data view in step with what the sync just wrote.
+    if (hcDataOpen) void loadHcData();
+  }
+
+  async function loadHcData() {
+    setHcDataBusy(true);
+    try {
+      const [workouts, sleep, metrics] = await Promise.all([
+        listSyncedWorkouts(),
+        listAllSleepSessions(),
+        listAllHealthMetrics(),
+      ]);
+      setHcData({ workouts, sleep, metrics });
+    } catch (e) {
+      setHcError(errorMessage(e));
+    } finally {
+      setHcDataBusy(false);
+    }
+  }
+
+  function toggleHcData() {
+    if (hcDataOpen) {
+      setHcDataOpen(false);
+      return;
+    }
+    setHcDataOpen(true);
+    void loadHcData();
   }
 
   async function connectHc() {
@@ -639,13 +746,118 @@ export default function SettingsPage() {
               >
                 Open Health Connect
               </button>
+              <button className="btn btn-ghost btn-sm" onClick={toggleHcData}>
+                {hcDataOpen ? "Hide synced data" : "View synced data"}
+              </button>
             </div>
+            {!hcStatus.historyGranted && (
+              <div style={{ marginTop: 10 }}>
+                <p className="muted small" style={{ margin: "0 0 8px" }}>
+                  Android currently limits Tally to recent data. Grant “access
+                  data history” to backfill everything already in Health
+                  Connect (up to a year).
+                </p>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => void connectHc()}
+                  disabled={hcBusy}
+                >
+                  Allow history access
+                </button>
+              </div>
+            )}
             <p className="faint small" style={{ margin: "10px 0 0" }}>
               Everything syncs automatically when the app opens
               {hcLastSync ? ` · last sync ${relativeTime(hcLastSync)}` : ""}.
               Synced entries are matched by their Health Connect id, so
-              re-syncing never duplicates.
+              re-syncing never duplicates. Health Connect only holds data from
+              after you enabled the Garmin&nbsp;Connect → Health&nbsp;Connect
+              link — older activity stays in Garmin and can’t be pulled from
+              here.
             </p>
+            {hcDataOpen && (
+              <div style={{ marginTop: 12 }}>
+                {hcDataBusy && !hcData ? (
+                  <div className="spinner" />
+                ) : hcData == null ? null : hcData.workouts.length === 0 &&
+                  hcData.sleep.length === 0 &&
+                  hcData.metrics.length === 0 ? (
+                  <p className="muted small" style={{ margin: 0 }}>
+                    Nothing synced yet — tap “Sync now” above.
+                  </p>
+                ) : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <details>
+                      <summary className="small" style={{ cursor: "pointer", fontWeight: 600 }}>
+                        Daily metrics · {hcData.metrics.length}{" "}
+                        {hcData.metrics.length === 1 ? "day" : "days"}
+                      </summary>
+                      <div
+                        className="muted small"
+                        style={{
+                          marginTop: 6,
+                          display: "grid",
+                          gap: 4,
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {hcData.metrics.map((m) => (
+                          <div key={m.day}>
+                            <strong>{fmtDay(m.day)}</strong> — {metricLine(m)}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                    <details>
+                      <summary className="small" style={{ cursor: "pointer", fontWeight: 600 }}>
+                        Sleep · {hcData.sleep.length}{" "}
+                        {hcData.sleep.length === 1 ? "night" : "nights"}
+                      </summary>
+                      <div
+                        className="muted small"
+                        style={{
+                          marginTop: 6,
+                          display: "grid",
+                          gap: 4,
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {hcData.sleep.map((s) => (
+                          <div key={s.external_id}>
+                            <strong>{fmtDayIso(s.ended_at)}</strong> — {sleepLine(s)}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                    <details>
+                      <summary className="small" style={{ cursor: "pointer", fontWeight: 600 }}>
+                        Workouts · {hcData.workouts.length}
+                      </summary>
+                      <div
+                        className="muted small"
+                        style={{
+                          marginTop: 6,
+                          display: "grid",
+                          gap: 4,
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {hcData.workouts.map((w) => (
+                          <div key={w.id}>
+                            <strong>{fmtDateTime(w.performed_at)}</strong> — {w.title}
+                            {workoutLine(w) ? ` · ${workoutLine(w)}` : ""}
+                            {w.source ? ` (${w.source})` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
         {hcMessage && (

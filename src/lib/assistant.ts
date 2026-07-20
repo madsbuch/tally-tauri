@@ -497,6 +497,7 @@ export function buildAssistantSystemPrompt(): string {
     "The structured query_* tools cover most questions; use run_sql for aggregates, joins, or longer trends.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself: "this week" = Monday through today, "last month" = the previous calendar month, and so on.',
     "Missing data is normal (rest days, unsynced watch, features unused) — say so rather than inventing values, and pass null for missing chart points.",
+    "Watch data (workouts, sleep, health metrics) only reaches back to when the user connected Health Connect, so older days are simply absent — if the user wants more history, point them to Settings → Watch sync (“Allow history access” + Sync now).",
     "",
     DB_SCHEMA_DOC,
     "",
@@ -537,20 +538,27 @@ export async function runAssistantTurn(
 
   let delivered = 0;
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const turn = await chatWithTools(apiKey, model, messages, ASSISTANT_TOOLS);
+    // After a delivery an empty completion just means "I'm done" — models
+    // routinely end the turn that way after their final send_message call.
+    const turn = await chatWithTools(apiKey, model, messages, ASSISTANT_TOOLS, {
+      allowEmpty: delivered > 0,
+    });
     const content = turn.content?.trim() || "";
 
     if (turn.tool_calls.length === 0) {
-      messages.push({ role: "assistant", content: turn.content });
-      if (content) {
-        // A model that answers in prose instead of send_message still reaches
-        // the user; with prior deliveries it's just trailing reasoning.
-        if (delivered === 0) onEvent({ type: "message", text: content });
-        else onEvent({ type: "reasoning", text: content });
-        return;
+      if (!content) {
+        // Nothing to say and nothing to do: a clean end when something was
+        // delivered. Don't push an empty assistant message into the
+        // transcript — some providers reject it on the next request.
+        if (delivered > 0) return;
+        throw new Error("The model returned nothing — try rephrasing.");
       }
-      if (delivered > 0) return;
-      throw new Error("The model returned nothing — try rephrasing.");
+      messages.push({ role: "assistant", content: turn.content });
+      // A model that answers in prose instead of send_message still reaches
+      // the user; with prior deliveries it's just trailing reasoning.
+      if (delivered === 0) onEvent({ type: "message", text: content });
+      else onEvent({ type: "reasoning", text: content });
+      return;
     }
 
     if (content) onEvent({ type: "reasoning", text: content });

@@ -7,6 +7,11 @@ pub struct HealthConnectStatus {
     pub availability: String,
     /// Whether every read permission the plugin needs has been granted.
     pub permissions_granted: bool,
+    /// Whether READ_HEALTH_DATA_HISTORY is granted — without it Health
+    /// Connect only serves data written in the 30 days before the first
+    /// permission grant.
+    #[serde(default)]
+    pub history_granted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
