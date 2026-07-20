@@ -149,6 +149,28 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Revokes every Health Connect permission Tally holds, so the next
+     * connect shows the full permission sheet again (including toggles the
+     * user previously skipped, like history access). Depending on the Android
+     * version the revocation may only take effect once the app restarts.
+     */
+    @Command
+    fun revokeHealthPermissions(invoke: Invoke) {
+        if (sdkAvailability() != HealthConnectClient.SDK_AVAILABLE) {
+            invoke.reject("Health Connect is not available on this device")
+            return
+        }
+        scope.launch {
+            try {
+                client().permissionController.revokeAllPermissions()
+                invoke.resolve()
+            } catch (e: Exception) {
+                invoke.reject("Could not revoke Health Connect permissions: ${e.message}")
+            }
+        }
+    }
+
     @Command
     fun openSettings(invoke: Invoke) {
         try {

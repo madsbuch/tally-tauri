@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  deleteSetting,
   getSetting,
   setSetting,
   upsertExternalWorkout,
@@ -90,6 +91,21 @@ export async function requestHealthConnectPermissions(): Promise<boolean> {
     "plugin:health-connect|request_permissions",
   );
   return res.granted;
+}
+
+/**
+ * Disconnect: revoke every Health Connect permission so the next connect
+ * shows the full permission sheet again (incl. history access). Also clears
+ * the sync bookmarks so a reconnect re-reads the whole window from scratch.
+ * Already-synced entries stay — re-syncing upserts by record id.
+ *
+ * Note: on some Android versions the revocation only takes effect after the
+ * app restarts.
+ */
+export async function disconnectHealthConnect(): Promise<void> {
+  await invoke("plugin:health-connect|revoke_permissions");
+  await deleteSetting(SETTING_KEYS.healthConnectLastSyncAt);
+  await deleteSetting(SETTING_KEYS.healthConnectHistorySynced);
 }
 
 export async function openHealthConnectSettings(): Promise<void> {

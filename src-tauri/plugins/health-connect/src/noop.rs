@@ -29,6 +29,10 @@ impl<R: Runtime> HealthConnect<R> {
         Ok(PermissionResponse { granted: false })
     }
 
+    pub fn revoke_permissions(&self) -> crate::Result<()> {
+        Ok(())
+    }
+
     pub fn read_exercise_sessions(
         &self,
         _args: ReadSessionsArgs,

@@ -22,6 +22,7 @@ import {
 } from "../lib/types";
 import type { HealthMetric, ORModel, SleepSession, Workout } from "../lib/types";
 import {
+  disconnectHealthConnect,
   getHealthConnectStatus,
   openHealthConnectSettings,
   requestHealthConnectPermissions,
@@ -435,6 +436,38 @@ export default function SettingsPage() {
     void loadHcData();
   }
 
+  async function disconnectHc() {
+    if (
+      !window.confirm(
+        "Disconnect Health Connect? Already-synced entries stay on this " +
+          "device, and you can reconnect anytime — the permission sheet will " +
+          "appear again, including “access data history”.",
+      )
+    ) {
+      return;
+    }
+    setHcBusy(true);
+    setHcError(null);
+    setHcMessage(null);
+    try {
+      await disconnectHealthConnect();
+      const status = await getHealthConnectStatus();
+      setHcStatus(status);
+      setHcLastSync(null);
+      setHcDataOpen(false);
+      setHcData(null);
+      setHcMessage(
+        status.permissionsGranted
+          ? "Disconnect requested — restart the app if it still shows as connected."
+          : "Disconnected. Tap “Connect Health Connect” to reconnect and grant history access.",
+      );
+    } catch (e) {
+      setHcError(errorMessage(e));
+    } finally {
+      setHcBusy(false);
+    }
+  }
+
   async function connectHc() {
     setHcBusy(true);
     setHcError(null);
@@ -749,13 +782,21 @@ export default function SettingsPage() {
               <button className="btn btn-ghost btn-sm" onClick={toggleHcData}>
                 {hcDataOpen ? "Hide synced data" : "View synced data"}
               </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => void disconnectHc()}
+                disabled={hcBusy}
+              >
+                Disconnect
+              </button>
             </div>
             {!hcStatus.historyGranted && (
               <div style={{ marginTop: 10 }}>
                 <p className="muted small" style={{ margin: "0 0 8px" }}>
                   Android currently limits Tally to recent data. Grant “access
                   data history” to backfill everything already in Health
-                  Connect (up to a year).
+                  Connect (up to a year). If no permission sheet appears, tap
+                  Disconnect above and connect again.
                 </p>
                 <button
                   className="btn btn-sm"

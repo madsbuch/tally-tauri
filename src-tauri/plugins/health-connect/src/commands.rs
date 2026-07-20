@@ -20,6 +20,11 @@ pub(crate) async fn request_permissions<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn revoke_permissions<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    app.health_connect().revoke_permissions()
+}
+
+#[command]
 pub(crate) async fn read_exercise_sessions<R: Runtime>(
     app: AppHandle<R>,
     start_ms: i64,

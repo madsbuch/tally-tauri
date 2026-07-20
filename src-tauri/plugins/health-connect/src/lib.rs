@@ -36,6 +36,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::request_permissions,
+            commands::revoke_permissions,
             commands::read_exercise_sessions,
             commands::read_sleep_sessions,
             commands::read_daily_metrics,
