@@ -364,17 +364,53 @@ function MealDetailSheet({
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState(entry.title);
+  const [date, setDate] = useState(() => todayStr(new Date(entry.eaten_at)));
+  const [time, setTime] = useState(() => hhmmOf(entry.eaten_at));
+  const [description, setDescription] = useState(entry.description ?? "");
+  const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>(() => {
+    const vals: Partial<Record<NutrientKey, string>> = {};
+    for (const k of NUTRIENT_KEYS) {
+      const v = entry.nutrients[k];
+      if (v != null) vals[k] = numToInput(v);
+    }
+    return vals;
+  });
+  const [showAllN, setShowAllN] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const trimmed = title.trim();
-  const changed = trimmed.length > 0 && trimmed !== entry.title;
-
   async function save() {
+    const t = title.trim();
+    if (!t) {
+      setError("Title is required.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setError("Pick a valid date.");
+      return;
+    }
+    const nutrients: Nutrients = {};
+    for (const k of NUTRIENT_KEYS) {
+      const raw = (nutrVals[k] ?? "").trim();
+      if (!raw) continue;
+      const n = parseFloat(raw);
+      if (!isFinite(n) || n < 0) {
+        const label = NUTRIENT_DEFS.find((d) => d.key === k)?.label ?? k;
+        setError(`${label} must be a number ≥ 0.`);
+        return;
+      }
+      nutrients[k] = n;
+    }
     setBusy(true);
     setError(null);
     try {
-      await updateFoodEntry({ ...entry, title: trimmed });
+      await updateFoodEntry({
+        ...entry,
+        title: t,
+        description: description.trim() || null,
+        eaten_at: dayTimeToIso(date, time),
+        nutrients,
+      });
       onChanged();
       onClose();
     } catch (err) {
@@ -416,16 +452,82 @@ function MealDetailSheet({
             placeholder="Meal title"
           />
         </div>
-        <div className="muted small" style={{ marginBottom: 8 }}>
-          {timeOf(entry.eaten_at)}
-          {entry.model_id ? ` · estimated by ${entry.model_id}` : " · manual entry"}
-        </div>
-        {entry.description && (
-          <div className="muted small" style={{ marginBottom: 8 }}>
-            {entry.description}
+        <div className="input-row" style={{ marginBottom: 12 }}>
+          <div>
+            <label className="label">Date</label>
+            <input
+              className="input"
+              type="date"
+              max={todayStr()}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </div>
-        )}
-        <NutrientTable nutrients={entry.nutrients} />
+          <div>
+            <label className="label">Eaten at</label>
+            <input
+              className="input"
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label className="label">Description</label>
+          <textarea
+            className="input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What it is, portion size…"
+            rows={2}
+          />
+        </div>
+        <div className="label" style={{ marginTop: 4 }}>
+          Nutrients
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "8px 10px",
+            marginBottom: 8,
+          }}
+        >
+          {NUTRIENT_DEFS.filter(
+            (d) =>
+              showAllN ||
+              BASE_KEYS.includes(d.key) ||
+              (nutrVals[d.key] ?? "").trim() !== "",
+          ).map((d) => (
+            <div key={d.key}>
+              <div className="faint small" style={{ margin: "0 2px 3px" }}>
+                {d.label} ({d.unit})
+              </div>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="any"
+                inputMode="decimal"
+                placeholder="—"
+                value={nutrVals[d.key] ?? ""}
+                onChange={(e) =>
+                  setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))
+                }
+              />
+            </div>
+          ))}
+        </div>
+        <button
+          className="btn btn-ghost btn-sm btn-block"
+          onClick={() => setShowAllN((v) => !v)}
+        >
+          {showAllN ? "Fewer nutrients" : "More nutrients"}
+        </button>
+        <div className="muted small" style={{ marginTop: 10 }}>
+          {entry.model_id ? `Estimated by ${entry.model_id}` : "Manual entry"}
+        </div>
         {error && (
           <div className="error-text" style={{ marginTop: 10 }}>
             {error}
@@ -435,7 +537,7 @@ function MealDetailSheet({
           <button className="btn btn-danger" onClick={remove} disabled={busy}>
             Delete
           </button>
-          <button className="btn btn-primary" onClick={save} disabled={busy || !changed}>
+          <button className="btn btn-primary" onClick={save} disabled={busy}>
             {busy ? <span className="spinner" /> : "Save"}
           </button>
         </div>
@@ -458,6 +560,8 @@ function WorkoutDetailSheet({
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState(workout.title);
+  const [date, setDate] = useState(() => todayStr(new Date(workout.performed_at)));
+  const [time, setTime] = useState(() => hhmmOf(workout.performed_at));
   const [calStr, setCalStr] = useState(numToInput(workout.calories_burned));
   const [durStr, setDurStr] = useState(
     workout.duration_min != null ? numToInput(workout.duration_min) : "",
@@ -469,6 +573,10 @@ function WorkoutDetailSheet({
     const t = title.trim();
     if (!t) {
       setError("Title is required.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setError("Pick a valid date.");
       return;
     }
     const cal = parseFloat(calStr);
@@ -487,6 +595,7 @@ function WorkoutDetailSheet({
       await updateWorkout({
         ...workout,
         title: t,
+        performed_at: dayTimeToIso(date, time),
         calories_burned: Math.round(cal),
         duration_min: dur,
       });
@@ -537,6 +646,27 @@ function WorkoutDetailSheet({
         </div>
         <div className="input-row" style={{ marginBottom: 12 }}>
           <div>
+            <label className="label">Date</label>
+            <input
+              className="input"
+              type="date"
+              max={todayStr()}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Performed at</label>
+            <input
+              className="input"
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="input-row" style={{ marginBottom: 12 }}>
+          <div>
             <label className="label">Calories burned</label>
             <input
               className="input"
@@ -563,12 +693,11 @@ function WorkoutDetailSheet({
           </div>
         </div>
         <div className="muted small" style={{ marginBottom: 8 }}>
-          {timeOf(workout.performed_at)}
           {workout.source
-            ? ` · synced from ${workout.source}`
+            ? `Synced from ${workout.source}`
             : workout.model_id
-              ? ` · imported by ${workout.model_id}`
-              : " · manual entry"}
+              ? `Imported by ${workout.model_id}`
+              : "Manual entry"}
         </div>
         {workout.source && (
           <div className="faint small" style={{ marginBottom: 8 }}>
@@ -612,17 +741,20 @@ function SuppLogDetailSheet({
   onChanged: () => void;
 }) {
   const [amount, setAmount] = useState(log.amount);
+  const [date, setDate] = useState(() => todayStr(new Date(log.taken_at)));
   const [time, setTime] = useState(() => hhmmOf(log.taken_at));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const logDay = todayStr(new Date(log.taken_at));
-
   async function save() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setError("Pick a valid date.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await updateSupplementLog(log.id, amount, dayTimeToIso(logDay, time));
+      await updateSupplementLog(log.id, amount, dayTimeToIso(date, time));
       onChanged();
       onClose();
     } catch (err) {
@@ -664,14 +796,26 @@ function SuppLogDetailSheet({
             doseUnit={log.dose_unit}
           />
         </div>
-        <div className="field">
-          <label className="label">Taken at</label>
-          <input
-            className="input"
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
+        <div className="input-row" style={{ marginBottom: 12 }}>
+          <div>
+            <label className="label">Date</label>
+            <input
+              className="input"
+              type="date"
+              max={todayStr()}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Taken at</label>
+            <input
+              className="input"
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </div>
         </div>
         <NutrientTable nutrients={scaleNutrients(log.nutrients, amount)} />
         {error && (
@@ -1876,6 +2020,24 @@ export default function DiaryPage() {
   const loading = !loaded && loadError === null;
   const bump = () => setRefresh((n) => n + 1);
 
+  // Days in the shown week/month with no entries at all. Only elapsed days
+  // count — today isn't "untracked" while it's still in progress.
+  const untrackedDays = useMemo(() => {
+    if (period === "day" || !range || scopeEntries === null) return 0;
+    const tracked = new Set<string>();
+    for (const e of scopeEntries ?? []) tracked.add(todayStr(new Date(e.eaten_at)));
+    for (const w of scopeWorkouts ?? []) tracked.add(todayStr(new Date(w.performed_at)));
+    for (const l of scopeSuppLogs ?? []) tracked.add(todayStr(new Date(l.taken_at)));
+    const today = todayStr();
+    const last = range.end < today ? range.end : shiftDay(today, -1);
+    let n = 0;
+    for (let d = range.start; d <= last; d = shiftDay(d, 1)) {
+      if (!tracked.has(d)) n++;
+    }
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, rangeKey, scopeEntries, scopeWorkouts, scopeSuppLogs]);
+
   // Totals-section derivations.
   const totalsReady = period === "day" ? loaded : scopeEntries !== null;
   const daysInPeriod = range ? daysBetween(range.start, range.end) : 1;
@@ -1980,6 +2142,16 @@ export default function DiaryPage() {
             </div>
           ) : (
             <>
+              {untrackedDays > 0 && (
+                <div
+                  className="small"
+                  style={{ margin: "0 2px 8px", color: "var(--warn)" }}
+                >
+                  ⚠ {untrackedDays} {untrackedDays === 1 ? "day" : "days"} in this
+                  period {untrackedDays === 1 ? "has" : "have"} nothing logged —
+                  totals{containsToday ? " and pace" : ""} are incomplete.
+                </div>
+              )}
               <div className="stat-grid">
                 <div className="stat">
                   <div className="stat-value">{Math.round(eaten)}</div>
