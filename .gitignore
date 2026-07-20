@@ -33,3 +33,6 @@ src-tauri/plugins/*/permissions/schemas
 # Android signing (keystore lives in ~/.tauri/keystores)
 keystore.properties
 *.jks
+src-tauri/plugins/*/android/.gradle
+src-tauri/plugins/*/android/.tauri
+src-tauri/gen/android/buildSrc/.kotlin

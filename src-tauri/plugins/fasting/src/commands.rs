@@ -8,11 +8,13 @@ use crate::Result;
 pub(crate) async fn start_countdown<R: Runtime>(
     app: AppHandle<R>,
     end_at_ms: i64,
+    start_at_ms: i64,
     title: String,
     body: String,
 ) -> Result<()> {
     app.fasting().start_countdown(StartCountdownArgs {
         end_at_ms,
+        start_at_ms,
         title,
         body,
     })

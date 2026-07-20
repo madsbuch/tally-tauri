@@ -35,6 +35,15 @@ export function savePhoto(base64: string): Promise<string> {
   return invoke<string>("save_photo", { dataBase64: base64 });
 }
 
+/**
+ * Read a stored photo back as a data URL, via Rust. (Fetching the asset URL
+ * from the WebView is blocked by CSP connect-src on Android.)
+ */
+export async function readPhotoDataUrl(filename: string): Promise<string> {
+  const base64 = await invoke<string>("read_photo", { filename });
+  return `data:image/jpeg;base64,${base64}`;
+}
+
 /** Delete a stored photo by filename. Never throws. */
 export async function deletePhoto(filename: string): Promise<void> {
   try {

@@ -113,6 +113,7 @@ export async function startFast(goalHours: number): Promise<Fast> {
     try {
       await invoke("plugin:fasting|start_countdown", {
         endAtMs: end.getTime(),
+        startAtMs: startedAt.getTime(),
         title: `Fasting - ${goalHours}h goal`,
         body: `Ends at ${endLabel}`,
       });
@@ -164,6 +165,7 @@ export async function resyncFastNotification(): Promise<void> {
   try {
     await invoke("plugin:fasting|start_countdown", {
       endAtMs: end.getTime(),
+      startAtMs: new Date(active.started_at).getTime(),
       title: `Fasting - ${active.goal_hours}h goal`,
       body: `Ends at ${endLabel}`,
     });

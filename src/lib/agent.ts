@@ -25,7 +25,7 @@ import {
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
-import { deletePhoto, photoSrc, savePhoto } from "./photos";
+import { deletePhoto, readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
 
@@ -316,15 +316,9 @@ async function runCapture(capture: Capture): Promise<void> {
     },
   ];
   if (capture.photo_path) {
-    // Re-encode the stored photo as a data URL for the model.
-    const src = await photoSrc(capture.photo_path);
-    const blob = await (await window.fetch(src)).blob();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result as string);
-      r.onerror = () => reject(new Error("Could not read stored photo"));
-      r.readAsDataURL(blob);
-    });
+    // Read the stored photo through Rust — WebView fetch of the asset URL
+    // is CSP-blocked on Android.
+    const dataUrl = await readPhotoDataUrl(capture.photo_path);
     parts.push({ type: "image_url", image_url: { url: dataUrl } });
   }
 

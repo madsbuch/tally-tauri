@@ -50,6 +50,18 @@ fn save_photo(app: tauri::AppHandle, data_base64: String) -> Result<String, Stri
     Ok(name)
 }
 
+/// Reads a stored photo back as base64. Used by the background agent —
+/// fetching the asset URL from the WebView is blocked by CSP on Android.
+#[tauri::command]
+fn read_photo(app: tauri::AppHandle, filename: String) -> Result<String, String> {
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+        return Err("invalid filename".into());
+    }
+    let path = photos_dir(&app)?.join(filename);
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 #[tauri::command]
 fn delete_photo(app: tauri::AppHandle, filename: String) -> Result<(), String> {
     if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
@@ -74,7 +86,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_fasting::init())
-        .invoke_handler(tauri::generate_handler![save_photo, delete_photo])
+        .invoke_handler(tauri::generate_handler![save_photo, read_photo, delete_photo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
