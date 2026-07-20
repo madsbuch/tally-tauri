@@ -2,6 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import {
+  captures,
   fasts,
   foodEntries,
   settings,
@@ -10,6 +11,7 @@ import {
   workouts,
 } from "../db/schema";
 import type {
+  Capture,
   Fast,
   FoodEntry,
   Supplement,
@@ -144,7 +146,16 @@ export async function deleteFoodEntry(id: number): Promise<void> {
 }
 
 export async function listFoodEntriesForDay(day: string): Promise<FoodEntry[]> {
-  const { start, end } = dayRange(day);
+  return listFoodEntriesForRange(day, day);
+}
+
+/** Entries from local day `startDay` through `endDay`, both inclusive. */
+export async function listFoodEntriesForRange(
+  startDay: string,
+  endDay: string,
+): Promise<FoodEntry[]> {
+  const start = dayRange(startDay).start;
+  const end = dayRange(endDay).end;
   const rows = await db
     .select()
     .from(foodEntries)
@@ -208,13 +219,88 @@ export async function deleteWorkout(id: number): Promise<void> {
 }
 
 export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
-  const { start, end } = dayRange(day);
+  return listWorkoutsForRange(day, day);
+}
+
+/** Workouts from local day `startDay` through `endDay`, both inclusive. */
+export async function listWorkoutsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<Workout[]> {
+  const start = dayRange(startDay).start;
+  const end = dayRange(endDay).end;
   const rows = await db
     .select()
     .from(workouts)
     .where(and(gte(workouts.performedAt, start), lt(workouts.performedAt, end)))
     .orderBy(desc(workouts.performedAt));
   return rows.map(toWorkout);
+}
+
+// ---------------------------------------------------------------------------
+// Captures (fire-and-forget agent inbox)
+// ---------------------------------------------------------------------------
+
+type CaptureRow = typeof captures.$inferSelect;
+
+function toCapture(r: CaptureRow): Capture {
+  return {
+    id: r.id,
+    created_at: r.createdAt,
+    day: r.day,
+    note: r.note,
+    photo_path: r.photoPath,
+    status: r.status === "error" ? "error" : "pending",
+    error: r.error,
+  };
+}
+
+export async function addCapture(
+  c: Omit<Capture, "id" | "status" | "error">,
+): Promise<number> {
+  const rows = await db
+    .insert(captures)
+    .values({
+      createdAt: c.created_at,
+      day: c.day,
+      note: c.note,
+      photoPath: c.photo_path,
+      status: "pending",
+      error: null,
+    })
+    .returning({ id: captures.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function listCapturesForDay(day: string): Promise<Capture[]> {
+  const rows = await db
+    .select()
+    .from(captures)
+    .where(eq(captures.day, day))
+    .orderBy(desc(captures.createdAt));
+  return rows.map(toCapture);
+}
+
+export async function listPendingCaptures(): Promise<Capture[]> {
+  const rows = await db.select().from(captures).where(eq(captures.status, "pending"));
+  return rows.map(toCapture);
+}
+
+export async function getCapture(id: number): Promise<Capture | null> {
+  const rows = await db.select().from(captures).where(eq(captures.id, id)).limit(1);
+  return rows.length > 0 ? toCapture(rows[0]) : null;
+}
+
+export async function setCaptureStatus(
+  id: number,
+  status: "pending" | "error",
+  error: string | null,
+): Promise<void> {
+  await db.update(captures).set({ status, error }).where(eq(captures.id, id));
+}
+
+export async function deleteCapture(id: number): Promise<void> {
+  await db.delete(captures).where(eq(captures.id, id));
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +399,16 @@ export async function deleteSupplementLog(id: number): Promise<void> {
 export async function listSupplementLogsForDay(
   day: string,
 ): Promise<SupplementLogWithSupplement[]> {
-  const { start, end } = dayRange(day);
+  return listSupplementLogsForRange(day, day);
+}
+
+/** Supplement logs from local day `startDay` through `endDay`, both inclusive. */
+export async function listSupplementLogsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<SupplementLogWithSupplement[]> {
+  const start = dayRange(startDay).start;
+  const end = dayRange(endDay).end;
   // Field names are unique across the two tables — required, since the
   // proxy's positional mapping collapses duplicate column names.
   const rows = await db

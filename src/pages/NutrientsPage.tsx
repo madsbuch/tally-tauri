@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  listFoodEntriesForDay,
-  listSupplementLogsForDay,
-  listWorkoutsForDay,
+  listFoodEntriesForRange,
+  listSupplementLogsForRange,
+  listWorkoutsForRange,
   todayStr,
 } from "../lib/db";
+import { onDiaryChanged } from "../lib/agent";
 import {
   NUTRIENT_DEFS,
   formatAmount,
@@ -41,6 +42,28 @@ function dayTitle(day: string): string {
     day: "numeric",
   });
 }
+
+/** "Jul 14", with the year appended only when it isn't the current year. */
+function shortDate(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  if (y !== new Date().getFullYear()) opts.year = "numeric";
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
+}
+
+// ---------------------------------------------------------------------------
+// Time spans
+// ---------------------------------------------------------------------------
+
+type Span = "day" | "week" | "month";
+
+const SPAN_DAYS: Record<Span, number> = { day: 1, week: 7, month: 30 };
+
+const SPAN_OPTIONS: { value: Span; label: string }[] = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
 
 // ---------------------------------------------------------------------------
 // Reference intakes (approximate adult daily reference values)
@@ -128,7 +151,9 @@ const SOURCE_OPTIONS: { value: Source; label: string }[] = [
 ];
 
 export default function NutrientsPage() {
+  // `day` is always the LAST day of the visible range.
   const [day, setDay] = useState(() => todayStr());
+  const [span, setSpan] = useState<Span>("day");
   const [entries, setEntries] = useState<FoodEntry[] | null>(null);
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
@@ -136,18 +161,29 @@ export default function NutrientsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [source, setSource] = useState<Source>("all");
 
-  const isToday = day === todayStr();
+  const spanDays = SPAN_DAYS[span];
+  const multi = spanDays > 1;
+  const startDay = shiftDay(day, -(spanDays - 1));
+  const endsToday = day === todayStr();
 
+  // Changing the range shows a fresh loading state…
   useEffect(() => {
-    let cancelled = false;
     setEntries(null);
     setSuppLogs(null);
     setWorkouts(null);
     setLoadError(null);
+  }, [day, span]);
+
+  // …while background reloads (reloadKey) refresh in place.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadError(null);
+    const days = SPAN_DAYS[span];
+    const start = shiftDay(day, -(days - 1));
     Promise.all([
-      listFoodEntriesForDay(day),
-      listSupplementLogsForDay(day),
-      listWorkoutsForDay(day),
+      listFoodEntriesForRange(start, day),
+      listSupplementLogsForRange(start, day),
+      listWorkoutsForRange(start, day),
     ])
       .then(([food, logs, wos]) => {
         if (cancelled) return;
@@ -161,7 +197,10 @@ export default function NutrientsPage() {
     return () => {
       cancelled = true;
     };
-  }, [day, reloadKey]);
+  }, [day, span, reloadKey]);
+
+  // Background-analyzed captures land as entries — refresh when they do.
+  useEffect(() => onDiaryChanged(() => setReloadKey((k) => k + 1)), []);
 
   const loading = !loadError && (!entries || !suppLogs || !workouts);
 
@@ -183,14 +222,19 @@ export default function NutrientsPage() {
           ? totals.supp
           : totals.all;
 
-  const eatenKcal = totals?.food.calories ?? 0;
-  const burnedKcal = (workouts ?? []).reduce((s, w) => s + w.calories_burned, 0);
+  // For multi-day spans every displayed number is a per-day average over the
+  // fixed span length (7 or 30), not just the days with data.
+  const shown: Nutrients = multi ? scaleNutrients(filtered, 1 / spanDays) : filtered;
+
+  const eatenKcal = (totals?.food.calories ?? 0) / spanDays;
+  const burnedKcal =
+    (workouts ?? []).reduce((s, w) => s + w.calories_burned, 0) / spanDays;
   const netKcal = eatenKcal - burnedKcal;
 
   const macroKcal = MACRO_SPLIT.map((m) => (totals?.food[m.key] ?? 0) * m.kcalPerG);
   const macroKcalTotal = macroKcal.reduce((a, b) => a + b, 0);
 
-  const ratio = omegaRatio(filtered);
+  const ratio = omegaRatio(shown);
 
   const hasAnyData =
     (entries?.length ?? 0) > 0 ||
@@ -199,27 +243,54 @@ export default function NutrientsPage() {
 
   const microDefs = NUTRIENT_DEFS.filter((d) => d.group === "micro");
 
+  const avgSuffix = multi ? " · avg/day" : "";
+  const navTitle = !multi
+    ? dayTitle(day)
+    : endsToday
+      ? `Last ${spanDays} days`
+      : `${shortDate(startDay)} – ${shortDate(day)}`;
+
   return (
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">Nutrients</h1>
-        <span className="page-sub">Daily overview</span>
+        <span className="page-sub">
+          {multi ? "Per-day averages" : "Daily overview"}
+        </span>
       </header>
+
+      <div className="seg" style={{ marginBottom: 10 }}>
+        {SPAN_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            className={`seg-item${span === o.value ? " seg-item-active" : ""}`}
+            onClick={() => setSpan(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
 
       <div className="day-nav">
         <button
           className="btn btn-sm"
-          onClick={() => setDay((d) => shiftDay(d, -1))}
-          aria-label="Previous day"
+          onClick={() => setDay((d) => shiftDay(d, -spanDays))}
+          aria-label={multi ? `Previous ${spanDays} days` : "Previous day"}
         >
           ‹
         </button>
-        <div className="day-nav-title">{dayTitle(day)}</div>
+        <div className="day-nav-title">{navTitle}</div>
         <button
           className="btn btn-sm"
-          onClick={() => setDay((d) => shiftDay(d, 1))}
-          disabled={isToday}
-          aria-label="Next day"
+          onClick={() =>
+            setDay((d) => {
+              const next = shiftDay(d, spanDays);
+              const today = todayStr();
+              return next > today ? today : next;
+            })
+          }
+          disabled={endsToday}
+          aria-label={multi ? `Next ${spanDays} days` : "Next day"}
         >
           ›
         </button>
@@ -245,7 +316,8 @@ export default function NutrientsPage() {
       {!loading && !loadError && totals && !hasAnyData && (
         <div className="empty">
           <div className="empty-icon">🥗</div>
-          Nothing logged {isToday ? "yet today" : "this day"}.
+          Nothing logged{" "}
+          {multi ? "in this period" : endsToday ? "yet today" : "this day"}.
           <div className="faint small" style={{ marginTop: 4 }}>
             Meals, supplements and workouts will show up here.
           </div>
@@ -256,7 +328,7 @@ export default function NutrientsPage() {
         <>
           {/* Energy — always food + workouts, unaffected by the source filter */}
           <div className="card">
-            <div className="card-title">Energy</div>
+            <div className="card-title">Energy{avgSuffix}</div>
             <div className="stat-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
               <div className="stat">
                 <div className="stat-value">{Math.round(eatenKcal)}</div>
@@ -274,7 +346,7 @@ export default function NutrientsPage() {
 
             <div style={{ marginTop: 14 }}>
               {MACRO_SPLIT.map((m, i) => {
-                const grams = totals.food[m.key] ?? 0;
+                const grams = (totals.food[m.key] ?? 0) / spanDays;
                 const pct =
                   macroKcalTotal > 0
                     ? Math.round((macroKcal[i] / macroKcalTotal) * 100)
@@ -346,7 +418,7 @@ export default function NutrientsPage() {
               }}
             >
               <div className="card-title" style={{ margin: 0 }}>
-                Macros
+                Macros{avgSuffix}
               </div>
               {ratio != null && (
                 <span className={`chip ${ratio <= 4 ? "chip-accent" : "chip-warn"}`}>
@@ -357,7 +429,7 @@ export default function NutrientsPage() {
             <div className="nutrient-grid">
               {MACRO_ROW_KEYS.map((key) => {
                 const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
-                const value = filtered[key];
+                const value = shown[key];
                 return (
                   <div key={key} className="nutrient-row">
                     <span className="n-label">{def.label}</span>
@@ -372,9 +444,9 @@ export default function NutrientsPage() {
 
           {/* Micronutrients */}
           <div className="card">
-            <div className="card-title">Micronutrients</div>
+            <div className="card-title">Micronutrients{avgSuffix}</div>
             {microDefs.map((def, i) => {
-              const value = filtered[def.key];
+              const value = shown[def.key];
               const ref = REFERENCE_INTAKES[def.key];
               const pct = ref != null && value != null ? (value / ref) * 100 : null;
               const over = def.key === "sodium_mg" && pct != null && pct > 100;
@@ -433,8 +505,8 @@ export default function NutrientsPage() {
               );
             })}
             <div className="faint small" style={{ marginTop: 10 }}>
-              Bars compare the day's intake with an approximate adult daily
-              reference. Sodium turns amber when over.
+              Bars compare the {multi ? `average intake per day over these ${spanDays} days` : "day's intake"}{" "}
+              with an approximate adult daily reference. Sodium turns amber when over.
             </div>
           </div>
         </>

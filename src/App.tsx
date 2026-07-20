@@ -7,6 +7,7 @@ import FastingPage from "./pages/FastingPage";
 import SettingsPage from "./pages/SettingsPage";
 import { getDb } from "./lib/db";
 import { resyncFastNotification } from "./lib/fasting";
+import { resumePendingCaptures } from "./lib/agent";
 
 type TabId = "diary" | "nutrients" | "fasting" | "settings";
 
@@ -66,9 +67,10 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("diary");
 
   useEffect(() => {
-    // Warm the DB (runs migrations) and re-sync the fasting notification.
+    // Warm the DB (runs migrations), re-sync the fasting notification, and
+    // resume any captures whose background analysis was interrupted.
     getDb()
-      .then(() => resyncFastNotification())
+      .then(() => Promise.all([resyncFastNotification(), resumePendingCaptures()]))
       .catch((e) => console.error("Startup failed", e));
   }, []);
 

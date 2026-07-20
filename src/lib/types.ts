@@ -83,6 +83,22 @@ export interface Fast {
   ended_at: string | null;
 }
 
+/**
+ * A fire-and-forget diary capture awaiting (or failed) background analysis.
+ * Successful captures are deleted once the agent has logged real entries.
+ */
+export interface Capture {
+  id: number;
+  /** ISO 8601 UTC timestamp of when the capture was taken. */
+  created_at: string;
+  /** Local diary day ("YYYY-MM-DD") it was added to. */
+  day: string;
+  note: string | null;
+  photo_path: string | null;
+  status: "pending" | "error";
+  error: string | null;
+}
+
 /** An exercise session, usually imported from a workout-app screenshot. */
 export interface Workout {
   id: number;

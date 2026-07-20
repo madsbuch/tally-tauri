@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  Capture,
   FoodEntry,
   NutrientKey,
   Nutrients,
@@ -24,6 +25,7 @@ import {
   deleteSupplementLog,
   deleteWorkout,
   getSetting,
+  listCapturesForDay,
   listFoodEntriesForDay,
   listSupplementLogsForDay,
   listSupplements,
@@ -34,7 +36,13 @@ import {
   updateSupplementLog,
   updateWorkout,
 } from "../lib/db";
-import { analyzeFood, analyzeSupplement, analyzeWorkout } from "../lib/openrouter";
+import {
+  discardCapture,
+  enqueueCapture,
+  onDiaryChanged,
+  retryCapture,
+} from "../lib/agent";
+import { analyzeSupplement } from "../lib/openrouter";
 import { compressImage, deletePhoto, photoSrc, savePhoto } from "../lib/photos";
 import NutrientTable, { MacroChips } from "../components/NutrientTable";
 
@@ -125,6 +133,60 @@ function fmtSignedInt(n: number): string {
   return r < 0 ? `−${-r}` : String(r);
 }
 
+// ---------------------------------------------------------------------------
+// Android back button ↔ sheets
+// ---------------------------------------------------------------------------
+
+/**
+ * Stack of currently open sheet layers (topmost last). A single global
+ * popstate listener closes only the topmost layer, so the hardware back
+ * button peels sheets one at a time instead of navigating the WebView.
+ */
+const sheetLayers: { close: () => void }[] = [];
+/** History entries we popped ourselves (button/backdrop close) — ignore their popstate. */
+let consumePending = 0;
+let popListenerInstalled = false;
+
+function ensurePopListener() {
+  if (popListenerInstalled) return;
+  popListenerInstalled = true;
+  window.addEventListener("popstate", () => {
+    if (consumePending > 0) {
+      consumePending--;
+      return;
+    }
+    const top = sheetLayers.pop();
+    if (top) top.close();
+  });
+}
+
+/**
+ * While `open` is true, keep one history entry on the stack so the Android
+ * back button closes this sheet (via `close`) instead of leaving the app.
+ * Closing by button/backdrop consumes the pushed entry with history.back().
+ */
+function useSheetHistory(open: boolean, close: () => void) {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    ensurePopListener();
+    const layer = { close: () => closeRef.current() };
+    sheetLayers.push(layer);
+    window.history.pushState({ sheet: true }, "");
+    return () => {
+      const idx = sheetLayers.indexOf(layer);
+      // Still on the stack → closed by button/backdrop, not by popstate:
+      // remove it and consume the history entry we pushed.
+      if (idx !== -1) {
+        sheetLayers.splice(idx, 1);
+        consumePending++;
+        window.history.back();
+      }
+    };
+  }, [open]);
+}
+
 /** Resolves a stored photo filename to a displayable <img>. */
 function PhotoImg({
   filename,
@@ -166,12 +228,6 @@ function GlyphThumb({ glyph }: { glyph: string }) {
       {glyph}
     </div>
   );
-}
-
-function ConfidenceChip({ level }: { level: "low" | "medium" | "high" }) {
-  const cls =
-    level === "high" ? "chip chip-accent" : level === "low" ? "chip chip-warn" : "chip";
-  return <span className={cls}>{level} confidence</span>;
 }
 
 /** − / value × dose / + stepper for supplement amounts (step 0.5, min 0.5). */
@@ -550,10 +606,12 @@ function SuppLogDetailSheet({
 }
 
 // ---------------------------------------------------------------------------
-// Add-meal sheet (existing flow)
+// Unified add sheet — photo-first; the model decides meal vs. workout
 // ---------------------------------------------------------------------------
 
-function AddMealSheet({
+type EntryKind = "meal" | "workout";
+
+function AddSheet({
   day,
   onClose,
   onSaved,
@@ -565,17 +623,22 @@ function AddMealSheet({
   const [step, setStep] = useState<"capture" | "edit">("capture");
   const [photo, setPhoto] = useState<{ dataUrl: string; base64: string } | null>(null);
   const [note, setNote] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
+  const [queuing, setQueuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Shared edit-step state (carried over when the kind is switched).
+  const [kind, setKind] = useState<EntryKind>("meal");
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<"low" | "medium" | "high" | null>(null);
-  const [modelId, setModelId] = useState<string | null>(null);
   const [time, setTime] = useState(() => nowHhMm());
+
+  // Meal-specific state.
   const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>({});
-  const [pinned, setPinned] = useState<NutrientKey[]>(BASE_KEYS);
   const [showAllN, setShowAllN] = useState(false);
+
+  // Workout-specific state.
+  const [calStr, setCalStr] = useState("");
+  const [durStr, setDurStr] = useState("");
+
   const [saving, setSaving] = useState(false);
 
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -593,69 +656,70 @@ function AddMealSheet({
     }
   }
 
-  async function analyze() {
+  /**
+   * Fire-and-forget: store the capture instantly and close the sheet. The
+   * agent analyzes in the background; the timeline shows it working.
+   */
+  async function addToDiary() {
     setError(null);
     if (!photo && !note.trim()) {
       setError("Add a photo or a note first.");
       return;
     }
-    setAnalyzing(true);
+    setQueuing(true);
     try {
-      const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
-      if (!apiKey) {
-        setError("Add your OpenRouter API key in Settings first");
-        return;
-      }
-      const model = (await getSetting(SETTING_KEYS.visionModel)) ?? DEFAULT_VISION_MODEL;
-      const res = await analyzeFood({
-        apiKey,
-        model,
-        imageDataUrl: photo?.dataUrl,
-        hint: note.trim() || undefined,
-      });
-      setTitle(res.title);
-      setDescription(res.description || null);
-      setConfidence(res.confidence);
-      setModelId(model);
-      const vals: Partial<Record<NutrientKey, string>> = {};
-      for (const k of NUTRIENT_KEYS) {
-        const v = res.nutrients[k];
-        if (v != null) vals[k] = numToInput(v);
-      }
-      setNutrVals(vals);
-      setPinned(
-        NUTRIENT_KEYS.filter((k) => BASE_KEYS.includes(k) || res.nutrients[k] != null),
-      );
-      setStep("edit");
+      await enqueueCapture({ photoBase64: photo?.base64, note, day });
+      onSaved();
     } catch (err) {
       setError(errMsg(err));
-    } finally {
-      setAnalyzing(false);
+      setQueuing(false);
     }
   }
 
-  function skipAi() {
+  function enterManually() {
     setError(null);
     setStep("edit");
+  }
+
+  function switchKind(k: EntryKind) {
+    if (k === kind) return;
+    setKind(k);
+    setError(null);
   }
 
   async function save() {
     const t = title.trim();
     if (!t) {
-      setError("Give the meal a title.");
+      setError(kind === "meal" ? "Give the meal a title." : "Give the workout a title.");
       return;
     }
     const nutrients: Nutrients = {};
-    for (const k of NUTRIENT_KEYS) {
-      const raw = (nutrVals[k] ?? "").trim();
-      if (!raw) continue;
-      const num = parseFloat(raw);
-      if (!isFinite(num) || num < 0) {
-        const label = NUTRIENT_DEFS.find((d) => d.key === k)?.label ?? k;
-        setError(`${label} must be a number ≥ 0.`);
+    let cal = 0;
+    let dur: number | null = null;
+    if (kind === "meal") {
+      for (const k of NUTRIENT_KEYS) {
+        const raw = (nutrVals[k] ?? "").trim();
+        if (!raw) continue;
+        const num = parseFloat(raw);
+        if (!isFinite(num) || num < 0) {
+          const label = NUTRIENT_DEFS.find((d) => d.key === k)?.label ?? k;
+          setError(`${label} must be a number ≥ 0.`);
+          return;
+        }
+        nutrients[k] = num;
+      }
+    } else {
+      const calParsed = parseFloat(calStr);
+      if (!isFinite(calParsed) || calParsed < 0) {
+        setError("Calories burned must be a number ≥ 0.");
         return;
       }
-      nutrients[k] = num;
+      cal = Math.round(calParsed);
+      const durParsed = parseFloat(durStr);
+      dur =
+        durStr.trim() && isFinite(durParsed) && durParsed > 0
+          ? Math.round(durParsed)
+          : null;
     }
     setSaving(true);
     setError(null);
@@ -663,14 +727,26 @@ function AddMealSheet({
     try {
       if (photo) photoPath = await savePhoto(photo.base64);
 
-      await addFoodEntry({
-        eaten_at: dayTimeToIso(day, time),
-        title: t,
-        description: description ?? (note.trim() || null),
-        photo_path: photoPath,
-        nutrients,
-        model_id: modelId,
-      });
+      if (kind === "meal") {
+        await addFoodEntry({
+          eaten_at: dayTimeToIso(day, time),
+          title: t,
+          description: note.trim() || null,
+          photo_path: photoPath,
+          nutrients,
+          model_id: null,
+        });
+      } else {
+        await addWorkout({
+          performed_at: dayTimeToIso(day, time),
+          title: t,
+          description: note.trim() || null,
+          photo_path: photoPath,
+          calories_burned: cal,
+          duration_min: dur,
+          model_id: null,
+        });
+      }
       onSaved();
     } catch (err) {
       if (photoPath) await deletePhoto(photoPath);
@@ -679,17 +755,17 @@ function AddMealSheet({
     }
   }
 
-  const shownDefs = NUTRIENT_DEFS.filter((d) => showAllN || pinned.includes(d.key));
+  const shownDefs = NUTRIENT_DEFS.filter((d) => showAllN || BASE_KEYS.includes(d.key));
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        <h2 className="sheet-title">{step === "capture" ? "Add meal" : "Review meal"}</h2>
+        <h2 className="sheet-title">{step === "capture" ? "Add to diary" : "Review"}</h2>
 
         {photo && (
           <div style={{ marginBottom: 12 }}>
-            <img src={photo.dataUrl} className="photo-full" alt="Meal preview" />
+            <img src={photo.dataUrl} className="photo-full" alt="Photo preview" />
           </div>
         )}
 
@@ -724,7 +800,7 @@ function AddMealSheet({
                 className="input"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="e.g. large bowl, ~500 ml"
+                placeholder="e.g. large bowl, ~500 ml · 45 min easy run"
                 rows={2}
               />
             </div>
@@ -735,50 +811,48 @@ function AddMealSheet({
             )}
             <button
               className="btn btn-primary btn-block"
-              onClick={analyze}
-              disabled={analyzing || (!photo && !note.trim())}
+              onClick={addToDiary}
+              disabled={queuing || (!photo && !note.trim())}
             >
-              {analyzing ? (
-                <>
-                  <span className="spinner" /> Analyzing…
-                </>
-              ) : (
-                "✨ Analyze with AI"
-              )}
+              Add to diary
             </button>
-            <button
-              className="btn btn-ghost btn-block"
-              style={{ marginTop: 8 }}
-              onClick={skipAi}
-              disabled={analyzing}
-            >
-              Skip AI — enter manually
-            </button>
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={enterManually}
+                disabled={queuing}
+              >
+                Enter manually
+              </button>
+            </div>
           </>
         ) : (
           <>
-            {confidence && (
-              <div className="chips" style={{ marginBottom: 12 }}>
-                <ConfidenceChip level={confidence} />
-                {modelId && <span className="chip">{modelId}</span>}
-              </div>
-            )}
+            <div className="seg" style={{ marginBottom: 12 }}>
+              <button
+                className={kind === "meal" ? "seg-item seg-item-active" : "seg-item"}
+                onClick={() => switchKind("meal")}
+              >
+                🍽 Meal
+              </button>
+              <button
+                className={kind === "workout" ? "seg-item seg-item-active" : "seg-item"}
+                onClick={() => switchKind("workout")}
+              >
+                🏃 Workout
+              </button>
+            </div>
             <div className="field">
               <label className="label">Title</label>
               <input
                 className="input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Chicken salad"
+                placeholder={kind === "meal" ? "e.g. Chicken salad" : "e.g. Morning run"}
               />
             </div>
-            {description && (
-              <div className="muted small" style={{ marginBottom: 12 }}>
-                {description}
-              </div>
-            )}
             <div className="field">
-              <label className="label">Eaten at</label>
+              <label className="label">{kind === "meal" ? "Eaten at" : "Performed at"}</label>
               <input
                 className="input"
                 type="time"
@@ -786,22 +860,63 @@ function AddMealSheet({
                 onChange={(e) => setTime(e.target.value)}
               />
             </div>
-            <div className="label" style={{ marginTop: 4 }}>
-              Nutrients
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px 10px",
-                marginBottom: 8,
-              }}
-            >
-              {shownDefs.map((d) => (
-                <div key={d.key}>
-                  <div className="faint small" style={{ margin: "0 2px 3px" }}>
-                    {d.label} ({d.unit})
-                  </div>
+            {kind === "meal" ? (
+              <>
+                <div className="label" style={{ marginTop: 4 }}>
+                  Nutrients
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "8px 10px",
+                    marginBottom: 8,
+                  }}
+                >
+                  {shownDefs.map((d) => (
+                    <div key={d.key}>
+                      <div className="faint small" style={{ margin: "0 2px 3px" }}>
+                        {d.label} ({d.unit})
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="any"
+                        inputMode="decimal"
+                        placeholder="—"
+                        value={nutrVals[d.key] ?? ""}
+                        onChange={(e) =>
+                          setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm btn-block"
+                  onClick={() => setShowAllN((v) => !v)}
+                >
+                  {showAllN ? "Fewer nutrients" : "More nutrients"}
+                </button>
+              </>
+            ) : (
+              <div className="input-row" style={{ marginBottom: 12 }}>
+                <div>
+                  <label className="label">Calories burned</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="kcal"
+                    value={calStr}
+                    onChange={(e) => setCalStr(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Duration (min)</label>
                   <input
                     className="input"
                     type="number"
@@ -809,20 +924,12 @@ function AddMealSheet({
                     step="any"
                     inputMode="decimal"
                     placeholder="—"
-                    value={nutrVals[d.key] ?? ""}
-                    onChange={(e) =>
-                      setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))
-                    }
+                    value={durStr}
+                    onChange={(e) => setDurStr(e.target.value)}
                   />
                 </div>
-              ))}
-            </div>
-            <button
-              className="btn btn-ghost btn-sm btn-block"
-              onClick={() => setShowAllN((v) => !v)}
-            >
-              {showAllN ? "Fewer nutrients" : "More nutrients"}
-            </button>
+              </div>
+            )}
             {error && (
               <div className="error-text" style={{ marginTop: 10 }}>
                 {error}
@@ -843,292 +950,6 @@ function AddMealSheet({
                   </>
                 ) : (
                   "Save entry"
-                )}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Add-workout sheet (mirror of the meal flow)
-// ---------------------------------------------------------------------------
-
-function AddWorkoutSheet({
-  day,
-  onClose,
-  onSaved,
-}: {
-  day: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [step, setStep] = useState<"capture" | "edit">("capture");
-  const [photo, setPhoto] = useState<{ dataUrl: string; base64: string } | null>(null);
-  const [note, setNote] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<"low" | "medium" | "high" | null>(null);
-  const [modelId, setModelId] = useState<string | null>(null);
-  const [calStr, setCalStr] = useState("");
-  const [durStr, setDurStr] = useState("");
-  const [time, setTime] = useState(() => nowHhMm());
-  const [saving, setSaving] = useState(false);
-
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
-
-  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setError(null);
-    try {
-      setPhoto(await compressImage(file));
-    } catch (err) {
-      setError(`Could not read the image: ${errMsg(err)}`);
-    }
-  }
-
-  async function analyze() {
-    setError(null);
-    if (!photo && !note.trim()) {
-      setError("Add a screenshot or a note first.");
-      return;
-    }
-    setAnalyzing(true);
-    try {
-      const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
-      if (!apiKey) {
-        setError("Add your OpenRouter API key in Settings first");
-        return;
-      }
-      const model = (await getSetting(SETTING_KEYS.visionModel)) ?? DEFAULT_VISION_MODEL;
-      const res = await analyzeWorkout({
-        apiKey,
-        model,
-        imageDataUrl: photo?.dataUrl,
-        hint: note.trim() || undefined,
-      });
-      setTitle(res.title);
-      setDescription(res.description || null);
-      setConfidence(res.confidence);
-      setModelId(model);
-      setCalStr(numToInput(res.calories_burned));
-      setDurStr(res.duration_min != null ? numToInput(res.duration_min) : "");
-      setStep("edit");
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  function skipAi() {
-    setError(null);
-    setStep("edit");
-  }
-
-  async function save() {
-    const t = title.trim();
-    if (!t) {
-      setError("Give the workout a title.");
-      return;
-    }
-    const cal = parseFloat(calStr);
-    if (!isFinite(cal) || cal < 0) {
-      setError("Calories burned must be a number ≥ 0.");
-      return;
-    }
-    const durParsed = parseFloat(durStr);
-    const dur =
-      durStr.trim() && isFinite(durParsed) && durParsed > 0
-        ? Math.round(durParsed)
-        : null;
-    setSaving(true);
-    setError(null);
-    let photoPath: string | null = null;
-    try {
-      if (photo) photoPath = await savePhoto(photo.base64);
-
-      await addWorkout({
-        performed_at: dayTimeToIso(day, time),
-        title: t,
-        description: description ?? (note.trim() || null),
-        photo_path: photoPath,
-        calories_burned: Math.round(cal),
-        duration_min: dur,
-        model_id: modelId,
-      });
-      onSaved();
-    } catch (err) {
-      if (photoPath) await deletePhoto(photoPath);
-      setError(errMsg(err));
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        <h2 className="sheet-title">
-          {step === "capture" ? "Add workout" : "Review workout"}
-        </h2>
-
-        {photo && (
-          <div style={{ marginBottom: 12 }}>
-            <img src={photo.dataUrl} className="photo-full" alt="Workout screenshot" />
-          </div>
-        )}
-
-        {step === "capture" ? (
-          <>
-            <input
-              ref={cameraRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              style={{ display: "none" }}
-              onChange={onPick}
-            />
-            <input
-              ref={galleryRef}
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={onPick}
-            />
-            <div className="btn-row" style={{ marginBottom: 12 }}>
-              <button className="btn" onClick={() => cameraRef.current?.click()}>
-                📷 {photo ? "Retake" : "Camera"}
-              </button>
-              <button className="btn" onClick={() => galleryRef.current?.click()}>
-                🖼 Screenshot
-              </button>
-            </div>
-            <div className="field">
-              <label className="label">Note (optional)</label>
-              <textarea
-                className="input"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="e.g. 45 min easy run"
-                rows={2}
-              />
-            </div>
-            {error && (
-              <div className="error-text" style={{ marginBottom: 10 }}>
-                {error}
-              </div>
-            )}
-            <button
-              className="btn btn-primary btn-block"
-              onClick={analyze}
-              disabled={analyzing || (!photo && !note.trim())}
-            >
-              {analyzing ? (
-                <>
-                  <span className="spinner" /> Analyzing…
-                </>
-              ) : (
-                "✨ Import with AI"
-              )}
-            </button>
-            <button
-              className="btn btn-ghost btn-block"
-              style={{ marginTop: 8 }}
-              onClick={skipAi}
-              disabled={analyzing}
-            >
-              Skip AI — enter manually
-            </button>
-          </>
-        ) : (
-          <>
-            {confidence && (
-              <div className="chips" style={{ marginBottom: 12 }}>
-                <ConfidenceChip level={confidence} />
-                {modelId && <span className="chip">{modelId}</span>}
-              </div>
-            )}
-            <div className="field">
-              <label className="label">Title</label>
-              <input
-                className="input"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Morning run"
-              />
-            </div>
-            {description && (
-              <div className="muted small" style={{ marginBottom: 12 }}>
-                {description}
-              </div>
-            )}
-            <div className="input-row" style={{ marginBottom: 12 }}>
-              <div>
-                <label className="label">Calories burned</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step="any"
-                  inputMode="decimal"
-                  placeholder="kcal"
-                  value={calStr}
-                  onChange={(e) => setCalStr(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">Duration (min)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step="any"
-                  inputMode="decimal"
-                  placeholder="—"
-                  value={durStr}
-                  onChange={(e) => setDurStr(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="field">
-              <label className="label">Performed at</label>
-              <input
-                className="input"
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-              />
-            </div>
-            {error && (
-              <div className="error-text" style={{ marginTop: 10 }}>
-                {error}
-              </div>
-            )}
-            <div className="btn-row" style={{ marginTop: 14 }}>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setStep("capture")}
-                disabled={saving}
-              >
-                Back
-              </button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>
-                {saving ? (
-                  <>
-                    <span className="spinner" /> Saving…
-                  </>
-                ) : (
-                  "Save workout"
                 )}
               </button>
             </div>
@@ -1440,6 +1261,8 @@ function SupplementSheet({
   const [logError, setLogError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Supplement | "new" | null>(null);
 
+  useSheetHistory(editing !== null, () => setEditing(null));
+
   function load() {
     setLoadError(null);
     listSupplements(true)
@@ -1677,54 +1500,77 @@ function SupplementSheet({
 }
 
 // ---------------------------------------------------------------------------
-// Add chooser sheet
+// Failed-capture sheet (retry / discard)
 // ---------------------------------------------------------------------------
 
-type AddKind = "meal" | "workout" | "supp";
-
-function AddChooserSheet({
+function CaptureErrorSheet({
+  capture,
   onClose,
-  onPick,
 }: {
+  capture: Capture;
   onClose: () => void;
-  onPick: (kind: AddKind) => void;
 }) {
-  const options: { kind: AddKind; glyph: string; title: string; sub: string }[] = [
-    { kind: "meal", glyph: "🍽", title: "Meal", sub: "Photo + AI nutrition" },
-    {
-      kind: "workout",
-      glyph: "🏃",
-      title: "Workout",
-      sub: "Screenshot + AI import — burns calories",
-    },
-    { kind: "supp", glyph: "💊", title: "Supplement", sub: "Log a dose" },
-  ];
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function retry() {
+    setBusy(true);
+    setError(null);
+    try {
+      await retryCapture(capture.id);
+      onClose();
+    } catch (err) {
+      setError(errMsg(err));
+      setBusy(false);
+    }
+  }
+
+  async function discard() {
+    if (!window.confirm("Discard this capture? Nothing will be logged.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await discardCapture(capture);
+      onClose();
+    } catch (err) {
+      setError(errMsg(err));
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        <h2 className="sheet-title">Add to diary</h2>
-        <div className="list">
-          {options.map((o) => (
-            <div
-              key={o.kind}
-              className="list-row"
-              role="button"
-              tabIndex={0}
-              style={{ cursor: "pointer", padding: "16px 14px" }}
-              onClick={() => onPick(o.kind)}
-              onKeyDown={(ev) => {
-                if (ev.key === "Enter") onPick(o.kind);
-              }}
-            >
-              <GlyphThumb glyph={o.glyph} />
-              <div className="row-main">
-                <div className="row-title">{o.title}</div>
-                <div className="row-sub">{o.sub}</div>
-              </div>
-              <div className="row-end">›</div>
-            </div>
-          ))}
+        <h2 className="sheet-title">Analysis failed</h2>
+        {capture.photo_path && (
+          <div style={{ marginBottom: 12 }}>
+            <PhotoImg filename={capture.photo_path} className="photo-full" alt="Capture" />
+          </div>
+        )}
+        <div className="muted small" style={{ marginBottom: 8 }}>
+          Captured {timeOf(capture.created_at)}
+        </div>
+        {capture.note && (
+          <div className="muted small" style={{ marginBottom: 8 }}>
+            {capture.note}
+          </div>
+        )}
+        <div className="error-text">
+          {capture.error || "The analysis failed for an unknown reason."}
+        </div>
+        {error && (
+          <div className="error-text" style={{ marginTop: 10 }}>
+            {error}
+          </div>
+        )}
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <button className="btn btn-danger" onClick={discard} disabled={busy}>
+            Discard
+          </button>
+          <button className="btn btn-primary" onClick={retry} disabled={busy}>
+            Retry
+          </button>
         </div>
       </div>
     </div>
@@ -1738,37 +1584,86 @@ function AddChooserSheet({
 type TimelineItem =
   | { kind: "meal"; ts: string; entry: FoodEntry }
   | { kind: "workout"; ts: string; workout: Workout }
-  | { kind: "supp"; ts: string; log: SupplementLogWithSupplement };
+  | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
+  | { kind: "capture"; ts: string; capture: Capture };
 
-type SheetKind = "chooser" | AddKind;
+/** Short row title for a capture: its note, truncated, or "Photo". */
+function captureTitle(c: Capture): string {
+  const note = c.note?.trim();
+  if (!note) return "Photo";
+  return note.length > 48 ? `${note.slice(0, 48).trimEnd()}…` : note;
+}
+
+type SheetKind = "add" | "supp";
 
 export default function DiaryPage() {
   const [day, setDay] = useState(() => todayStr());
   const [entries, setEntries] = useState<FoodEntry[] | null>(null);
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
+  const [captures, setCaptures] = useState<Capture[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showTotals, setShowTotals] = useState(false);
   const [detail, setDetail] = useState<TimelineItem | null>(null);
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
 
+  // True when `day` was "today" at the time it was selected. Used to snap the
+  // page forward after an overnight resume so new entries aren't stamped
+  // ~24h in the past.
+  const dayWasTodayRef = useRef(true);
+  useEffect(() => {
+    dayWasTodayRef.current = day === todayStr();
+  }, [day]);
+
+  useEffect(() => {
+    function syncDay() {
+      if (!dayWasTodayRef.current) return;
+      const t = todayStr();
+      setDay((d) => (d === t ? d : t));
+    }
+    window.addEventListener("focus", syncDay);
+    document.addEventListener("visibilitychange", syncDay);
+    return () => {
+      window.removeEventListener("focus", syncDay);
+      document.removeEventListener("visibilitychange", syncDay);
+    };
+  }, []);
+
+  useSheetHistory(detail !== null, () => setDetail(null));
+  useSheetHistory(sheet === "add", () => setSheet(null));
+  useSheetHistory(sheet === "supp", () => setSheet(null));
+
+  // Refresh whenever the background agent changes diary data — this is how a
+  // pending capture row appears instantly and later turns into real entries.
+  useEffect(() => onDiaryChanged(() => setRefresh((n) => n + 1)), []);
+
+  // Day whose data is currently on screen. Background refreshes of the same
+  // day keep stale rows visible (no full-page spinner) until fresh data lands.
+  const shownDayRef = useRef<string | null>(null);
+
   useEffect(() => {
     let alive = true;
-    setEntries(null);
-    setWorkouts(null);
-    setSuppLogs(null);
+    if (shownDayRef.current !== day) {
+      setEntries(null);
+      setWorkouts(null);
+      setSuppLogs(null);
+      setCaptures(null);
+    }
     setLoadError(null);
     Promise.all([
       listFoodEntriesForDay(day),
       listWorkoutsForDay(day),
       listSupplementLogsForDay(day),
+      listCapturesForDay(day),
     ])
-      .then(([e, w, s]) => {
+      .then(([e, w, s, c]) => {
         if (!alive) return;
+        shownDayRef.current = day;
         setEntries(e);
         setWorkouts(w);
         setSuppLogs(s);
+        setCaptures(c);
       })
       .catch((err) => {
         if (alive) setLoadError(errMsg(err));
@@ -1809,13 +1704,19 @@ export default function DiaryPage() {
         ts: l.taken_at,
         log: l,
       })),
+      ...(captures ?? []).map((c) => ({
+        kind: "capture" as const,
+        ts: c.created_at,
+        capture: c,
+      })),
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs]);
+  }, [entries, workouts, suppLogs, captures]);
 
   const isToday = day === todayStr();
-  const loaded = entries !== null && workouts !== null && suppLogs !== null;
+  const loaded =
+    entries !== null && workouts !== null && suppLogs !== null && captures !== null;
   const loading = !loaded && loadError === null;
   const bump = () => setRefresh((n) => n + 1);
 
@@ -1845,9 +1746,14 @@ export default function DiaryPage() {
         </button>
       </div>
 
-      <button className="btn btn-primary btn-block" onClick={() => setSheet("chooser")}>
+      <button className="btn btn-primary btn-block" onClick={() => setSheet("add")}>
         + Add
       </button>
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setSheet("supp")}>
+          💊 Log supplement
+        </button>
+      </div>
 
       {loadError && (
         <div className="error-text" style={{ margin: "14px 2px" }}>
@@ -1973,6 +1879,63 @@ export default function DiaryPage() {
                     </div>
                   );
                 }
+                if (item.kind === "capture") {
+                  const c = item.capture;
+                  const failed = c.status === "error";
+                  const thumb = c.photo_path ? (
+                    <PhotoImg
+                      filename={c.photo_path}
+                      className="photo-thumb"
+                      alt={captureTitle(c)}
+                    />
+                  ) : (
+                    <GlyphThumb glyph="📸" />
+                  );
+                  if (!failed) {
+                    // Pending: the agent is working — not tappable.
+                    return (
+                      <div key={`capture-${c.id}`} className="list-row">
+                        {thumb}
+                        <div className="row-main">
+                          <div className="row-title">{captureTitle(c)}</div>
+                          <div
+                            className="row-sub"
+                            style={{ display: "flex", alignItems: "center", gap: 6 }}
+                          >
+                            {timeOf(c.created_at)} ·{" "}
+                            <span
+                              className="spinner"
+                              style={{ width: 12, height: 12, flex: "0 0 auto" }}
+                            />
+                            <span className="muted">Analyzing…</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      key={`capture-${c.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setDetail(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") setDetail(item);
+                      }}
+                    >
+                      {thumb}
+                      <div className="row-main">
+                        <div className="row-title">{captureTitle(c)}</div>
+                        <div className="row-sub">{timeOf(c.created_at)}</div>
+                        <div className="chips" style={{ marginTop: 6 }}>
+                          <span className="chip chip-warn">Analysis failed</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
                 const l = item.log;
                 return (
                   <div
@@ -2027,22 +1990,12 @@ export default function DiaryPage() {
           onChanged={bump}
         />
       )}
+      {detail?.kind === "capture" && (
+        <CaptureErrorSheet capture={detail.capture} onClose={() => setDetail(null)} />
+      )}
 
-      {sheet === "chooser" && (
-        <AddChooserSheet onClose={() => setSheet(null)} onPick={(k) => setSheet(k)} />
-      )}
-      {sheet === "meal" && (
-        <AddMealSheet
-          day={day}
-          onClose={() => setSheet(null)}
-          onSaved={() => {
-            setSheet(null);
-            bump();
-          }}
-        />
-      )}
-      {sheet === "workout" && (
-        <AddWorkoutSheet
+      {sheet === "add" && (
+        <AddSheet
           day={day}
           onClose={() => setSheet(null)}
           onSaved={() => {

@@ -58,6 +58,26 @@ export const supplementLogs = sqliteTable(
   (t) => [index("idx_supplement_logs_taken_at").on(t.takenAt)],
 );
 
+/**
+ * Fire-and-forget diary captures: created instantly when the user snaps a
+ * photo/note, then resolved into real entries by the background agent.
+ * Successful captures are deleted; failed ones stay with status "error".
+ */
+export const captures = sqliteTable(
+  "captures",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    createdAt: text("created_at").notNull(),
+    /** Local diary day ("YYYY-MM-DD") the capture was added to. */
+    day: text("day").notNull(),
+    note: text("note"),
+    photoPath: text("photo_path"),
+    status: text("status").notNull().default("pending"),
+    error: text("error"),
+  },
+  (t) => [index("idx_captures_day").on(t.day)],
+);
+
 export const fasts = sqliteTable("fasts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   startedAt: text("started_at").notNull(),

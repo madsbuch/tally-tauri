@@ -50,22 +50,87 @@ export function promptPricePerMillion(m: ORModel): number | null {
   return perToken * 1_000_000;
 }
 
-type ContentPart =
+export type ContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
-interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string | ContentPart[];
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | ContentPart[] | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+/** OpenAI-style function tool definition (OpenRouter `tools` parameter). */
+export interface ToolDef {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface AssistantTurn {
+  content: string | null;
+  tool_calls: ToolCall[];
 }
 
 interface ChatResponse {
   choices?: {
-    message?: { content?: string };
+    message?: { content?: string | null; tool_calls?: ToolCall[] };
     finish_reason?: string;
     error?: { message?: string; code?: number | string };
   }[];
   error?: { message?: string; code?: number | string };
+}
+
+/**
+ * Tool-calling chat turn: returns the assistant message with any tool calls.
+ * Used by the diary agent (src/lib/agent.ts).
+ */
+export async function chatWithTools(
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+): Promise<AssistantTurn> {
+  const res = await fetch(`${BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      ...APP_HEADERS,
+    },
+    body: JSON.stringify({ model, messages, tools }),
+  });
+  const json = (await res.json().catch(() => ({}))) as ChatResponse;
+  if (!res.ok || json.error) {
+    const msg = json.error?.message ?? `HTTP ${res.status}`;
+    throw new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
+  }
+  const choice = json.choices?.[0];
+  if (choice?.error || choice?.finish_reason === "error") {
+    throw new OpenRouterError(
+      `Model error: ${choice.error?.message ?? "provider returned an error"}`,
+      res.status,
+    );
+  }
+  return {
+    content: typeof choice?.message?.content === "string" ? choice.message.content : null,
+    tool_calls: choice?.message?.tool_calls ?? [],
+  };
+}
+
+/** True when the model advertises OpenAI-style tool calling. */
+export function supportsTools(m: ORModel): boolean {
+  return m.supported_parameters?.includes("tools") ?? false;
 }
 
 /** Low-level chat completion; returns the assistant message content. */

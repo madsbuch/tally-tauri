@@ -5,14 +5,19 @@ lives in a SQLite database on the device — there is no backend.
 
 ## Features
 
-- **Photo-first diary** — take a picture; the AI decides what it is. Food gets
-  macro- and micronutrient estimates (26 tracked nutrients incl. sodium,
-  magnesium, vitamin D, omega-3/6); a workout-app screenshot becomes an
-  exercise entry with negative calories. Supplements are logged with one tap
-  from your personal catalog. Everything is editable before saving.
-- **Nutrients page** — daily macro/micro overview: energy in/burned/net, macro
-  split, and every micronutrient against adult reference intakes, filterable
-  by source (food vs supplements), with the omega-6:omega-3 ratio.
+- **Fire-and-forget photo diary** — take a picture (plus an optional note like
+  "ate this earlier today"), tap Add, done. The capture appears in the
+  timeline instantly as "Analyzing…" while a background agent — armed with
+  the current time and your supplement catalog — decides what it is and
+  records it via tool calls (`log_meal` / `log_workout` / `log_supplement`),
+  resolving relative times itself. One capture can log several items. Failed
+  analyses stay in the timeline with a retry; interrupted ones resume on next
+  launch. Meals get 26-nutrient estimates; workout screenshots become negative
+  calories; unknown supplement names create catalog entries automatically.
+- **Nutrients page** — macro/micro overview over a day, week, or month
+  (multi-day spans show per-day averages): energy in/burned/net, macro split,
+  and every micronutrient against adult reference intakes, filterable by
+  source (food vs supplements), with the omega-6:omega-3 ratio.
 - **Fasting timer** — built for multi-day fasts (48 h/72 h presets, custom to
   168 h). A sticky Android notification shows a **live countdown**
   (chronometer-based: keeps ticking even when the app is killed) plus an
@@ -46,8 +51,13 @@ lives in a SQLite database on the device — there is no backend.
 - `src-tauri/plugins/fasting/` — custom Tauri mobile plugin (Rust + Kotlin).
   Posts an ongoing notification with `setUsesChronometer(true)` +
   `setChronometerCountDown(true)`; no-op on desktop/iOS.
-- `src/lib/openrouter.ts` — model listing + unified `analyzePhoto` (the model
-  classifies meal vs workout in one call), plus supplement label estimation.
+- `src/lib/agent.ts` — the diary agent: captures are stored in a `captures`
+  table, then a background tool-calling loop (OpenRouter `tools`) executes
+  `log_meal`/`log_workout`/`log_supplement` against the local DB. Pick a
+  vision model that supports tool calling (the Settings picker filters for
+  this).
+- `src/lib/openrouter.ts` — model listing, tool-calling chat, and one-shot
+  analysis helpers used by the manual entry path.
 
 ## Development
 

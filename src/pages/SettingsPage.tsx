@@ -5,6 +5,7 @@ import {
   fetchModels,
   isVisionModel,
   promptPricePerMillion,
+  supportsTools,
 } from "../lib/openrouter";
 import {
   DEFAULT_FAST_HOURS,
@@ -240,7 +241,7 @@ export default function SettingsPage() {
   }
 
   const visionModels = useMemo(() => {
-    const list = models.filter(isVisionModel);
+    const list = models.filter((m) => isVisionModel(m) && supportsTools(m));
     list.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
     return list;
   }, [models]);
@@ -354,7 +355,8 @@ export default function SettingsPage() {
       <div className="card">
         <h2 className="card-title">Vision model</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
-          Used to analyze food photos and estimate nutrients.
+          Analyzes your captures and logs diary entries. Vision models with tool
+          calling — the diary agent needs both.
         </p>
         <div
           className="list-row"

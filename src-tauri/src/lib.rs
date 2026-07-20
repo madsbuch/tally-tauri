@@ -8,12 +8,20 @@ const DB_URL: &str = "sqlite:tally.db";
 /// (`bunx drizzle-kit generate --name <name>`) into `src-tauri/migrations/`.
 /// Add each new file here with the next version number.
 fn migrations() -> Vec<Migration> {
-    vec![Migration {
-        version: 1,
-        description: "init",
-        sql: include_str!("../migrations/0000_init.sql"),
-        kind: MigrationKind::Up,
-    }]
+    vec![
+        Migration {
+            version: 1,
+            description: "init",
+            sql: include_str!("../migrations/0000_init.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "captures",
+            sql: include_str!("../migrations/0001_captures.sql"),
+            kind: MigrationKind::Up,
+        },
+    ]
 }
 
 fn photos_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
