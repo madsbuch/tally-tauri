@@ -83,6 +83,93 @@ export function fastProgress(fast: Fast, now = new Date()): FastProgress {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Fasting stages — the metabolic arc of a fast, autophagy included
+// ---------------------------------------------------------------------------
+
+export interface FastingStage {
+  /** Stage begins at this many hours into the fast. */
+  fromH: number;
+  /** Stage ends at this many hours (exclusive); null = open-ended final stage. */
+  toH: number | null;
+  emoji: string;
+  title: string;
+  blurb: string;
+}
+
+/**
+ * Approximate stage timings drawn from fasting research (much of it animal
+ * studies). The real transitions are gradual and shift by hours with the size
+ * of the last meal, activity, and individual metabolism — a map, not a
+ * measurement.
+ */
+export const FASTING_STAGES: FastingStage[] = [
+  {
+    fromH: 0,
+    toH: 4,
+    emoji: "🍽️",
+    title: "Fed state",
+    blurb:
+      "Digesting and absorbing the last meal. Insulin is elevated and the body stores the surplus.",
+  },
+  {
+    fromH: 4,
+    toH: 12,
+    emoji: "📉",
+    title: "Early fast",
+    blurb:
+      "Insulin falls and the liver taps its glycogen store to keep blood sugar steady.",
+  },
+  {
+    fromH: 12,
+    toH: 18,
+    emoji: "🔥",
+    title: "Fat burning",
+    blurb:
+      "Glycogen runs low, so fat becomes the main fuel and mild ketosis begins.",
+  },
+  {
+    fromH: 18,
+    toH: 24,
+    emoji: "⚡",
+    title: "Ketosis",
+    blurb:
+      "Ketone levels climb and start fueling the brain. Autophagy — cellular self-cleanup — begins switching on.",
+  },
+  {
+    fromH: 24,
+    toH: 48,
+    emoji: "♻️",
+    title: "Autophagy",
+    blurb:
+      "Cleanup accelerates: cells recycle damaged proteins and worn-out organelles. Growth hormone rises to protect muscle.",
+  },
+  {
+    fromH: 48,
+    toH: 72,
+    emoji: "🧹",
+    title: "Deep autophagy",
+    blurb:
+      "Autophagy nears its peak while insulin sensitivity resets and old immune cells are cleared out.",
+  },
+  {
+    fromH: 72,
+    toH: null,
+    emoji: "🌱",
+    title: "Renewal",
+    blurb:
+      "Stem-cell activity and immune regeneration pick up. Fasts this long need electrolytes and are best done with medical guidance.",
+  },
+];
+
+/** Index into FASTING_STAGES for a given number of hours fasted. */
+export function fastingStageIndex(hours: number): number {
+  for (let i = FASTING_STAGES.length - 1; i >= 0; i--) {
+    if (hours >= FASTING_STAGES[i].fromH) return i;
+  }
+  return 0;
+}
+
 /** "13:24" style duration formatting (H:MM or H:MM:SS). */
 export function formatDuration(ms: number, withSeconds = false): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));

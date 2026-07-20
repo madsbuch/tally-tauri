@@ -9,13 +9,16 @@ import {
   setSetting,
 } from "../lib/db";
 import {
+  FASTING_STAGES,
   endFast,
   ensureNotificationPermission,
   fastEnd,
   fastProgress,
+  fastingStageIndex,
   formatDuration,
   startFast,
 } from "../lib/fasting";
+import type { FastingStage } from "../lib/fasting";
 
 const PRESET_HOURS = [13, 16, 18, 24, 48, 72];
 const MIN_HOURS = 1;
@@ -132,6 +135,89 @@ function formatAchieved(ms: number): string {
   const hours = ms / HOUR_MS;
   if (hours <= 48) return `${hours.toFixed(1)}h`;
   return `${oneDecimal(hours / 24)}d`;
+}
+
+/** "0–4h" range label for a stage, "72h+" for the open-ended last one. */
+function stageHoursLabel(s: FastingStage): string {
+  return s.toH == null ? `${s.fromH}h+` : `${s.fromH}–${s.toH}h`;
+}
+
+const STAGE_HAIRLINE = "1px solid color-mix(in srgb, var(--border) 55%, transparent)";
+
+/**
+ * Autophagy & fasting-stage overview. With an active fast (`elapsedMs`
+ * non-null) the current stage is highlighted, earlier stages are ticked off,
+ * and the countdown to the next stage is shown; otherwise it reads as a
+ * static reference.
+ */
+function StageTimeline({ elapsedMs }: { elapsedMs: number | null }) {
+  const activeIdx = elapsedMs == null ? -1 : fastingStageIndex(elapsedMs / HOUR_MS);
+  return (
+    <div className="card">
+      {FASTING_STAGES.map((s, i) => {
+        const isPast = activeIdx >= 0 && i < activeIdx;
+        const isNow = i === activeIdx;
+        const next = FASTING_STAGES[i + 1];
+        return (
+          <div
+            key={s.fromH}
+            style={{
+              display: "flex",
+              gap: 10,
+              padding: "9px 0",
+              borderBottom: i === FASTING_STAGES.length - 1 ? "none" : STAGE_HAIRLINE,
+              opacity: isPast ? 0.55 : 1,
+            }}
+          >
+            <span style={{ fontSize: 18, lineHeight: "22px", flexShrink: 0 }}>
+              {s.emoji}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontWeight: 650, fontSize: 13.5 }}>{s.title}</span>
+                <span
+                  className="faint small"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {stageHoursLabel(s)}
+                </span>
+                {isNow && <span className="chip chip-accent">Now</span>}
+                {isPast && (
+                  <span className="faint small" aria-label="Stage passed">
+                    ✓
+                  </span>
+                )}
+              </div>
+              <div className="muted small" style={{ marginTop: 2 }}>
+                {s.blurb}
+              </div>
+              {isNow && elapsedMs != null && next && (
+                <div
+                  className="small"
+                  style={{ marginTop: 4, color: "var(--accent)", fontWeight: 600 }}
+                >
+                  Next: {next.title} in{" "}
+                  {formatDurationDays(Math.max(0, next.fromH * HOUR_MS - elapsedMs))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <div className="faint small" style={{ marginTop: 10 }}>
+        Stage timings are rough estimates from fasting research (much of it in
+        animals). Your last meal, activity and metabolism shift them by hours —
+        treat this as a map, not a measurement.
+      </div>
+    </div>
+  );
 }
 
 export default function FastingPage() {
@@ -275,6 +361,7 @@ export default function FastingPage() {
     const end = fastEnd(active);
     const overtimeMs = Math.max(0, prog.elapsedMs - active.goal_hours * HOUR_MS);
     const longSpan = active.goal_hours > 6 * 24;
+    const stage = FASTING_STAGES[fastingStageIndex(prog.elapsedMs / HOUR_MS)];
     const goalLabel =
       active.goal_hours >= 48
         ? `of ${active.goal_hours}h goal (${oneDecimal(active.goal_hours / 24)} days)`
@@ -286,6 +373,9 @@ export default function FastingPage() {
             <div className="ring-center-value">{formatDurationDays(prog.elapsedMs, true)}</div>
             <div className="ring-center-label">{goalLabel}</div>
           </ProgressRing>
+          <span className="chip" style={{ marginTop: 12 }}>
+            {stage.emoji} {stage.title}
+          </span>
           {prog.done && (
             <div
               style={{
@@ -438,6 +528,9 @@ export default function FastingPage() {
       </header>
 
       {body}
+
+      <div className="section-title">Autophagy & stages</div>
+      <StageTimeline elapsedMs={active ? fastProgress(active, now).elapsedMs : null} />
 
       <div className="section-title">History</div>
       {history.length === 0 ? (

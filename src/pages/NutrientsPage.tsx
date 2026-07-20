@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  getSetting,
   listFoodEntriesForRange,
   listSupplementLogsForRange,
   listWorkoutsForRange,
@@ -9,6 +10,7 @@ import { onDiaryChanged } from "../lib/agent";
 import {
   NUTRIENT_DEFS,
   formatAmount,
+  netCarbs,
   omegaRatio,
   scaleNutrients,
   sumNutrients,
@@ -20,6 +22,7 @@ import type {
   SupplementLogWithSupplement,
   Workout,
 } from "../lib/types";
+import { DEFAULT_KETO_NET_CARB_LIMIT_G, SETTING_KEYS } from "../lib/types";
 
 // ---------------------------------------------------------------------------
 // Day helpers
@@ -160,6 +163,7 @@ export default function NutrientsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [source, setSource] = useState<Source>("all");
+  const [carbLimit, setCarbLimit] = useState(DEFAULT_KETO_NET_CARB_LIMIT_G);
 
   const spanDays = SPAN_DAYS[span];
   const multi = spanDays > 1;
@@ -202,6 +206,23 @@ export default function NutrientsPage() {
   // Background-analyzed captures land as entries — refresh when they do.
   useEffect(() => onDiaryChanged(() => setReloadKey((k) => k + 1)), []);
 
+  // Keto net-carb limit (configured in Settings).
+  useEffect(() => {
+    let cancelled = false;
+    getSetting(SETTING_KEYS.ketoNetCarbLimit)
+      .then((raw) => {
+        if (cancelled) return;
+        const n = raw != null ? parseFloat(raw) : NaN;
+        if (isFinite(n) && n > 0) setCarbLimit(n);
+      })
+      .catch(() => {
+        /* keep the default */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loading = !loadError && (!entries || !suppLogs || !workouts);
 
   const totals = useMemo(() => {
@@ -233,6 +254,14 @@ export default function NutrientsPage() {
 
   const macroKcal = MACRO_SPLIT.map((m) => (totals?.food[m.key] ?? 0) * m.kcalPerG);
   const macroKcalTotal = macroKcal.reduce((a, b) => a + b, 0);
+
+  // Keto — food only, per-day for multi-day spans.
+  const foodPerDay: Nutrients = totals ? scaleNutrients(totals.food, 1 / spanDays) : {};
+  const netCarbsPerDay = netCarbs(foodPerDay);
+  const netCarbPct = netCarbsPerDay != null ? (netCarbsPerDay / carbLimit) * 100 : null;
+  const overCarbLimit = netCarbPct != null && netCarbPct > 100;
+  const fatEnergyPct =
+    macroKcalTotal > 0 ? Math.round((macroKcal[2] / macroKcalTotal) * 100) : null;
 
   const ratio = omegaRatio(shown);
 
@@ -390,6 +419,89 @@ export default function NutrientsPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Keto — food-based, unaffected by the source filter */}
+          <div className="card">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              <div className="card-title" style={{ margin: 0 }}>
+                Keto{avgSuffix}
+              </div>
+              {netCarbsPerDay != null && (
+                <span className={`chip ${overCarbLimit ? "chip-warn" : "chip-accent"}`}>
+                  {overCarbLimit ? "Over carb limit" : "✓ In the keto zone"}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                style={{
+                  width: 68,
+                  flexShrink: 0,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: "var(--muted)",
+                }}
+              >
+                Net carbs
+              </span>
+              <MeterBar pct={netCarbPct ?? 0} warn={overCarbLimit} />
+              <span
+                style={{
+                  minWidth: 96,
+                  flexShrink: 0,
+                  textAlign: "right",
+                  fontSize: 12.5,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 650,
+                    color: overCarbLimit ? "var(--warn)" : undefined,
+                  }}
+                >
+                  {netCarbsPerDay != null ? formatAmount("carbs_g", netCarbsPerDay) : "—"}
+                </span>{" "}
+                <span className="faint">/ {carbLimit} g</span>
+              </span>
+            </div>
+
+            <div className="nutrient-grid" style={{ marginTop: 12 }}>
+              {(["carbs_g", "fiber_g", "sugar_g"] as NutrientKey[]).map((key) => {
+                const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
+                const value = foodPerDay[key];
+                return (
+                  <div key={key} className="nutrient-row">
+                    <span className="n-label">{def.label}</span>
+                    <span className="n-value">
+                      {value != null ? formatAmount(key, value) : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="nutrient-row">
+                <span className="n-label">Fat energy</span>
+                <span className="n-value">
+                  {fatEnergyPct != null ? `${fatEnergyPct}%` : "—"}
+                </span>
+              </div>
+            </div>
+
+            <div className="faint small" style={{ marginTop: 10 }}>
+              Net carbs = carbs − fiber, from food only. On keto, most people stay
+              in ketosis under {carbLimit} g/day with fat around 70–80% of energy.
+              Adjust your limit in Settings.
             </div>
           </div>
 
