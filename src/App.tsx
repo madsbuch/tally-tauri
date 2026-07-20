@@ -8,8 +8,9 @@ import AssistantPage from "./pages/AssistantPage";
 import SettingsPage from "./pages/SettingsPage";
 import { getDb } from "./lib/db";
 import { resyncFastNotification } from "./lib/fasting";
-import { resumePendingCaptures } from "./lib/agent";
+import { onDiaryChanged, resumePendingCaptures } from "./lib/agent";
 import { syncHealthConnect } from "./lib/healthConnect";
+import { scanAchievements } from "./lib/achievements";
 
 type TabId = "diary" | "nutrients" | "fasting" | "assistant" | "settings";
 
@@ -98,7 +99,25 @@ export default function App() {
           ),
         ]),
       )
+      // After sync: fresh Garmin data may complete achievements.
+      .then(() => scanAchievements())
       .catch((e) => console.error("Startup failed", e));
+  }, []);
+
+  // Re-scan achievements when diary data changes, debounced — agent captures
+  // often log several entries back-to-back.
+  useEffect(() => {
+    let timer: number | undefined;
+    const off = onDiaryChanged(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        scanAchievements().catch(() => {});
+      }, 2500);
+    });
+    return () => {
+      off();
+      window.clearTimeout(timer);
+    };
   }, []);
 
   return (

@@ -48,6 +48,10 @@ import {
 import { analyzeSupplement } from "../lib/openrouter";
 import { compressImage, deletePhoto, photoSrc, savePhoto } from "../lib/photos";
 import NutrientTable, { MacroChips } from "../components/NutrientTable";
+import AchievementsSheet from "../components/AchievementsSheet";
+import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements";
+import { getStreakInfo } from "../lib/streak";
+import type { StreakInfo } from "../lib/streak";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1846,6 +1850,9 @@ export default function DiaryPage() {
   const [detail, setDetail] = useState<TimelineItem | null>(null);
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [streak, setStreak] = useState<StreakInfo | null>(null);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [unlockToast, setUnlockToast] = useState<string | null>(null);
 
   // True when `day` was "today" at the time it was selected. Used to snap the
   // page forward after an overnight resume so new entries aren't stamped
@@ -1872,10 +1879,43 @@ export default function DiaryPage() {
   useSheetHistory(detail !== null, () => setDetail(null));
   useSheetHistory(sheet === "add", () => setSheet(null));
   useSheetHistory(sheet === "supp", () => setSheet(null));
+  useSheetHistory(showAchievements, () => setShowAchievements(false));
 
   // Refresh whenever the background agent changes diary data — this is how a
   // pending capture row appears instantly and later turns into real entries.
   useEffect(() => onDiaryChanged(() => setRefresh((n) => n + 1)), []);
+
+  // Streak follows every diary change (refresh bumps on those).
+  useEffect(() => {
+    let alive = true;
+    getStreakInfo()
+      .then((s) => {
+        if (alive) setStreak(s);
+      })
+      .catch(() => {
+        /* chip simply stays hidden */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [refresh]);
+
+  // Toast newly unlocked achievements (from the background agent or scans).
+  useEffect(
+    () =>
+      onAchievementsUnlocked((keys) => {
+        const def = ACHIEVEMENTS_BY_KEY.get(keys[keys.length - 1]);
+        if (!def) return;
+        const extra = keys.length > 1 ? ` (+${keys.length - 1} more)` : "";
+        setUnlockToast(`${def.emoji} Achievement unlocked: ${def.title}${extra}`);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (unlockToast === null) return;
+    const id = window.setTimeout(() => setUnlockToast(null), 4500);
+    return () => window.clearTimeout(id);
+  }, [unlockToast]);
 
   // Day whose data is currently on screen. Background refreshes of the same
   // day keep stale rows visible (no full-page spinner) until fresh data lands.
@@ -2062,7 +2102,20 @@ export default function DiaryPage() {
     <div className="page page-with-fab">
       <header className="page-header">
         <h1 className="page-title">Diary</h1>
-        <span className="page-sub">{day}</span>
+        {streak ? (
+          <button
+            className="streak-chip"
+            onClick={() => setShowAchievements(true)}
+            aria-label="Streak and achievements"
+          >
+            <span className={streak.current > 0 && streak.todayLogged ? "" : "streak-dim"}>
+              🔥 {streak.current}
+            </span>
+            {streak.freezes > 0 && <span className="streak-freezes">❄️ {streak.freezes}</span>}
+          </button>
+        ) : (
+          <span className="page-sub">{day}</span>
+        )}
       </header>
 
       <div className="day-nav">
@@ -2464,6 +2517,14 @@ export default function DiaryPage() {
           }}
           onMutated={bump}
         />
+      )}
+      {showAchievements && (
+        <AchievementsSheet streak={streak} onClose={() => setShowAchievements(false)} />
+      )}
+      {unlockToast && (
+        <div className="toast" role="status">
+          {unlockToast}
+        </div>
       )}
     </div>
   );

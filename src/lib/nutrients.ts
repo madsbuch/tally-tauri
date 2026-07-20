@@ -41,6 +41,30 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
 
 export const NUTRIENT_KEYS: NutrientKey[] = NUTRIENT_DEFS.map((d) => d.key);
 
+/**
+ * Approximate adult daily reference intakes. Shared by the Nutrients page
+ * and the achievements engine. cholesterol_mg intentionally has no
+ * reference — value only.
+ */
+export const REFERENCE_INTAKES: Partial<Record<NutrientKey, number>> = {
+  sodium_mg: 2300,
+  potassium_mg: 3400,
+  calcium_mg: 1000,
+  magnesium_mg: 400,
+  iron_mg: 8,
+  zinc_mg: 11,
+  selenium_ug: 55,
+  iodine_ug: 150,
+  vitamin_a_ug: 900,
+  vitamin_c_mg: 90,
+  vitamin_d_ug: 20,
+  vitamin_e_mg: 15,
+  vitamin_k_ug: 120,
+  vitamin_b6_mg: 1.7,
+  vitamin_b12_ug: 2.4,
+  folate_ug: 400,
+};
+
 const DEF_BY_KEY = new Map(NUTRIENT_DEFS.map((d) => [d.key, d]));
 
 export function nutrientDef(key: NutrientKey): NutrientDef {

@@ -24,6 +24,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
+import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
 import { deletePhoto, readPhotoDataUrl, savePhoto } from "./photos";
@@ -277,6 +278,11 @@ async function executeTool(
       model_id: ctx.model,
     });
     ctx.logged++;
+    // Event-only achievement: eaten-time within 10 min of the capture being
+    // resolved means the meal was logged in the moment, not backfilled.
+    if (Math.abs(Date.now() - new Date(time).getTime()) <= 10 * 60_000) {
+      void unlockAchievement("quick_draw");
+    }
     notifyDiaryChanged();
     return `Logged meal "${title}" at ${time}.`;
   }
@@ -418,6 +424,10 @@ async function runCapture(capture: Capture): Promise<void> {
   if (ctx.logged === 0) {
     throw new Error(lastText?.trim() || "The model didn't record anything.");
   }
+
+  // Event-only achievement: captures dissolve on success, so a multi-item
+  // resolution can only be detected here.
+  if (ctx.logged >= 3) void unlockAchievement("combo_capture");
 
   // Success: the capture dissolves into the entries it produced.
   await deleteCapture(capture.id);

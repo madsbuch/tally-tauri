@@ -215,6 +215,8 @@ export const SETTING_KEYS = {
   ketoNetCarbLimit: "keto_net_carb_limit_g",
   /** Daily calorie budget (net kcal). Absent = no target set. */
   calorieTarget: "calorie_target_kcal",
+  /** JSON blob of streak-freeze bookkeeping (see lib/streak.ts). */
+  streakState: "streak_state",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

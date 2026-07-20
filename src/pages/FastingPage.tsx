@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Fast } from "../lib/types";
 import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
 import {
@@ -6,6 +6,7 @@ import {
   getActiveFast,
   getLastMealAt,
   getSetting,
+  listAllFasts,
   listRecentFasts,
   setSetting,
 } from "../lib/db";
@@ -143,6 +144,30 @@ function stageHoursLabel(s: FastingStage): string {
   return s.toH == null ? `${s.fromH}h+` : `${s.fromH}–${s.toH}h`;
 }
 
+/** Lifetime fasting records, over COMPLETED fasts only. */
+interface FastRecords {
+  longestMs: number;
+  totalHours: number;
+  completed: number;
+  goalsHit: number;
+}
+
+function computeRecords(all: Fast[]): FastRecords {
+  let longestMs = 0;
+  let totalMs = 0;
+  let completed = 0;
+  let goalsHit = 0;
+  for (const f of all) {
+    if (!f.ended_at) continue;
+    const ms = Math.max(0, new Date(f.ended_at).getTime() - new Date(f.started_at).getTime());
+    completed++;
+    totalMs += ms;
+    longestMs = Math.max(longestMs, ms);
+    if (ms >= f.goal_hours * HOUR_MS - 1000) goalsHit++;
+  }
+  return { longestMs, totalHours: totalMs / HOUR_MS, completed, goalsHit };
+}
+
 const STAGE_HAIRLINE = "1px solid color-mix(in srgb, var(--border) 55%, transparent)";
 
 /**
@@ -226,6 +251,7 @@ export default function FastingPage() {
   const [active, setActive] = useState<Fast | null>(null);
   const [lastMealAt, setLastMealAt] = useState<string | null>(null);
   const [history, setHistory] = useState<Fast[]>([]);
+  const [allFasts, setAllFasts] = useState<Fast[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notifWarn, setNotifWarn] = useState(false);
 
@@ -238,22 +264,26 @@ export default function FastingPage() {
   const [now, setNow] = useState(() => new Date());
 
   const loadHistory = useCallback(async () => {
-    setHistory(await listRecentFasts(30));
+    const [recent, all] = await Promise.all([listRecentFasts(30), listAllFasts()]);
+    setHistory(recent);
+    setAllFasts(all);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [fast, fasts, saved, lastMeal] = await Promise.all([
+        const [fast, fasts, all, saved, lastMeal] = await Promise.all([
           getActiveFast(),
           listRecentFasts(30),
+          listAllFasts(),
           getSetting(SETTING_KEYS.fastDefaultHours),
           getLastMealAt(),
         ]);
         if (cancelled) return;
         setActive(fast);
         setHistory(fasts);
+        setAllFasts(all);
         setLastMealAt(lastMeal);
         const savedHours = saved != null ? parseFloat(saved) : NaN;
         if (isFinite(savedHours) && savedHours >= MIN_HOURS && savedHours <= MAX_HOURS) {
@@ -343,6 +373,7 @@ export default function FastingPage() {
     try {
       await deleteFast(id);
       setHistory((prev) => prev.filter((f) => f.id !== id));
+      setAllFasts((prev) => prev.filter((f) => f.id !== id));
     } catch {
       setError("Could not delete the fast.");
     }
@@ -360,6 +391,8 @@ export default function FastingPage() {
       </div>
     );
   }
+
+  const records = useMemo(() => computeRecords(allFasts), [allFasts]);
 
   // New fasts anchor to the last logged meal (when it falls inside the goal
   // window) — mirror resolveFastStart so the card can say what will happen.
@@ -391,6 +424,11 @@ export default function FastingPage() {
           <span className="chip" style={{ marginTop: 12 }}>
             {stage.emoji} {stage.title}
           </span>
+          {records.longestMs > 0 && prog.elapsedMs > records.longestMs && (
+            <span className="chip chip-accent" style={{ marginTop: 8 }}>
+              🏆 Longest fast ever
+            </span>
+          )}
           {prog.done && (
             <div
               style={{
@@ -563,6 +601,30 @@ export default function FastingPage() {
 
       <div className="section-title">Autophagy & stages</div>
       <StageTimeline elapsedMs={active ? fastProgress(active, now).elapsedMs : null} />
+
+      {records.completed > 0 && (
+        <>
+          <div className="section-title">Records</div>
+          <div className="stat-grid">
+            <div className="stat">
+              <div className="stat-value">🏆 {formatAchieved(records.longestMs)}</div>
+              <div className="stat-label">Longest fast</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{Math.round(records.totalHours)}h</div>
+              <div className="stat-label">Lifetime fasted</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{records.completed}</div>
+              <div className="stat-label">Fasts done</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{records.goalsHit}</div>
+              <div className="stat-label">Goals hit</div>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="section-title">History</div>
       {history.length === 0 ? (

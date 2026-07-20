@@ -2,6 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import {
+  achievements,
   captures,
   chats,
   fasts,
@@ -761,4 +762,71 @@ export async function listRecentFasts(limit = 20): Promise<Fast[]> {
 
 export async function deleteFast(id: number): Promise<void> {
   await db.delete(fasts).where(eq(fasts.id, id));
+}
+
+/** Every fast ever recorded (active one included), oldest first. */
+export async function listAllFasts(): Promise<Fast[]> {
+  const rows = await db.select().from(fasts).orderBy(fasts.startedAt);
+  return rows.map(toFast);
+}
+
+// ---------------------------------------------------------------------------
+// Full-history reads (streak & achievements engine)
+//
+// Tally is a single-user local app — whole-table scans over a few years of
+// diary data stay in the low thousands of rows, well within budget.
+// ---------------------------------------------------------------------------
+
+export async function listAllFoodEntries(): Promise<FoodEntry[]> {
+  const rows = await db.select().from(foodEntries).orderBy(foodEntries.eatenAt);
+  return rows.map(toFoodEntry);
+}
+
+export async function listAllWorkouts(): Promise<Workout[]> {
+  const rows = await db.select().from(workouts).orderBy(workouts.performedAt);
+  return rows.map(toWorkout);
+}
+
+export async function listAllSupplementLogs(): Promise<SupplementLogWithSupplement[]> {
+  const rows = await db
+    .select({
+      id: supplementLogs.id,
+      supplement_id: supplementLogs.supplementId,
+      taken_at: supplementLogs.takenAt,
+      amount: supplementLogs.amount,
+      name: supplements.name,
+      dose_amount: supplements.doseAmount,
+      dose_unit: supplements.doseUnit,
+      nutrients: supplements.nutrients,
+    })
+    .from(supplementLogs)
+    .innerJoin(supplements, eq(supplements.id, supplementLogs.supplementId))
+    .orderBy(supplementLogs.takenAt);
+  return rows.map((r) => ({ ...r, nutrients: sanitizeNutrients(r.nutrients) }));
+}
+
+/** All captures still in the inbox (pending/error) — successes are deleted. */
+export async function listAllCaptures(): Promise<Capture[]> {
+  const rows = await db.select().from(captures);
+  return rows.map(toCapture);
+}
+
+// ---------------------------------------------------------------------------
+// Achievements
+// ---------------------------------------------------------------------------
+
+/** Map of achievement key → unlock timestamp (ISO). */
+export async function listUnlockedAchievements(): Promise<Map<string, string>> {
+  const rows = await db.select().from(achievements);
+  return new Map(rows.map((r) => [r.key, r.unlockedAt]));
+}
+
+/** Idempotent unlock; returns true only when the row was newly inserted. */
+export async function insertAchievement(key: string, unlockedAt: string): Promise<boolean> {
+  const rows = await db
+    .insert(achievements)
+    .values({ key, unlockedAt })
+    .onConflictDoNothing()
+    .returning({ key: achievements.key });
+  return rows.length > 0;
 }

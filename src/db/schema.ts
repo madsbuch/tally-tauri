@@ -155,3 +155,9 @@ export const fasts = sqliteTable("fasts", {
   goalHours: real("goal_hours").notNull(),
   endedAt: text("ended_at"),
 });
+
+/** Unlocked gamification achievements — a row's presence means unlocked. */
+export const achievements = sqliteTable("achievements", {
+  key: text("key").primaryKey(),
+  unlockedAt: text("unlocked_at").notNull(),
+});
