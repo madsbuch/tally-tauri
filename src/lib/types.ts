@@ -118,6 +118,43 @@ export interface Workout {
   external_id: string | null;
 }
 
+/** A night of sleep synced from Health Connect (written by e.g. Garmin). */
+export interface SleepSession {
+  id: number;
+  /** Health Connect record UID for dedup. */
+  external_id: string;
+  /** ISO 8601 UTC timestamps. */
+  started_at: string;
+  ended_at: string;
+  duration_min: number;
+  /** Stage minutes; null when the source didn't record stages. */
+  deep_min: number | null;
+  rem_min: number | null;
+  light_min: number | null;
+  awake_min: number | null;
+  source: string | null;
+}
+
+/**
+ * One local day of wellness metrics synced from Health Connect.
+ * A field is null when nothing was recorded that day.
+ */
+export interface HealthMetric {
+  /** Local day "YYYY-MM-DD". */
+  day: string;
+  steps: number | null;
+  resting_hr: number | null;
+  /** Heart-rate variability, RMSSD in ms. */
+  hrv_ms: number | null;
+  /** Blood oxygen saturation in percent. */
+  spo2_pct: number | null;
+  weight_kg: number | null;
+  vo2_max: number | null;
+  /** Total energy burned that day (kcal). */
+  calories_total: number | null;
+  updated_at: string;
+}
+
 /** Result of an AI food-photo analysis. */
 export interface FoodAnalysis {
   title: string;

@@ -37,6 +37,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::get_status,
             commands::request_permissions,
             commands::read_exercise_sessions,
+            commands::read_sleep_sessions,
+            commands::read_daily_metrics,
             commands::open_settings
         ])
         .setup(|app, api| {

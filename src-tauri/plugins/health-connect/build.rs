@@ -2,6 +2,8 @@ const COMMANDS: &[&str] = &[
     "get_status",
     "request_permissions",
     "read_exercise_sessions",
+    "read_sleep_sessions",
+    "read_daily_metrics",
     "open_settings",
 ];
 

@@ -27,6 +27,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0002_garmin_workout_source.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "health_data",
+            sql: include_str!("../migrations/0003_health_data.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

@@ -1,11 +1,13 @@
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { and, desc, eq, gte, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import {
   captures,
   fasts,
   foodEntries,
+  healthMetrics,
   settings,
+  sleepSessions,
   supplementLogs,
   supplements,
   workouts,
@@ -14,6 +16,8 @@ import type {
   Capture,
   Fast,
   FoodEntry,
+  HealthMetric,
+  SleepSession,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -277,6 +281,135 @@ export async function listWorkoutsForRange(
     .where(and(gte(workouts.performedAt, start), lt(workouts.performedAt, end)))
     .orderBy(desc(workouts.performedAt));
   return rows.map(toWorkout);
+}
+
+// ---------------------------------------------------------------------------
+// Sleep sessions (synced from Health Connect)
+// ---------------------------------------------------------------------------
+
+type SleepRow = typeof sleepSessions.$inferSelect;
+
+function toSleepSession(r: SleepRow): SleepSession {
+  return {
+    id: r.id,
+    external_id: r.externalId,
+    started_at: r.startedAt,
+    ended_at: r.endedAt,
+    duration_min: r.durationMin,
+    deep_min: r.deepMin,
+    rem_min: r.remMin,
+    light_min: r.lightMin,
+    awake_min: r.awakeMin,
+    source: r.source,
+  };
+}
+
+/** Insert-or-update a sleep session, keyed on its Health Connect UID. */
+export async function upsertSleepSession(
+  s: Omit<SleepSession, "id">,
+): Promise<void> {
+  const values = {
+    externalId: s.external_id,
+    startedAt: s.started_at,
+    endedAt: s.ended_at,
+    durationMin: s.duration_min,
+    deepMin: s.deep_min,
+    remMin: s.rem_min,
+    lightMin: s.light_min,
+    awakeMin: s.awake_min,
+    source: s.source,
+  };
+  await db
+    .insert(sleepSessions)
+    .values(values)
+    .onConflictDoUpdate({ target: sleepSessions.externalId, set: values });
+}
+
+/**
+ * Sleep sessions that END within the local-day range — a night that starts
+ * before midnight belongs to the morning it finished.
+ */
+export async function listSleepForRange(
+  startDay: string,
+  endDay: string,
+): Promise<SleepSession[]> {
+  const start = dayRange(startDay).start;
+  const end = dayRange(endDay).end;
+  const rows = await db
+    .select()
+    .from(sleepSessions)
+    .where(and(gte(sleepSessions.endedAt, start), lt(sleepSessions.endedAt, end)))
+    .orderBy(desc(sleepSessions.startedAt));
+  return rows.map(toSleepSession);
+}
+
+// ---------------------------------------------------------------------------
+// Daily health metrics (synced from Health Connect)
+// ---------------------------------------------------------------------------
+
+type HealthMetricRow = typeof healthMetrics.$inferSelect;
+
+function toHealthMetric(r: HealthMetricRow): HealthMetric {
+  return {
+    day: r.day,
+    steps: r.steps,
+    resting_hr: r.restingHr,
+    hrv_ms: r.hrvMs,
+    spo2_pct: r.spo2Pct,
+    weight_kg: r.weightKg,
+    vo2_max: r.vo2Max,
+    calories_total: r.caloriesTotal,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Insert-or-update one day of metrics; only non-null fields overwrite. */
+export async function upsertHealthMetric(
+  m: Omit<HealthMetric, "updated_at">,
+): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  const values = {
+    day: m.day,
+    steps: m.steps,
+    restingHr: m.resting_hr,
+    hrvMs: m.hrv_ms,
+    spo2Pct: m.spo2_pct,
+    weightKg: m.weight_kg,
+    vo2Max: m.vo2_max,
+    caloriesTotal: m.calories_total,
+    updatedAt,
+  };
+  // COALESCE keeps an existing value when a re-sync window happens to carry
+  // no records of that type for the day.
+  await db
+    .insert(healthMetrics)
+    .values(values)
+    .onConflictDoUpdate({
+      target: healthMetrics.day,
+      set: {
+        steps: sql`COALESCE(${m.steps ?? null}, ${healthMetrics.steps})`,
+        restingHr: sql`COALESCE(${m.resting_hr ?? null}, ${healthMetrics.restingHr})`,
+        hrvMs: sql`COALESCE(${m.hrv_ms ?? null}, ${healthMetrics.hrvMs})`,
+        spo2Pct: sql`COALESCE(${m.spo2_pct ?? null}, ${healthMetrics.spo2Pct})`,
+        weightKg: sql`COALESCE(${m.weight_kg ?? null}, ${healthMetrics.weightKg})`,
+        vo2Max: sql`COALESCE(${m.vo2_max ?? null}, ${healthMetrics.vo2Max})`,
+        caloriesTotal: sql`COALESCE(${m.calories_total ?? null}, ${healthMetrics.caloriesTotal})`,
+        updatedAt,
+      },
+    });
+}
+
+/** Metrics from local day `startDay` through `endDay`, both inclusive. */
+export async function listHealthMetricsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<HealthMetric[]> {
+  const rows = await db
+    .select()
+    .from(healthMetrics)
+    .where(and(gte(healthMetrics.day, startDay), lte(healthMetrics.day, endDay)))
+    .orderBy(desc(healthMetrics.day));
+  return rows.map(toHealthMetric);
 }
 
 // ---------------------------------------------------------------------------

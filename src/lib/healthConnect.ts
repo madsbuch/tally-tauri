@@ -1,12 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getSetting, setSetting, upsertExternalWorkout } from "./db";
+import {
+  getSetting,
+  setSetting,
+  upsertExternalWorkout,
+  upsertHealthMetric,
+  upsertSleepSession,
+} from "./db";
 import { SETTING_KEYS } from "./types";
 import { notifyDiaryChanged } from "./agent";
 
 // ---------------------------------------------------------------------------
-// Health Connect sync — pulls exercise sessions the Garmin Connect app (or any
-// other fitness app) writes into Android Health Connect and upserts them into
-// the local `workouts` table. Everything stays on-device.
+// Health Connect sync — pulls everything the Garmin Connect app (or any other
+// fitness app) writes into Android Health Connect and upserts it locally:
+// exercise sessions → `workouts`, sleep → `sleep_sessions`, and daily wellness
+// aggregates (steps, resting HR, HRV, SpO2, weight, VO2 max, calories) →
+// `health_metrics`. Everything stays on-device.
 // ---------------------------------------------------------------------------
 
 export type HealthConnectAvailability = "available" | "updateRequired" | "unavailable";
@@ -26,6 +34,29 @@ interface HCExerciseSession {
   distanceMeters?: number | null;
   avgHeartRate?: number | null;
   sourcePackage?: string | null;
+}
+
+interface HCSleepSession {
+  id: string;
+  title?: string | null;
+  startMs: number;
+  endMs: number;
+  deepMin?: number | null;
+  remMin?: number | null;
+  lightMin?: number | null;
+  awakeMin?: number | null;
+  sourcePackage?: string | null;
+}
+
+interface HCDailyMetric {
+  day: string;
+  steps?: number | null;
+  caloriesTotal?: number | null;
+  restingHr?: number | null;
+  hrvMs?: number | null;
+  spo2Pct?: number | null;
+  weightKg?: number | null;
+  vo2Max?: number | null;
 }
 
 /** Health Connect only serves apps ~30 days of history. */
@@ -77,20 +108,27 @@ function describeSession(s: HCExerciseSession): string {
 
 export interface HealthConnectSyncResult {
   status: HealthConnectStatus;
-  /** Sessions written (inserted or refreshed) — 0 when unavailable/ungranted. */
-  synced: number;
+  /** Workout sessions written (inserted or refreshed). */
+  workouts: number;
+  /** Sleep sessions written. */
+  sleep: number;
+  /** Days of wellness metrics written. */
+  days: number;
 }
 
+const num = (v: number | null | undefined): number | null =>
+  typeof v === "number" && isFinite(v) ? v : null;
+
 /**
- * Pull exercise sessions from Health Connect into the workouts table.
+ * Pull workouts, sleep, and daily wellness metrics from Health Connect.
  * Safe to call on every app start: no-ops quickly when Health Connect is
  * unavailable or permissions haven't been granted, and re-syncing is
- * idempotent (keyed on the Health Connect record UID).
+ * idempotent (workouts/sleep keyed on the record UID, metrics on the day).
  */
-export async function syncHealthConnectWorkouts(): Promise<HealthConnectSyncResult> {
+export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
   const status = await getHealthConnectStatus();
   if (status.availability !== "available" || !status.permissionsGranted) {
-    return { status, synced: 0 };
+    return { status, workouts: 0, sleep: 0, days: 0 };
   }
 
   const now = Date.now();
@@ -106,7 +144,7 @@ export async function syncHealthConnectWorkouts(): Promise<HealthConnectSyncResu
     { startMs, endMs: now },
   );
 
-  let synced = 0;
+  let workoutCount = 0;
   for (const s of sessions) {
     const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
     await upsertExternalWorkout({
@@ -120,10 +158,59 @@ export async function syncHealthConnectWorkouts(): Promise<HealthConnectSyncResu
       source: sourceLabel(s.sourcePackage),
       external_id: s.id,
     });
-    synced++;
+    workoutCount++;
+  }
+
+  // Sleep often spans midnight — pad the window start by a day so the night
+  // in progress at `startMs` is still picked up whole.
+  const { sessions: sleepSessions } = await invoke<{ sessions: HCSleepSession[] }>(
+    "plugin:health-connect|read_sleep_sessions",
+    { startMs: startMs - 24 * 3_600_000, endMs: now },
+  );
+
+  let sleepCount = 0;
+  for (const s of sleepSessions) {
+    const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
+    if (durationMin <= 0) continue;
+    await upsertSleepSession({
+      external_id: s.id,
+      started_at: new Date(s.startMs).toISOString(),
+      ended_at: new Date(s.endMs).toISOString(),
+      duration_min: durationMin,
+      deep_min: num(s.deepMin),
+      rem_min: num(s.remMin),
+      light_min: num(s.lightMin),
+      awake_min: num(s.awakeMin),
+      source: sourceLabel(s.sourcePackage),
+    });
+    sleepCount++;
+  }
+
+  // Daily aggregates are computed from the records inside the window — extend
+  // it back to local midnight so the first day is never a partial recount.
+  const windowStart = new Date(startMs);
+  windowStart.setHours(0, 0, 0, 0);
+  const { days } = await invoke<{ days: HCDailyMetric[] }>(
+    "plugin:health-connect|read_daily_metrics",
+    { startMs: windowStart.getTime(), endMs: now },
+  );
+
+  let dayCount = 0;
+  for (const d of days) {
+    await upsertHealthMetric({
+      day: d.day,
+      steps: num(d.steps) != null ? Math.round(d.steps as number) : null,
+      resting_hr: num(d.restingHr),
+      hrv_ms: num(d.hrvMs),
+      spo2_pct: num(d.spo2Pct),
+      weight_kg: num(d.weightKg),
+      vo2_max: num(d.vo2Max),
+      calories_total: num(d.caloriesTotal),
+    });
+    dayCount++;
   }
 
   await setSetting(SETTING_KEYS.healthConnectLastSyncAt, new Date(now).toISOString());
-  if (synced > 0) notifyDiaryChanged();
-  return { status, synced };
+  if (workoutCount > 0) notifyDiaryChanged();
+  return { status, workouts: workoutCount, sleep: sleepCount, days: dayCount };
 }

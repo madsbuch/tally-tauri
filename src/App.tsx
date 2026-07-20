@@ -4,13 +4,14 @@ import "./App.css";
 import DiaryPage from "./pages/DiaryPage";
 import NutrientsPage from "./pages/NutrientsPage";
 import FastingPage from "./pages/FastingPage";
+import AssistantPage from "./pages/AssistantPage";
 import SettingsPage from "./pages/SettingsPage";
 import { getDb } from "./lib/db";
 import { resyncFastNotification } from "./lib/fasting";
 import { resumePendingCaptures } from "./lib/agent";
-import { syncHealthConnectWorkouts } from "./lib/healthConnect";
+import { syncHealthConnect } from "./lib/healthConnect";
 
-type TabId = "diary" | "nutrients" | "fasting" | "settings";
+type TabId = "diary" | "nutrients" | "fasting" | "assistant" | "settings";
 
 const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
   {
@@ -50,6 +51,22 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
+    id: "assistant",
+    label: "Assistant",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path
+          d="M12 3.5c.7 3.8 2.7 5.8 6.5 6.5-3.8.7-5.8 2.7-6.5 6.5-.7-3.8-2.7-5.8-6.5-6.5 3.8-.7 5.8-2.7 6.5-6.5Z"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M18.5 14.5c.35 1.9 1.35 2.9 3.25 3.25-1.9.35-2.9 1.35-3.25 3.25-.35-1.9-1.35-2.9-3.25-3.25 1.9-.35 2.9-1.35 3.25-3.25Z"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     id: "settings",
     label: "Settings",
     icon: (
@@ -70,13 +87,13 @@ export default function App() {
   useEffect(() => {
     // Warm the DB (runs migrations), re-sync the fasting notification, resume
     // any captures whose background analysis was interrupted, and pull new
-    // Garmin/Health Connect workouts (no-op unless connected in Settings).
+    // Garmin/Health Connect data (no-op unless connected in Settings).
     getDb()
       .then(() =>
         Promise.all([
           resyncFastNotification(),
           resumePendingCaptures(),
-          syncHealthConnectWorkouts().catch((e) =>
+          syncHealthConnect().catch((e) =>
             console.warn("Health Connect sync failed", e),
           ),
         ]),
@@ -90,6 +107,7 @@ export default function App() {
         {tab === "diary" && <DiaryPage />}
         {tab === "nutrients" && <NutrientsPage />}
         {tab === "fasting" && <FastingPage />}
+        {tab === "assistant" && <AssistantPage />}
         {tab === "settings" && <SettingsPage />}
       </main>
       <nav className="tabbar">

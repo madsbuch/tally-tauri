@@ -193,7 +193,11 @@ export async function chatWithTools(
   messages: ChatMessage[],
   tools: ToolDef[],
 ): Promise<AssistantTurn> {
-  return requestChatTurn(apiKey, { model, messages, tools });
+  // Some providers reject an empty tools array — omit it instead.
+  return requestChatTurn(
+    apiKey,
+    tools.length > 0 ? { model, messages, tools } : { model, messages },
+  );
 }
 
 /** True when the model advertises OpenAI-style tool calling. */
