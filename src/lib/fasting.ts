@@ -3,7 +3,6 @@ import {
   cancel,
   isPermissionGranted,
   requestPermission,
-  sendNotification,
   Schedule,
 } from "@tauri-apps/plugin-notification";
 import type { Fast } from "./types";
@@ -11,6 +10,31 @@ import { getActiveFast, insertFast, markFastEnded } from "./db";
 
 /** Notification id for the scheduled "fast complete" alert. */
 const FAST_DONE_ID = 4218;
+
+function isAndroid(): boolean {
+  return navigator.userAgent.includes("Android");
+}
+
+/**
+ * Schedule the "fast complete" alert. Android only: the desktop plugin
+ * ignores `schedule` and would pop the notification immediately.
+ *
+ * The date is truncated to whole seconds: the Rust layer re-serializes it
+ * with 9 fractional digits and the Kotlin side leniently parses them all as
+ * milliseconds, so any sub-second part delays the alarm by up to ~11 days.
+ */
+async function scheduleCompletionAlert(end: Date, goalHours: number): Promise<void> {
+  if (!isAndroid()) return;
+  const alertAt = new Date(Math.floor(end.getTime() / 1000) * 1000);
+  await invoke("plugin:notification|notify", {
+    options: {
+      id: FAST_DONE_ID,
+      title: "Fast complete 🎉",
+      body: `You made it ${goalHours} hours. Break your fast gently.`,
+      schedule: Schedule.at(alertAt, false, true),
+    },
+  });
+}
 
 export async function ensureNotificationPermission(): Promise<boolean> {
   try {
@@ -20,6 +44,16 @@ export async function ensureNotificationPermission(): Promise<boolean> {
     console.warn("Notification permission check failed", e);
     return false;
   }
+}
+
+/** "15:17" for today, "Sat 15:17" otherwise — multi-day fasts need the day. */
+function formatEndLabel(end: Date): string {
+  const sameDay = end.toDateString() === new Date().toDateString();
+  return end.toLocaleString([], {
+    ...(sameDay ? {} : { weekday: "short" }),
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** End time of a fast as a Date. */
@@ -75,7 +109,7 @@ export async function startFast(goalHours: number): Promise<Fast> {
 
   const granted = await ensureNotificationPermission();
   if (granted) {
-    const endLabel = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const endLabel = formatEndLabel(end);
     try {
       await invoke("plugin:fasting|start_countdown", {
         endAtMs: end.getTime(),
@@ -86,12 +120,7 @@ export async function startFast(goalHours: number): Promise<Fast> {
       console.warn("Sticky countdown unavailable", e);
     }
     try {
-      sendNotification({
-        id: FAST_DONE_ID,
-        title: "Fast complete 🎉",
-        body: `You made it ${goalHours} hours. Break your fast gently.`,
-        schedule: Schedule.at(end, false, true),
-      });
+      await scheduleCompletionAlert(end, goalHours);
     } catch (e) {
       console.warn("Could not schedule completion notification", e);
     }
@@ -131,7 +160,7 @@ export async function resyncFastNotification(): Promise<void> {
   const end = fastEnd(active);
   if (end.getTime() <= Date.now()) return;
   if (!(await ensureNotificationPermission())) return;
-  const endLabel = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const endLabel = formatEndLabel(end);
   try {
     await invoke("plugin:fasting|start_countdown", {
       endAtMs: end.getTime(),
@@ -140,5 +169,18 @@ export async function resyncFastNotification(): Promise<void> {
     });
   } catch {
     /* desktop noop */
+  }
+  // Re-schedule the completion alert too: Android drops AlarmManager alarms
+  // when the app is force-stopped, and the plugin only restores them on boot.
+  // Same fixed id → replaces any existing pending alert (idempotent).
+  try {
+    await cancel([FAST_DONE_ID]);
+  } catch {
+    /* nothing scheduled */
+  }
+  try {
+    await scheduleCompletionAlert(end, active.goal_hours);
+  } catch (e) {
+    console.warn("Could not re-schedule completion notification", e);
   }
 }

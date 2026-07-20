@@ -17,15 +17,14 @@ import {
   startFast,
 } from "../lib/fasting";
 
-const PRESET_HOURS = [13, 16, 18, 20, 24];
+const PRESET_HOURS = [13, 16, 18, 24, 48, 72];
 const MIN_HOURS = 1;
-const MAX_HOURS = 72;
+const MAX_HOURS = 168;
 const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
 
 const RING_SIZE = 260;
 const RING_STROKE = 14;
-
-const TIME_FMT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
 
 /** Meter: single-ratio progress ring. Track = border gray, fill = accent. */
 function ProgressRing({
@@ -96,6 +95,43 @@ function formatStartStamp(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/**
+ * Day-aware duration: under 24h delegates to formatDuration ("H:MM" /
+ * "H:MM:SS"); at 24h and above prefixes whole days ("2d 23:47").
+ */
+function formatDurationDays(ms: number, withSeconds = false): string {
+  const clamped = Math.max(0, ms);
+  if (clamped < DAY_MS) return formatDuration(clamped, withSeconds);
+  const days = Math.floor(clamped / DAY_MS);
+  return `${days}d ${formatDuration(clamped - days * DAY_MS, withSeconds)}`;
+}
+
+/**
+ * Stat-tile timestamp that always carries the day: "Sat 15:17" normally,
+ * or "Jul 19 15:17" style when the fast spans more than 6 days (a weekday
+ * name would be ambiguous).
+ */
+function formatDayStamp(date: Date, longSpan: boolean): string {
+  return date.toLocaleString(
+    [],
+    longSpan
+      ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+      : { weekday: "short", hour: "numeric", minute: "2-digit" },
+  );
+}
+
+/** Trim a trailing ".0" from a one-decimal number string. */
+function oneDecimal(n: number): string {
+  return n.toFixed(1).replace(/\.0$/, "");
+}
+
+/** History label: hours up to 48h ("36.0h"), days with one decimal above ("2.5d"). */
+function formatAchieved(ms: number): string {
+  const hours = ms / HOUR_MS;
+  if (hours <= 48) return `${hours.toFixed(1)}h`;
+  return `${oneDecimal(hours / 24)}d`;
 }
 
 export default function FastingPage() {
@@ -238,12 +274,17 @@ export default function FastingPage() {
     const prog = fastProgress(active, now);
     const end = fastEnd(active);
     const overtimeMs = Math.max(0, prog.elapsedMs - active.goal_hours * HOUR_MS);
+    const longSpan = active.goal_hours > 6 * 24;
+    const goalLabel =
+      active.goal_hours >= 48
+        ? `of ${active.goal_hours}h goal (${oneDecimal(active.goal_hours / 24)} days)`
+        : `of ${active.goal_hours}h goal`;
     body = (
       <>
         <div className="ring-wrap">
           <ProgressRing fraction={prog.fraction}>
-            <div className="ring-center-value">{formatDuration(prog.elapsedMs, true)}</div>
-            <div className="ring-center-label">of {active.goal_hours}h goal</div>
+            <div className="ring-center-value">{formatDurationDays(prog.elapsedMs, true)}</div>
+            <div className="ring-center-label">{goalLabel}</div>
           </ProgressRing>
           {prog.done && (
             <div
@@ -257,7 +298,7 @@ export default function FastingPage() {
             >
               <span className="chip chip-accent">✓ Goal reached</span>
               <span className="muted small">
-                {formatDuration(overtimeMs, true)} past your goal — nicely done.
+                {formatDurationDays(overtimeMs, true)} past your goal — nicely done.
               </span>
             </div>
           )}
@@ -271,16 +312,16 @@ export default function FastingPage() {
         <div className="stat-grid" style={{ margin: "14px 0" }}>
           <div className="stat">
             <div className="stat-value">
-              {new Date(active.started_at).toLocaleTimeString([], TIME_FMT)}
+              {formatDayStamp(new Date(active.started_at), longSpan)}
             </div>
             <div className="stat-label">Started</div>
           </div>
           <div className="stat">
-            <div className="stat-value">{end.toLocaleTimeString([], TIME_FMT)}</div>
+            <div className="stat-value">{formatDayStamp(end, longSpan)}</div>
             <div className="stat-label">Ends</div>
           </div>
           <div className="stat">
-            <div className="stat-value">{formatDuration(prog.remainingMs)}</div>
+            <div className="stat-value">{formatDurationDays(prog.remainingMs)}</div>
             <div className="stat-label">Remaining</div>
           </div>
           <div className="stat">
@@ -408,13 +449,13 @@ export default function FastingPage() {
         <div className="list">
           {history.map((f) => {
             const achievedMs = f.ended_at
-              ? new Date(f.ended_at).getTime() - new Date(f.started_at).getTime()
+              ? Math.max(0, new Date(f.ended_at).getTime() - new Date(f.started_at).getTime())
               : 0;
             const hitGoal = achievedMs >= f.goal_hours * HOUR_MS - 1000;
             return (
               <div key={f.id} className="list-row">
                 <div className="row-main">
-                  <div className="row-title">{(achievedMs / HOUR_MS).toFixed(1)}h fast</div>
+                  <div className="row-title">{formatAchieved(achievedMs)} fast</div>
                   <div className="row-sub">{formatStartStamp(f.started_at)}</div>
                 </div>
                 <div className="row-end">

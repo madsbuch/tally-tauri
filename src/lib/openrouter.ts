@@ -45,7 +45,8 @@ export function promptPricePerMillion(m: ORModel): number | null {
   const p = m.pricing?.prompt;
   if (p == null) return null;
   const perToken = parseFloat(p);
-  if (!isFinite(perToken)) return null;
+  // "-1" is OpenRouter's variable-pricing sentinel — treat as unknown.
+  if (!isFinite(perToken) || perToken < 0) return null;
   return perToken * 1_000_000;
 }
 
@@ -59,7 +60,11 @@ interface ChatMessage {
 }
 
 interface ChatResponse {
-  choices?: { message?: { content?: string } }[];
+  choices?: {
+    message?: { content?: string };
+    finish_reason?: string;
+    error?: { message?: string; code?: number | string };
+  }[];
   error?: { message?: string; code?: number | string };
 }
 
@@ -83,7 +88,15 @@ export async function chat(
     const msg = json.error?.message ?? `HTTP ${res.status}`;
     throw new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
   }
-  const content = json.choices?.[0]?.message?.content;
+  const choice = json.choices?.[0];
+  // Providers can embed per-choice errors in HTTP 200 responses.
+  if (choice?.error || choice?.finish_reason === "error") {
+    throw new OpenRouterError(
+      `Model error: ${choice.error?.message ?? "provider returned an error"}`,
+      res.status,
+    );
+  }
+  const content = choice?.message?.content;
   if (typeof content !== "string" || content.length === 0) {
     throw new OpenRouterError("Model returned an empty response", res.status);
   }
@@ -171,6 +184,112 @@ export async function analyzeFood(opts: AnalyzeFoodOptions): Promise<FoodAnalysi
     description: typeof raw.description === "string" ? raw.description.trim() : "",
     confidence,
     nutrients,
+  };
+}
+
+export type PhotoAnalysis =
+  | { kind: "meal"; meal: FoodAnalysis }
+  | { kind: "workout"; workout: WorkoutAnalysis };
+
+export interface AnalyzePhotoOptions {
+  apiKey: string;
+  model: string;
+  /** JPEG data URL of whatever the user photographed. */
+  imageDataUrl?: string;
+  /** Optional user note. */
+  hint?: string;
+}
+
+/**
+ * One-shot photo understanding: the model decides whether the picture is FOOD
+ * (a meal/snack/drink) or a WORKOUT (screenshot of a fitness app / cardio
+ * machine display) and returns the matching analysis. Photo-first UX — the
+ * user never has to pick a category.
+ */
+export async function analyzePhoto(opts: AnalyzePhotoOptions): Promise<PhotoAnalysis> {
+  const { apiKey, model, imageDataUrl, hint } = opts;
+  if (!imageDataUrl && !hint) {
+    throw new Error("Provide a photo or a note to analyze");
+  }
+
+  const system = [
+    "You are a health-tracking assistant. First decide what the image (or note) shows:",
+    '- "meal": food or drink to be eaten -> estimate nutrition as a meticulous nutritionist (TOTAL amounts for the visible portion).',
+    '- "workout": a workout-app screenshot, sports watch or cardio-machine display -> extract the exercise session.',
+    "Respond with a SINGLE JSON object and nothing else - no markdown, no code fences.",
+    "Schema:",
+    `{"kind": "meal" | "workout",`,
+    `"title": string (short name, max 5 words),`,
+    `"description": string (1-2 sentences: what you see and your assumptions),`,
+    `"confidence": "low" | "medium" | "high",`,
+    `"nutrients": {${nutrientKeyDoc()}} (meal only; include keys you can estimate, omit the rest),`,
+    `"calories_burned": number (workout only; kcal, read exactly when shown, else estimate),`,
+    `"duration_min": number | null (workout only; total minutes)}`,
+    "If the image is ambiguous, pick the most likely kind and set confidence to \"low\".",
+  ].join("\n");
+
+  const parts: ContentPart[] = [
+    {
+      type: "text",
+      text: hint ? `Analyze this. Note from the user: ${hint}` : "Analyze this photo.",
+    },
+  ];
+  if (imageDataUrl) {
+    parts.push({ type: "image_url", image_url: { url: imageDataUrl } });
+  }
+
+  const content = await chat(apiKey, model, [
+    { role: "system", content: system },
+    { role: "user", content: parts },
+  ]);
+
+  const raw = extractJsonObject(content) as {
+    kind?: unknown;
+    title?: unknown;
+    description?: unknown;
+    confidence?: unknown;
+    nutrients?: unknown;
+    calories_burned?: unknown;
+    duration_min?: unknown;
+  };
+
+  const title =
+    typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Untitled";
+  const description = typeof raw.description === "string" ? raw.description.trim() : "";
+  const confidence =
+    raw.confidence === "low" || raw.confidence === "medium" || raw.confidence === "high"
+      ? raw.confidence
+      : "low";
+
+  if (raw.kind === "workout") {
+    const cal =
+      typeof raw.calories_burned === "string"
+        ? parseFloat(raw.calories_burned)
+        : raw.calories_burned;
+    const dur =
+      typeof raw.duration_min === "string" ? parseFloat(raw.duration_min) : raw.duration_min;
+    return {
+      kind: "workout",
+      workout: {
+        title: title === "Untitled" ? "Workout" : title,
+        description,
+        confidence,
+        calories_burned:
+          typeof cal === "number" && isFinite(cal) && cal >= 0 ? Math.round(cal) : 0,
+        duration_min:
+          typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null,
+      },
+    };
+  }
+
+  return {
+    kind: "meal",
+    meal: {
+      title: title === "Untitled" ? "Meal" : title,
+      description,
+      confidence,
+      nutrients: sanitizeNutrients(raw.nutrients),
+    },
   };
 }
 

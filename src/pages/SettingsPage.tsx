@@ -27,10 +27,10 @@ function errorMessage(e: unknown): string {
 
 /** "sk-or-…1234" style mask: recognizable head, last 4 chars. */
 function maskKey(key: string): string {
+  // Short keys would be fully revealed by head+tail — mask entirely.
+  if (key.length <= 8) return "••••";
   const tail = key.slice(-4);
-  const head = key.startsWith("sk-or-")
-    ? "sk-or-"
-    : key.slice(0, Math.min(4, Math.max(0, key.length - 4)));
+  const head = key.startsWith("sk-or-") ? "sk-or-" : key.slice(0, 4);
   return `${head}…${tail}`;
 }
 
@@ -117,6 +117,7 @@ export default function SettingsPage() {
   const [fastHours, setFastHours] = useState(String(DEFAULT_FAST_HOURS));
   const [fastSaved, setFastSaved] = useState(false);
   const fastSavedTimer = useRef<number | null>(null);
+  const lastFastHoursRef = useRef(String(DEFAULT_FAST_HOURS));
 
   const bootedRef = useRef(false);
 
@@ -153,7 +154,10 @@ export default function SettingsPage() {
         ]);
         setSavedKey(key);
         if (model) setSelectedModel(model);
-        if (hours) setFastHours(hours);
+        if (hours) {
+          setFastHours(hours);
+          lastFastHoursRef.current = hours;
+        }
         let cached: ORModel[] | null = null;
         if (cache) {
           try {
@@ -216,11 +220,19 @@ export default function SettingsPage() {
   }
 
   function commitFastHours() {
-    let n = parseFloat(fastHours);
-    if (!isFinite(n)) n = DEFAULT_FAST_HOURS;
-    n = Math.min(72, Math.max(1, Math.round(n)));
-    setFastHours(String(n));
-    void setSetting(SETTING_KEYS.fastDefaultHours, String(n)).then(() => {
+    const n = parseFloat(fastHours);
+    // Empty/invalid input: restore the last committed value, don't overwrite.
+    if (!isFinite(n)) {
+      setFastHours(lastFastHoursRef.current);
+      return;
+    }
+    // Fasts can be multi-day; keep fractional hours (0.5 steps).
+    const clamped = Math.min(168, Math.max(1, Math.round(n * 10) / 10));
+    const str = String(clamped);
+    setFastHours(str);
+    if (str === lastFastHoursRef.current) return;
+    lastFastHoursRef.current = str;
+    void setSetting(SETTING_KEYS.fastDefaultHours, str).then(() => {
       setFastSaved(true);
       if (fastSavedTimer.current != null) window.clearTimeout(fastSavedTimer.current);
       fastSavedTimer.current = window.setTimeout(() => setFastSaved(false), 1500);
@@ -438,8 +450,8 @@ export default function SettingsPage() {
               className="input"
               type="number"
               min={1}
-              max={72}
-              step={1}
+              max={168}
+              step={0.5}
               inputMode="numeric"
               value={fastHours}
               onChange={(e) => setFastHours(e.target.value)}
@@ -452,7 +464,7 @@ export default function SettingsPage() {
             )}
           </div>
           <p className="muted small" style={{ margin: "8px 2px 0" }}>
-            Used when starting a new fast (1–72 hours).
+            Used when starting a new fast (1–168 hours — multi-day fasts welcome).
           </p>
         </div>
       </div>
