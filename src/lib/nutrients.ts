@@ -96,6 +96,13 @@ export function formatAmount(key: NutrientKey, value: number): string {
   return `${clean} ${def.unit}`;
 }
 
+/** Net carbs (total carbs minus fiber, floored at 0), or null when carbs are unknown. */
+export function netCarbs(n: Nutrients): number | null {
+  const carbs = n.carbs_g;
+  if (carbs == null) return null;
+  return Math.max(0, carbs - (n.fiber_g ?? 0));
+}
+
 /** Omega-6 : omega-3 ratio, or null when omega-3 is zero/unknown. */
 export function omegaRatio(n: Nutrients): number | null {
   const o3 = n.omega3_g ?? 0;
