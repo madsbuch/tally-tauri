@@ -379,6 +379,9 @@ export default function FastingPage() {
     }
   }
 
+  // Hooks must run on every render — keep this above the loading return.
+  const records = useMemo(() => computeRecords(allFasts), [allFasts]);
+
   if (loading) {
     return (
       <div className="page">
@@ -391,8 +394,6 @@ export default function FastingPage() {
       </div>
     );
   }
-
-  const records = useMemo(() => computeRecords(allFasts), [allFasts]);
 
   // New fasts anchor to the last logged meal (when it falls inside the goal
   // window) — mirror resolveFastStart so the card can say what will happen.
