@@ -5,7 +5,8 @@ use tauri::{
 };
 
 use crate::models::{
-    HealthConnectStatus, PermissionResponse, ReadSessionsArgs, SessionsResponse,
+    DailyMetricsResponse, HealthConnectStatus, PermissionResponse, ReadSessionsArgs,
+    SessionsResponse, SleepResponse,
 };
 
 const PLUGIN_IDENTIFIER: &str = "com.madsbuch.tally.healthconnect";
@@ -35,6 +36,17 @@ impl<R: Runtime> HealthConnect<R> {
         args: ReadSessionsArgs,
     ) -> crate::Result<SessionsResponse> {
         Ok(self.0.run_mobile_plugin("readExerciseSessions", args)?)
+    }
+
+    pub fn read_sleep_sessions(&self, args: ReadSessionsArgs) -> crate::Result<SleepResponse> {
+        Ok(self.0.run_mobile_plugin("readSleepSessions", args)?)
+    }
+
+    pub fn read_daily_metrics(
+        &self,
+        args: ReadSessionsArgs,
+    ) -> crate::Result<DailyMetricsResponse> {
+        Ok(self.0.run_mobile_plugin("readDailyMetrics", args)?)
     }
 
     pub fn open_settings(&self) -> crate::Result<()> {

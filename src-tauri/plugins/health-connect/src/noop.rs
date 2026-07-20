@@ -2,7 +2,8 @@ use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
 use crate::models::{
-    HealthConnectStatus, PermissionResponse, ReadSessionsArgs, SessionsResponse,
+    DailyMetricsResponse, HealthConnectStatus, PermissionResponse, ReadSessionsArgs,
+    SessionsResponse, SleepResponse,
 };
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -32,6 +33,17 @@ impl<R: Runtime> HealthConnect<R> {
         _args: ReadSessionsArgs,
     ) -> crate::Result<SessionsResponse> {
         Ok(SessionsResponse { sessions: vec![] })
+    }
+
+    pub fn read_sleep_sessions(&self, _args: ReadSessionsArgs) -> crate::Result<SleepResponse> {
+        Ok(SleepResponse { sessions: vec![] })
+    }
+
+    pub fn read_daily_metrics(
+        &self,
+        _args: ReadSessionsArgs,
+    ) -> crate::Result<DailyMetricsResponse> {
+        Ok(DailyMetricsResponse { days: vec![] })
     }
 
     pub fn open_settings(&self) -> crate::Result<()> {

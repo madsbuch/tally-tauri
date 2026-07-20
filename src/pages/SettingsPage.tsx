@@ -18,7 +18,7 @@ import {
   getHealthConnectStatus,
   openHealthConnectSettings,
   requestHealthConnectPermissions,
-  syncHealthConnectWorkouts,
+  syncHealthConnect,
 } from "../lib/healthConnect";
 import type { HealthConnectStatus } from "../lib/healthConnect";
 
@@ -275,14 +275,24 @@ export default function SettingsPage() {
     setHcError(null);
     setHcMessage(null);
     try {
-      const res = await syncHealthConnectWorkouts();
+      const res = await syncHealthConnect();
       setHcStatus(res.status);
       const at = new Date().toISOString();
       setHcLastSync(at);
+      const parts: string[] = [];
+      if (res.workouts > 0) {
+        parts.push(`${res.workouts} workout${res.workouts === 1 ? "" : "s"}`);
+      }
+      if (res.sleep > 0) {
+        parts.push(`${res.sleep} night${res.sleep === 1 ? "" : "s"} of sleep`);
+      }
+      if (res.days > 0) {
+        parts.push(`${res.days} day${res.days === 1 ? "" : "s"} of health metrics`);
+      }
       setHcMessage(
-        res.synced === 0
-          ? "Up to date — no workouts in the sync window."
-          : `Synced ${res.synced} workout${res.synced === 1 ? "" : "s"}.`,
+        parts.length === 0
+          ? "Up to date — nothing new in the sync window."
+          : `Synced ${parts.join(", ")}.`,
       );
     } catch (e) {
       setHcError(errorMessage(e));
@@ -568,10 +578,10 @@ export default function SettingsPage() {
       <div className="card">
         <h2 className="card-title">Garmin watch sync</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
-          Pulls workouts (calories, distance, heart rate) that Garmin Connect
-          writes into Android Health Connect. Enable “Health Connect” in the
-          Garmin Connect app first, then connect Tally here. Everything stays
-          on this device.
+          Pulls workouts, sleep, steps, resting heart rate, HRV, blood oxygen,
+          weight, and VO2 max that Garmin Connect writes into Android Health
+          Connect. Enable “Health Connect” in the Garmin Connect app first,
+          then connect Tally here. Everything stays on this device.
         </p>
         {hcStatus === null ? (
           <div className="spinner" />
@@ -616,7 +626,7 @@ export default function SettingsPage() {
               </button>
             </div>
             <p className="faint small" style={{ margin: "10px 0 0" }}>
-              Workouts sync automatically when the app opens
+              Everything syncs automatically when the app opens
               {hcLastSync ? ` · last sync ${relativeTime(hcLastSync)}` : ""}.
               Synced entries are matched by their Health Connect id, so
               re-syncing never duplicates.

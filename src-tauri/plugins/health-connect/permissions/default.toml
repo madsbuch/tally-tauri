@@ -1,10 +1,12 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = "Allows querying Health Connect availability and reading exercise sessions"
+description = "Allows querying Health Connect availability and reading exercise, sleep, and daily wellness data"
 permissions = [
   "allow-get-status",
   "allow-request-permissions",
   "allow-read-exercise-sessions",
+  "allow-read-sleep-sessions",
+  "allow-read-daily-metrics",
   "allow-open-settings",
 ]

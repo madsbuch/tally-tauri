@@ -92,6 +92,46 @@ export const captures = sqliteTable(
   (t) => [index("idx_captures_day").on(t.day)],
 );
 
+/** Sleep sessions synced from Health Connect (written by e.g. Garmin Connect). */
+export const sleepSessions = sqliteTable(
+  "sleep_sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** Health Connect record UID for dedup. */
+    externalId: text("external_id").notNull(),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    durationMin: real("duration_min").notNull(),
+    deepMin: real("deep_min"),
+    remMin: real("rem_min"),
+    lightMin: real("light_min"),
+    awakeMin: real("awake_min"),
+    source: text("source"),
+  },
+  (t) => [
+    index("idx_sleep_sessions_started_at").on(t.startedAt),
+    uniqueIndex("idx_sleep_sessions_external_id").on(t.externalId),
+  ],
+);
+
+/**
+ * One row per local day of wellness metrics synced from Health Connect
+ * (steps, resting heart rate, HRV, SpO2, weight, VO2 max, total calories).
+ * Sparse — a column is null when nothing was recorded that day.
+ */
+export const healthMetrics = sqliteTable("health_metrics", {
+  /** Local day "YYYY-MM-DD". */
+  day: text("day").primaryKey(),
+  steps: integer("steps"),
+  restingHr: real("resting_hr"),
+  hrvMs: real("hrv_ms"),
+  spo2Pct: real("spo2_pct"),
+  weightKg: real("weight_kg"),
+  vo2Max: real("vo2_max"),
+  caloriesTotal: real("calories_total"),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const fasts = sqliteTable("fasts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   startedAt: text("started_at").notNull(),

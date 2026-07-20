@@ -11,7 +11,15 @@ import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
+import androidx.health.connect.client.records.Record
+import androidx.health.connect.client.records.RestingHeartRateRecord
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
+import androidx.health.connect.client.records.Vo2MaxRecord
+import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -24,6 +32,8 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.time.Instant
+import java.time.ZoneId
+import kotlin.reflect.KClass
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,7 +50,9 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Lazy so Health Connect classes are only touched on devices that use them.
-    private val readPermissions: Set<String> by lazy {
+    // Core permissions gate the "connected" state; the wellness ones are
+    // best-effort — a user can deny e.g. weight and workouts still sync.
+    private val corePermissions: Set<String> by lazy {
         setOf(
             HealthPermission.getReadPermission(ExerciseSessionRecord::class),
             HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
@@ -48,6 +60,19 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             HealthPermission.getReadPermission(DistanceRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class),
         )
+    }
+
+    private val readPermissions: Set<String> by lazy {
+        corePermissions +
+            setOf(
+                HealthPermission.getReadPermission(SleepSessionRecord::class),
+                HealthPermission.getReadPermission(StepsRecord::class),
+                HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+                HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
+                HealthPermission.getReadPermission(OxygenSaturationRecord::class),
+                HealthPermission.getReadPermission(WeightRecord::class),
+                HealthPermission.getReadPermission(Vo2MaxRecord::class),
+            )
     }
 
     private fun sdkAvailability(): Int =
@@ -76,7 +101,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 val granted = client().permissionController.getGrantedPermissions()
                 val res = JSObject()
                 res.put("availability", "available")
-                res.put("permissionsGranted", granted.containsAll(readPermissions))
+                res.put("permissionsGranted", granted.containsAll(corePermissions))
                 invoke.resolve(res)
             } catch (e: Exception) {
                 invoke.reject("Could not query Health Connect permissions: ${e.message}")
@@ -108,7 +133,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             try {
                 val granted = client().permissionController.getGrantedPermissions()
                 val res = JSObject()
-                res.put("granted", granted.containsAll(readPermissions))
+                res.put("granted", granted.containsAll(corePermissions))
                 invoke.resolve(res)
             } catch (e: Exception) {
                 invoke.reject("Could not verify Health Connect permissions: ${e.message}")
@@ -140,20 +165,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     Instant.ofEpochMilli(args.startMs),
                     Instant.ofEpochMilli(args.endMs),
                 )
-                val records = mutableListOf<ExerciseSessionRecord>()
-                var pageToken: String? = null
-                do {
-                    val response = hc.readRecords(
-                        ReadRecordsRequest(
-                            recordType = ExerciseSessionRecord::class,
-                            timeRangeFilter = filter,
-                            pageSize = 100,
-                            pageToken = pageToken,
-                        )
-                    )
-                    records += response.records
-                    pageToken = response.pageToken
-                } while (pageToken != null)
+                val records = readAll(hc, ExerciseSessionRecord::class, filter)
 
                 val sessions = JSArray()
                 for (record in records) sessions.put(sessionToJson(hc, record))
@@ -166,6 +178,187 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.reject("Could not read exercise sessions: ${e.message}")
             }
         }
+    }
+
+    /** Pages through every record of `type` in the window. */
+    private suspend fun <T : Record> readAll(
+        hc: HealthConnectClient,
+        type: KClass<T>,
+        filter: TimeRangeFilter,
+    ): List<T> {
+        val records = mutableListOf<T>()
+        var pageToken: String? = null
+        do {
+            val response = hc.readRecords(
+                ReadRecordsRequest(
+                    recordType = type,
+                    timeRangeFilter = filter,
+                    pageSize = 500,
+                    pageToken = pageToken,
+                )
+            )
+            records += response.records
+            pageToken = response.pageToken
+        } while (pageToken != null)
+        return records
+    }
+
+    /**
+     * Same, but an ungranted per-type permission yields an empty list instead
+     * of failing the whole call — wellness types are individually optional.
+     */
+    private suspend fun <T : Record> readAllOptional(
+        hc: HealthConnectClient,
+        type: KClass<T>,
+        filter: TimeRangeFilter,
+    ): List<T> =
+        try {
+            readAll(hc, type, filter)
+        } catch (_: SecurityException) {
+            emptyList()
+        }
+
+    @Command
+    fun readSleepSessions(invoke: Invoke) {
+        val args = invoke.parseArgs(ReadSessionsArgs::class.java)
+        if (sdkAvailability() != HealthConnectClient.SDK_AVAILABLE) {
+            invoke.reject("Health Connect is not available on this device")
+            return
+        }
+        scope.launch {
+            try {
+                val hc = client()
+                val filter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(args.startMs),
+                    Instant.ofEpochMilli(args.endMs),
+                )
+                val sessions = JSArray()
+                for (s in readAllOptional(hc, SleepSessionRecord::class, filter)) {
+                    sessions.put(sleepToJson(s))
+                }
+                val res = JSObject()
+                res.put("sessions", sessions)
+                invoke.resolve(res)
+            } catch (e: Exception) {
+                invoke.reject("Could not read sleep sessions: ${e.message}")
+            }
+        }
+    }
+
+    private fun sleepToJson(s: SleepSessionRecord): JSObject {
+        var deepMs = 0L
+        var remMs = 0L
+        var lightMs = 0L
+        var awakeMs = 0L
+        for (stage in s.stages) {
+            val ms = stage.endTime.toEpochMilli() - stage.startTime.toEpochMilli()
+            when (stage.stage) {
+                SleepSessionRecord.STAGE_TYPE_DEEP -> deepMs += ms
+                SleepSessionRecord.STAGE_TYPE_REM -> remMs += ms
+                SleepSessionRecord.STAGE_TYPE_LIGHT,
+                SleepSessionRecord.STAGE_TYPE_SLEEPING -> lightMs += ms
+                SleepSessionRecord.STAGE_TYPE_AWAKE,
+                SleepSessionRecord.STAGE_TYPE_AWAKE_IN_BED,
+                SleepSessionRecord.STAGE_TYPE_OUT_OF_BED -> awakeMs += ms
+            }
+        }
+        val obj = JSObject()
+        obj.put("id", s.metadata.id)
+        s.title?.takeIf { it.isNotBlank() }?.let { obj.put("title", it) }
+        obj.put("startMs", s.startTime.toEpochMilli())
+        obj.put("endMs", s.endTime.toEpochMilli())
+        if (deepMs > 0) obj.put("deepMin", deepMs / 60_000.0)
+        if (remMs > 0) obj.put("remMin", remMs / 60_000.0)
+        if (lightMs > 0) obj.put("lightMin", lightMs / 60_000.0)
+        if (awakeMs > 0) obj.put("awakeMin", awakeMs / 60_000.0)
+        obj.put("sourcePackage", s.metadata.dataOrigin.packageName)
+        return obj
+    }
+
+    @Command
+    fun readDailyMetrics(invoke: Invoke) {
+        val args = invoke.parseArgs(ReadSessionsArgs::class.java)
+        if (sdkAvailability() != HealthConnectClient.SDK_AVAILABLE) {
+            invoke.reject("Health Connect is not available on this device")
+            return
+        }
+        scope.launch {
+            try {
+                val hc = client()
+                val filter = TimeRangeFilter.between(
+                    Instant.ofEpochMilli(args.startMs),
+                    Instant.ofEpochMilli(args.endMs),
+                )
+                val zone = ZoneId.systemDefault()
+                fun dayOf(instant: Instant): String = instant.atZone(zone).toLocalDate().toString()
+                val byDay = sortedMapOf<String, DayAgg>()
+                fun agg(day: String): DayAgg = byDay.getOrPut(day) { DayAgg() }
+
+                for (r in readAllOptional(hc, StepsRecord::class, filter)) {
+                    val a = agg(dayOf(r.startTime))
+                    a.steps = (a.steps ?: 0L) + r.count
+                }
+                for (r in readAllOptional(hc, TotalCaloriesBurnedRecord::class, filter)) {
+                    val a = agg(dayOf(r.startTime))
+                    a.caloriesTotal = (a.caloriesTotal ?: 0.0) + r.energy.inKilocalories
+                }
+                for (r in readAllOptional(hc, RestingHeartRateRecord::class, filter)) {
+                    agg(dayOf(r.time)).restingHr.add(r.beatsPerMinute.toDouble())
+                }
+                for (r in readAllOptional(hc, HeartRateVariabilityRmssdRecord::class, filter)) {
+                    agg(dayOf(r.time)).hrvMs.add(r.heartRateVariabilityMillis)
+                }
+                for (r in readAllOptional(hc, OxygenSaturationRecord::class, filter)) {
+                    agg(dayOf(r.time)).spo2Pct.add(r.percentage.value)
+                }
+                // Point-in-time measurements: keep the latest reading of the day.
+                for (r in readAllOptional(hc, WeightRecord::class, filter).sortedBy { it.time }) {
+                    agg(dayOf(r.time)).weightKg = r.weight.inKilograms
+                }
+                for (r in readAllOptional(hc, Vo2MaxRecord::class, filter).sortedBy { it.time }) {
+                    agg(dayOf(r.time)).vo2Max = r.vo2MillilitersPerMinuteKilogram
+                }
+
+                val days = JSArray()
+                for ((day, a) in byDay) {
+                    val obj = JSObject()
+                    obj.put("day", day)
+                    a.steps?.let { obj.put("steps", it) }
+                    a.caloriesTotal?.let { obj.put("caloriesTotal", it) }
+                    a.restingHr.avg()?.let { obj.put("restingHr", it) }
+                    a.hrvMs.avg()?.let { obj.put("hrvMs", it) }
+                    a.spo2Pct.avg()?.let { obj.put("spo2Pct", it) }
+                    a.weightKg?.let { obj.put("weightKg", it) }
+                    a.vo2Max?.let { obj.put("vo2Max", it) }
+                    days.put(obj)
+                }
+                val res = JSObject()
+                res.put("days", days)
+                invoke.resolve(res)
+            } catch (e: Exception) {
+                invoke.reject("Could not read daily metrics: ${e.message}")
+            }
+        }
+    }
+
+    private class Samples {
+        private var sum = 0.0
+        private var count = 0
+        fun add(v: Double) {
+            sum += v
+            count++
+        }
+        fun avg(): Double? = if (count > 0) sum / count else null
+    }
+
+    private class DayAgg {
+        var steps: Long? = null
+        var caloriesTotal: Double? = null
+        var weightKg: Double? = null
+        var vo2Max: Double? = null
+        val restingHr = Samples()
+        val hrvMs = Samples()
+        val spo2Pct = Samples()
     }
 
     private suspend fun sessionToJson(
