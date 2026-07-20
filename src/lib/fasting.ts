@@ -6,7 +6,7 @@ import {
   Schedule,
 } from "@tauri-apps/plugin-notification";
 import type { Fast } from "./types";
-import { getActiveFast, insertFast, markFastEnded } from "./db";
+import { getActiveFast, getLastMealAt, insertFast, markFastEnded } from "./db";
 
 /** Notification id for the scheduled "fast complete" alert. */
 const FAST_DONE_ID = 4218;
@@ -182,15 +182,49 @@ export function formatDuration(ms: number, withSeconds = false): string {
   return `${h}:${mm}:${ss}`;
 }
 
+/** Where a new fast would be anchored. */
+export interface FastStart {
+  startedAt: Date;
+  /** True when the anchor is the last logged meal rather than "now". */
+  fromLastMeal: boolean;
+}
+
+/**
+ * Anchor for a new fast: the last logged meal, so a 24h goal counts time
+ * since that meal rather than since the button press. Falls back to "now"
+ * when no meal is logged, the meal is in the future (backdated entries), or
+ * it is older than the goal — an already-elapsed goal would complete the
+ * fast instantly, and a meal that stale likely predates unlogged eating.
+ */
+export async function resolveFastStart(
+  goalHours: number,
+  now = new Date(),
+): Promise<FastStart> {
+  try {
+    const lastMeal = await getLastMealAt();
+    if (lastMeal) {
+      const t = new Date(lastMeal).getTime();
+      if (isFinite(t) && t < now.getTime() && now.getTime() - t < goalHours * 3_600_000) {
+        return { startedAt: new Date(t), fromLastMeal: true };
+      }
+    }
+  } catch (e) {
+    console.warn("Could not look up last meal", e);
+  }
+  return { startedAt: now, fromLastMeal: false };
+}
+
 /**
  * Start a fast: persists it, posts the sticky live-countdown notification
- * (Android), and schedules a completion alert.
+ * (Android), and schedules a completion alert. The fast is anchored to the
+ * last logged meal (see resolveFastStart), so elapsed time, the countdown
+ * and the completion alert all track time since that meal.
  */
 export async function startFast(goalHours: number): Promise<Fast> {
   const active = await getActiveFast();
   if (active) throw new Error("A fast is already running");
 
-  const startedAt = new Date();
+  const { startedAt } = await resolveFastStart(goalHours);
   const fast = await insertFast(goalHours, startedAt.toISOString());
   const end = fastEnd(fast);
 

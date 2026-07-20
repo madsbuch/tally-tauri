@@ -4,6 +4,7 @@ import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
 import {
   deleteFast,
   getActiveFast,
+  getLastMealAt,
   getSetting,
   listRecentFasts,
   setSetting,
@@ -223,6 +224,7 @@ function StageTimeline({ elapsedMs }: { elapsedMs: number | null }) {
 export default function FastingPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Fast | null>(null);
+  const [lastMealAt, setLastMealAt] = useState<string | null>(null);
   const [history, setHistory] = useState<Fast[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notifWarn, setNotifWarn] = useState(false);
@@ -243,14 +245,16 @@ export default function FastingPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [fast, fasts, saved] = await Promise.all([
+        const [fast, fasts, saved, lastMeal] = await Promise.all([
           getActiveFast(),
           listRecentFasts(30),
           getSetting(SETTING_KEYS.fastDefaultHours),
+          getLastMealAt(),
         ]);
         if (cancelled) return;
         setActive(fast);
         setHistory(fasts);
+        setLastMealAt(lastMeal);
         const savedHours = saved != null ? parseFloat(saved) : NaN;
         if (isFinite(savedHours) && savedHours >= MIN_HOURS && savedHours <= MAX_HOURS) {
           if (PRESET_HOURS.includes(savedHours)) {
@@ -271,11 +275,11 @@ export default function FastingPage() {
     };
   }, []);
 
-  // 1s ticker while a fast is active.
+  // 1s ticker while a fast is active; slow tick while idle so the
+  // "time since last meal" label stays fresh.
   useEffect(() => {
-    if (!active) return;
     setNow(new Date());
-    const id = window.setInterval(() => setNow(new Date()), 1000);
+    const id = window.setInterval(() => setNow(new Date()), active ? 1000 : 60_000);
     return () => window.clearInterval(id);
   }, [active]);
 
@@ -324,6 +328,8 @@ export default function FastingPage() {
       setActive(null);
       setNotifWarn(false);
       await loadHistory();
+      // Meals logged during the fast move the anchor for the next one.
+      setLastMealAt(await getLastMealAt());
     } catch {
       setError("Could not end the fast.");
     } finally {
@@ -354,6 +360,15 @@ export default function FastingPage() {
       </div>
     );
   }
+
+  // New fasts anchor to the last logged meal (when it falls inside the goal
+  // window) — mirror resolveFastStart so the card can say what will happen.
+  const lastMealMs = lastMealAt ? now.getTime() - new Date(lastMealAt).getTime() : null;
+  const anchorsToMeal =
+    lastMealMs != null &&
+    lastMealMs > 0 &&
+    isFinite(chosenHours) &&
+    lastMealMs < chosenHours * HOUR_MS;
 
   let body: React.ReactNode;
   if (active) {
@@ -513,6 +528,23 @@ export default function FastingPage() {
         </button>
 
         <div className="muted small" style={{ marginTop: 10 }}>
+          {anchorsToMeal && lastMealAt && lastMealMs != null ? (
+            <>
+              Counts from your last meal at{" "}
+              {formatDayStamp(new Date(lastMealAt), lastMealMs > 6 * DAY_MS)} — you're
+              already {formatDurationDays(lastMealMs)} in.
+            </>
+          ) : lastMealMs != null && lastMealMs > 0 ? (
+            <>
+              Your last logged meal was {formatDurationDays(lastMealMs)} ago — longer than
+              this goal, so the fast starts from now.
+            </>
+          ) : (
+            <>No meals logged — the fast starts from now.</>
+          )}
+        </div>
+
+        <div className="muted small" style={{ marginTop: 6 }}>
           While fasting, a pinned notification shows the live time remaining — even when the
           app is closed.
         </div>
