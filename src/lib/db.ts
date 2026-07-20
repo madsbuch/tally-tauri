@@ -153,6 +153,16 @@ export async function listFoodEntriesForDay(day: string): Promise<FoodEntry[]> {
   return listFoodEntriesForRange(day, day);
 }
 
+/** ISO timestamp of the most recently eaten logged meal, or null if none. */
+export async function getLastMealAt(): Promise<string | null> {
+  const rows = await db
+    .select({ eatenAt: foodEntries.eatenAt })
+    .from(foodEntries)
+    .orderBy(desc(foodEntries.eatenAt))
+    .limit(1);
+  return rows[0]?.eatenAt ?? null;
+}
+
 /** Entries from local day `startDay` through `endDay`, both inclusive. */
 export async function listFoodEntriesForRange(
   startDay: string,
