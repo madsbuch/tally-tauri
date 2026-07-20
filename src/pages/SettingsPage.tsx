@@ -230,6 +230,12 @@ export default function SettingsPage() {
   const carbSavedTimer = useRef<number | null>(null);
   const lastCarbLimitRef = useRef(String(DEFAULT_KETO_NET_CARB_LIMIT_G));
 
+  // Calorie target ("" = no target set)
+  const [calTarget, setCalTarget] = useState("");
+  const [calSaved, setCalSaved] = useState(false);
+  const calSavedTimer = useRef<number | null>(null);
+  const lastCalTargetRef = useRef("");
+
   const bootedRef = useRef(false);
 
   async function refreshModels(silent: boolean) {
@@ -256,13 +262,14 @@ export default function SettingsPage() {
     bootedRef.current = true;
     (async () => {
       try {
-        const [key, model, cache, at, hours, carbs, hcAt] = await Promise.all([
+        const [key, model, cache, at, hours, carbs, kcal, hcAt] = await Promise.all([
           getSetting(SETTING_KEYS.openrouterApiKey),
           getSetting(SETTING_KEYS.visionModel),
           getSetting(SETTING_KEYS.modelsCache),
           getSetting(SETTING_KEYS.modelsCacheAt),
           getSetting(SETTING_KEYS.fastDefaultHours),
           getSetting(SETTING_KEYS.ketoNetCarbLimit),
+          getSetting(SETTING_KEYS.calorieTarget),
           getSetting(SETTING_KEYS.healthConnectLastSyncAt),
         ]);
         setHcLastSync(hcAt);
@@ -276,6 +283,10 @@ export default function SettingsPage() {
         if (carbs) {
           setCarbLimit(carbs);
           lastCarbLimitRef.current = carbs;
+        }
+        if (kcal) {
+          setCalTarget(kcal);
+          lastCalTargetRef.current = kcal;
         }
         let cached: ORModel[] | null = null;
         if (cache) {
@@ -299,6 +310,7 @@ export default function SettingsPage() {
     return () => {
       if (fastSavedTimer.current != null) window.clearTimeout(fastSavedTimer.current);
       if (carbSavedTimer.current != null) window.clearTimeout(carbSavedTimer.current);
+      if (calSavedTimer.current != null) window.clearTimeout(calSavedTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -508,6 +520,33 @@ export default function SettingsPage() {
       if (carbSavedTimer.current != null) window.clearTimeout(carbSavedTimer.current);
       carbSavedTimer.current = window.setTimeout(() => setCarbSaved(false), 1500);
     });
+  }
+
+  function commitCalorieTarget() {
+    const trimmed = calTarget.trim();
+    const flashSaved = () => {
+      setCalSaved(true);
+      if (calSavedTimer.current != null) window.clearTimeout(calSavedTimer.current);
+      calSavedTimer.current = window.setTimeout(() => setCalSaved(false), 1500);
+    };
+    // Empty clears the target and hides tracking on the Diary page.
+    if (!trimmed) {
+      if (lastCalTargetRef.current === "") return;
+      lastCalTargetRef.current = "";
+      void deleteSetting(SETTING_KEYS.calorieTarget).then(flashSaved);
+      return;
+    }
+    const n = parseFloat(trimmed);
+    if (!isFinite(n)) {
+      setCalTarget(lastCalTargetRef.current);
+      return;
+    }
+    const clamped = Math.min(10000, Math.max(500, Math.round(n)));
+    const str = String(clamped);
+    setCalTarget(str);
+    if (str === lastCalTargetRef.current) return;
+    lastCalTargetRef.current = str;
+    void setSetting(SETTING_KEYS.calorieTarget, str).then(flashSaved);
   }
 
   const visionModels = useMemo(() => {
@@ -915,6 +954,40 @@ export default function SettingsPage() {
 
       {/* Goals ------------------------------------------------------------- */}
       <div className="section-title">Goals</div>
+      <div className="card">
+        <h2 className="card-title">Calorie target</h2>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="label" htmlFor="calorie-target">
+            Daily target (kcal)
+          </label>
+          <div className="input-row" style={{ alignItems: "center" }}>
+            <input
+              id="calorie-target"
+              className="input"
+              type="number"
+              min={500}
+              max={10000}
+              step={50}
+              inputMode="numeric"
+              placeholder="No target"
+              value={calTarget}
+              onChange={(e) => setCalTarget(e.target.value)}
+              onBlur={commitCalorieTarget}
+            />
+            {calSaved && (
+              <span className="chip chip-accent" style={{ flex: "0 0 auto" }}>
+                Saved
+              </span>
+            )}
+          </div>
+          <p className="muted small" style={{ margin: "8px 2px 0" }}>
+            The Diary page tracks your net kcal (eaten − burned) against this
+            budget — daily, weekly (target × 7) and monthly (target × days in
+            the month). Leave empty for no target.
+          </p>
+        </div>
+      </div>
+
       <div className="card">
         <h2 className="card-title">Fasting</h2>
         <div className="field" style={{ marginBottom: 0 }}>

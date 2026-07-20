@@ -213,6 +213,8 @@ export const SETTING_KEYS = {
   /** Set once a sync ran WITH history permission — gates the one-time backfill. */
   healthConnectHistorySynced: "health_connect_history_synced",
   ketoNetCarbLimit: "keto_net_carb_limit_g",
+  /** Daily calorie budget (net kcal). Absent = no target set. */
+  calorieTarget: "calorie_target_kcal",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
