@@ -18,6 +18,13 @@ lives in a SQLite database on the device — there is no backend.
   (multi-day spans show per-day averages): energy in/burned/net, macro split,
   and every micronutrient against adult reference intakes, filterable by
   source (food vs supplements), with the omega-6:omega-3 ratio.
+- **Garmin / Health Connect sync** — workouts your watch records (calories,
+  distance, avg heart rate) flow in automatically via Android Health Connect.
+  Enable Health Connect in the Garmin Connect app, tap "Connect" in Tally's
+  settings, done: every app start pulls new exercise sessions into the diary
+  (deduped by Health Connect record id, so re-syncs never duplicate) and the
+  calories count against the day's energy math. Fully on-device — no Garmin
+  account access, no cloud.
 - **Fasting timer** — built for multi-day fasts (48 h/72 h presets, custom to
   168 h). A sticky Android notification shows a **live countdown**
   (chronometer-based: keeps ticking even when the app is killed) plus an
@@ -51,6 +58,13 @@ lives in a SQLite database on the device — there is no backend.
 - `src-tauri/plugins/fasting/` — custom Tauri mobile plugin (Rust + Kotlin).
   Posts an ongoing notification with `setUsesChronometer(true)` +
   `setChronometerCountDown(true)`; no-op on desktop/iOS.
+- `src-tauri/plugins/health-connect/` — custom Tauri mobile plugin (Rust +
+  Kotlin) over `androidx.health.connect:connect-client`. Commands: status /
+  permission request / read exercise sessions (with per-session aggregates
+  for calories, distance, avg HR); no-op on desktop/iOS. The sync logic lives
+  in `src/lib/healthConnect.ts` — it upserts sessions into `workouts` keyed
+  on the Health Connect record UID (`external_id` column) and runs on app
+  start plus on demand from Settings.
 - `src/lib/agent.ts` — the diary agent: captures are stored in a `captures`
   table, then a background tool-calling loop (OpenRouter `tools`) executes
   `log_meal`/`log_workout`/`log_supplement` against the local DB. Pick a

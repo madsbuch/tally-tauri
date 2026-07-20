@@ -21,6 +21,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0001_captures.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "garmin_workout_source",
+            sql: include_str!("../migrations/0002_garmin_workout_source.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -86,6 +92,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_fasting::init())
+        .plugin(tauri_plugin_health_connect::init())
         .invoke_handler(tauri::generate_handler![save_photo, read_photo, delete_photo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

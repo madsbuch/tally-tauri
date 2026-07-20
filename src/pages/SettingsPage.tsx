@@ -13,6 +13,13 @@ import {
   SETTING_KEYS,
 } from "../lib/types";
 import type { ORModel } from "../lib/types";
+import {
+  getHealthConnectStatus,
+  openHealthConnectSettings,
+  requestHealthConnectPermissions,
+  syncHealthConnectWorkouts,
+} from "../lib/healthConnect";
+import type { HealthConnectStatus } from "../lib/healthConnect";
 
 const MAX_LIST_ROWS = 40;
 
@@ -114,6 +121,13 @@ export default function SettingsPage() {
   const [search, setSearch] = useState("");
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_VISION_MODEL);
 
+  // Garmin / Health Connect
+  const [hcStatus, setHcStatus] = useState<HealthConnectStatus | null>(null);
+  const [hcLastSync, setHcLastSync] = useState<string | null>(null);
+  const [hcBusy, setHcBusy] = useState(false);
+  const [hcMessage, setHcMessage] = useState<string | null>(null);
+  const [hcError, setHcError] = useState<string | null>(null);
+
   // Fasting
   const [fastHours, setFastHours] = useState(String(DEFAULT_FAST_HOURS));
   const [fastSaved, setFastSaved] = useState(false);
@@ -146,13 +160,16 @@ export default function SettingsPage() {
     bootedRef.current = true;
     (async () => {
       try {
-        const [key, model, cache, at, hours] = await Promise.all([
+        const [key, model, cache, at, hours, hcAt] = await Promise.all([
           getSetting(SETTING_KEYS.openrouterApiKey),
           getSetting(SETTING_KEYS.visionModel),
           getSetting(SETTING_KEYS.modelsCache),
           getSetting(SETTING_KEYS.modelsCacheAt),
           getSetting(SETTING_KEYS.fastDefaultHours),
+          getSetting(SETTING_KEYS.healthConnectLastSyncAt),
         ]);
+        setHcLastSync(hcAt);
+        void getHealthConnectStatus().then(setHcStatus);
         setSavedKey(key);
         if (model) setSelectedModel(model);
         if (hours) {
@@ -238,6 +255,50 @@ export default function SettingsPage() {
       if (fastSavedTimer.current != null) window.clearTimeout(fastSavedTimer.current);
       fastSavedTimer.current = window.setTimeout(() => setFastSaved(false), 1500);
     });
+  }
+
+  async function runHcSync() {
+    setHcBusy(true);
+    setHcError(null);
+    setHcMessage(null);
+    try {
+      const res = await syncHealthConnectWorkouts();
+      setHcStatus(res.status);
+      const at = new Date().toISOString();
+      setHcLastSync(at);
+      setHcMessage(
+        res.synced === 0
+          ? "Up to date — no workouts in the sync window."
+          : `Synced ${res.synced} workout${res.synced === 1 ? "" : "s"}.`,
+      );
+    } catch (e) {
+      setHcError(errorMessage(e));
+    } finally {
+      setHcBusy(false);
+    }
+  }
+
+  async function connectHc() {
+    setHcBusy(true);
+    setHcError(null);
+    setHcMessage(null);
+    try {
+      const granted = await requestHealthConnectPermissions();
+      const status = await getHealthConnectStatus();
+      setHcStatus(status);
+      if (granted) {
+        await runHcSync();
+      } else {
+        setHcError(
+          "Permissions weren't granted. If no dialog appeared, grant Tally access " +
+            "manually in the Health Connect app (App permissions → Tally).",
+        );
+      }
+    } catch (e) {
+      setHcError(errorMessage(e));
+    } finally {
+      setHcBusy(false);
+    }
   }
 
   const visionModels = useMemo(() => {
@@ -469,6 +530,77 @@ export default function SettingsPage() {
             Used when starting a new fast (1–168 hours — multi-day fasts welcome).
           </p>
         </div>
+      </div>
+
+      {/* Garmin / Health Connect ------------------------------------------- */}
+      <div className="card">
+        <h2 className="card-title">Garmin watch sync</h2>
+        <p className="muted small" style={{ margin: "0 0 10px" }}>
+          Pulls workouts (calories, distance, heart rate) that Garmin Connect
+          writes into Android Health Connect. Enable “Health Connect” in the
+          Garmin Connect app first, then connect Tally here. Everything stays
+          on this device.
+        </p>
+        {hcStatus === null ? (
+          <div className="spinner" />
+        ) : hcStatus.availability === "unavailable" ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            Health Connect isn’t available here — it needs an Android phone
+            with the Health Connect app (built into Android 14+).
+          </p>
+        ) : hcStatus.availability === "updateRequired" ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            The Health Connect app needs an update before Tally can read from
+            it. Update it in the Play Store, then come back.
+          </p>
+        ) : !hcStatus.permissionsGranted ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => void connectHc()}
+              disabled={hcBusy}
+            >
+              Connect Health Connect
+            </button>
+            {hcBusy && <div className="spinner" />}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span className="chip chip-accent">✓ Connected</span>
+              <button
+                className="btn btn-sm"
+                onClick={() => void runHcSync()}
+                disabled={hcBusy}
+              >
+                Sync now
+              </button>
+              {hcBusy && <div className="spinner" />}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => void openHealthConnectSettings().catch(() => {})}
+              >
+                Open Health Connect
+              </button>
+            </div>
+            <p className="faint small" style={{ margin: "10px 0 0" }}>
+              Workouts sync automatically when the app opens
+              {hcLastSync ? ` · last sync ${relativeTime(hcLastSync)}` : ""}.
+              Synced entries are matched by their Health Connect id, so
+              re-syncing never duplicates.
+            </p>
+          </>
+        )}
+        {hcMessage && (
+          <p className="muted small" style={{ margin: "8px 0 0" }}>
+            {hcMessage}
+          </p>
+        )}
+        {hcError && (
+          <div className="error-text" style={{ marginTop: 8 }}>
+            {hcError}
+          </div>
+        )}
       </div>
 
       {/* About ------------------------------------------------------------- */}

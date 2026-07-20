@@ -112,6 +112,10 @@ export interface Workout {
   calories_burned: number;
   duration_min: number | null;
   model_id: string | null;
+  /** Where the workout came from, e.g. "Garmin" — null = manual/agent entry. */
+  source: string | null;
+  /** Stable id in the external system (Health Connect record UID) for dedup. */
+  external_id: string | null;
 }
 
 /** Result of an AI food-photo analysis. */
@@ -159,6 +163,7 @@ export const SETTING_KEYS = {
   modelsCache: "models_cache",
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
+  healthConnectLastSyncAt: "health_connect_last_sync_at",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

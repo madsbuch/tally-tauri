@@ -486,8 +486,17 @@ function WorkoutDetailSheet({
         </div>
         <div className="muted small" style={{ marginBottom: 8 }}>
           {timeOf(workout.performed_at)}
-          {workout.model_id ? ` · imported by ${workout.model_id}` : " · manual entry"}
+          {workout.source
+            ? ` · synced from ${workout.source}`
+            : workout.model_id
+              ? ` · imported by ${workout.model_id}`
+              : " · manual entry"}
         </div>
+        {workout.source && (
+          <div className="faint small" style={{ marginBottom: 8 }}>
+            Edits may be overwritten by the next {workout.source} sync.
+          </div>
+        )}
         {workout.description && (
           <div className="muted small" style={{ marginBottom: 8 }}>
             {workout.description}
@@ -1860,12 +1869,16 @@ export default function DiaryPage() {
                         if (ev.key === "Enter") setDetail(item);
                       }}
                     >
-                      <GlyphThumb glyph="🏃" />
+                      <GlyphThumb glyph={w.source ? "⌚" : "🏃"} />
                       <div className="row-main">
                         <div className="row-title">{w.title}</div>
                         <div className="row-sub">
                           {timeOf(w.performed_at)}
-                          {w.model_id ? " · AI import" : " · manual"}
+                          {w.source
+                            ? ` · ${w.source}`
+                            : w.model_id
+                              ? " · AI import"
+                              : " · manual"}
                         </div>
                         <div className="chips" style={{ marginTop: 6 }}>
                           <span className="chip chip-accent">

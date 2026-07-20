@@ -1,4 +1,11 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import type { Nutrients } from "../lib/types";
 
 export const settings = sqliteTable("settings", {
@@ -31,8 +38,15 @@ export const workouts = sqliteTable(
     caloriesBurned: real("calories_burned").notNull().default(0),
     durationMin: real("duration_min"),
     modelId: text("model_id"),
+    /** Where the workout came from, e.g. "Garmin" — null = manual/agent entry. */
+    source: text("source"),
+    /** Stable id in the external system (Health Connect record UID) for dedup. */
+    externalId: text("external_id"),
   },
-  (t) => [index("idx_workouts_performed_at").on(t.performedAt)],
+  (t) => [
+    index("idx_workouts_performed_at").on(t.performedAt),
+    uniqueIndex("idx_workouts_external_id").on(t.externalId),
+  ],
 );
 
 export const supplements = sqliteTable("supplements", {
