@@ -72,6 +72,9 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 HealthPermission.getReadPermission(OxygenSaturationRecord::class),
                 HealthPermission.getReadPermission(WeightRecord::class),
                 HealthPermission.getReadPermission(Vo2MaxRecord::class),
+                // Without this, Health Connect only serves data written in the
+                // 30 days before the first permission grant.
+                HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY,
             )
     }
 
@@ -93,6 +96,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             val res = JSObject()
             res.put("availability", availability)
             res.put("permissionsGranted", false)
+            res.put("historyGranted", false)
             invoke.resolve(res)
             return
         }
@@ -102,6 +106,10 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 val res = JSObject()
                 res.put("availability", "available")
                 res.put("permissionsGranted", granted.containsAll(corePermissions))
+                res.put(
+                    "historyGranted",
+                    granted.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY),
+                )
                 invoke.resolve(res)
             } catch (e: Exception) {
                 invoke.reject("Could not query Health Connect permissions: ${e.message}")

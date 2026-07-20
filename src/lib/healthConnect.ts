@@ -22,6 +22,11 @@ export type HealthConnectAvailability = "available" | "updateRequired" | "unavai
 export interface HealthConnectStatus {
   availability: HealthConnectAvailability;
   permissionsGranted: boolean;
+  /**
+   * READ_HEALTH_DATA_HISTORY granted — without it Health Connect only serves
+   * data written in the 30 days before the first permission grant.
+   */
+  historyGranted: boolean;
 }
 
 interface HCExerciseSession {
@@ -59,8 +64,10 @@ interface HCDailyMetric {
   vo2Max?: number | null;
 }
 
-/** Health Connect only serves apps ~30 days of history. */
-const MAX_WINDOW_MS = 30 * 24 * 3_600_000;
+/** Without history permission, Health Connect serves ~30 days of history. */
+const DEFAULT_WINDOW_MS = 30 * 24 * 3_600_000;
+/** With READ_HEALTH_DATA_HISTORY granted, pull up to a year back. */
+const HISTORY_WINDOW_MS = 365 * 24 * 3_600_000;
 /**
  * Re-read this far behind the last sync: the watch may upload an activity
  * hours after it happened, and edits in Garmin Connect should flow through.
@@ -69,10 +76,11 @@ const SYNC_OVERLAP_MS = 48 * 3_600_000;
 
 export async function getHealthConnectStatus(): Promise<HealthConnectStatus> {
   try {
-    return await invoke<HealthConnectStatus>("plugin:health-connect|get_status");
+    const s = await invoke<HealthConnectStatus>("plugin:health-connect|get_status");
+    return { ...s, historyGranted: s.historyGranted ?? false };
   } catch (e) {
     console.warn("Health Connect status check failed", e);
-    return { availability: "unavailable", permissionsGranted: false };
+    return { availability: "unavailable", permissionsGranted: false, historyGranted: false };
   }
 }
 
@@ -134,10 +142,15 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
   const now = Date.now();
   const last = await getSetting(SETTING_KEYS.healthConnectLastSyncAt);
   const lastMs = last ? new Date(last).getTime() : NaN;
-  const startMs = Math.max(
-    now - MAX_WINDOW_MS,
-    isFinite(lastMs) ? lastMs - SYNC_OVERLAP_MS : 0,
-  );
+  const windowMs = status.historyGranted ? HISTORY_WINDOW_MS : DEFAULT_WINDOW_MS;
+  // When history access appears (first grant, or granted later in Health
+  // Connect), re-read the whole window once instead of resuming incrementally
+  // — the newly readable past would otherwise stay invisible forever.
+  const historyBackfilled = await getSetting(SETTING_KEYS.healthConnectHistorySynced);
+  const fullResync = status.historyGranted && !historyBackfilled;
+  const startMs = fullResync
+    ? now - windowMs
+    : Math.max(now - windowMs, isFinite(lastMs) ? lastMs - SYNC_OVERLAP_MS : 0);
 
   const { sessions } = await invoke<{ sessions: HCExerciseSession[] }>(
     "plugin:health-connect|read_exercise_sessions",
@@ -211,6 +224,9 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
   }
 
   await setSetting(SETTING_KEYS.healthConnectLastSyncAt, new Date(now).toISOString());
+  if (status.historyGranted) {
+    await setSetting(SETTING_KEYS.healthConnectHistorySynced, "1");
+  }
   if (workoutCount > 0) notifyDiaryChanged();
   return { status, workouts: workoutCount, sleep: sleepCount, days: dayCount };
 }

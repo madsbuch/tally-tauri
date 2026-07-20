@@ -21,6 +21,7 @@ impl<R: Runtime> HealthConnect<R> {
         Ok(HealthConnectStatus {
             availability: "unavailable".into(),
             permissions_granted: false,
+            history_granted: false,
         })
     }
 

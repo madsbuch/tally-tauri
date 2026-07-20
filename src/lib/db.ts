@@ -281,6 +281,16 @@ export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
   return listWorkoutsForRange(day, day);
 }
 
+/** Every workout synced from an external source (Garmin etc.), newest first. */
+export async function listSyncedWorkouts(): Promise<Workout[]> {
+  const rows = await db
+    .select()
+    .from(workouts)
+    .where(isNotNull(workouts.source))
+    .orderBy(desc(workouts.performedAt));
+  return rows.map(toWorkout);
+}
+
 /** Workouts from local day `startDay` through `endDay`, both inclusive. */
 export async function listWorkoutsForRange(
   startDay: string,
@@ -336,6 +346,15 @@ export async function upsertSleepSession(
     .insert(sleepSessions)
     .values(values)
     .onConflictDoUpdate({ target: sleepSessions.externalId, set: values });
+}
+
+/** Every sleep session ever synced, newest first. */
+export async function listAllSleepSessions(): Promise<SleepSession[]> {
+  const rows = await db
+    .select()
+    .from(sleepSessions)
+    .orderBy(desc(sleepSessions.startedAt));
+  return rows.map(toSleepSession);
 }
 
 /**
@@ -410,6 +429,15 @@ export async function upsertHealthMetric(
         updatedAt,
       },
     });
+}
+
+/** Every day of synced metrics, newest first. */
+export async function listAllHealthMetrics(): Promise<HealthMetric[]> {
+  const rows = await db
+    .select()
+    .from(healthMetrics)
+    .orderBy(desc(healthMetrics.day));
+  return rows.map(toHealthMetric);
 }
 
 /** Metrics from local day `startDay` through `endDay`, both inclusive. */

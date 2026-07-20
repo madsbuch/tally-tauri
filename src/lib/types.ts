@@ -210,6 +210,8 @@ export const SETTING_KEYS = {
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
   healthConnectLastSyncAt: "health_connect_last_sync_at",
+  /** Set once a sync ran WITH history permission — gates the one-time backfill. */
+  healthConnectHistorySynced: "health_connect_history_synced",
   ketoNetCarbLimit: "keto_net_carb_limit_g",
 } as const;
 

@@ -119,6 +119,16 @@ function contentToText(content: unknown): string | null {
   return null;
 }
 
+export interface ChatOptions {
+  /**
+   * Return an empty turn instead of retrying/failing when the model produces
+   * an empty completion. Agent loops set this once something has already been
+   * delivered/logged: models signal "I'm done" with an empty response, and
+   * treating that as an error surfaces a bogus failure after a good answer.
+   */
+  allowEmpty?: boolean;
+}
+
 /**
  * POST /chat/completions with a per-request timeout and automatic retries
  * (exponential backoff) on network failures, retryable HTTP statuses,
@@ -128,6 +138,7 @@ function contentToText(content: unknown): string | null {
 async function requestChatTurn(
   apiKey: string,
   body: Record<string, unknown>,
+  opts: ChatOptions = {},
 ): Promise<AssistantTurn> {
   let lastError: Error = new OpenRouterError("OpenRouter request failed", 0);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -169,6 +180,7 @@ async function requestChatTurn(
       const content = contentToText(choice.message?.content);
       const tool_calls = choice.message?.tool_calls ?? [];
       if ((content == null || content.trim() === "") && tool_calls.length === 0) {
+        if (opts.allowEmpty) return { content: null, tool_calls: [] };
         lastError = new OpenRouterError("Model returned an empty response", res.status);
         continue;
       }
@@ -192,11 +204,13 @@ export async function chatWithTools(
   model: string,
   messages: ChatMessage[],
   tools: ToolDef[],
+  opts: ChatOptions = {},
 ): Promise<AssistantTurn> {
   // Some providers reject an empty tools array — omit it instead.
   return requestChatTurn(
     apiKey,
     tools.length > 0 ? { model, messages, tools } : { model, messages },
+    opts,
   );
 }
 
