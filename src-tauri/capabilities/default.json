@@ -16,7 +16,10 @@
     "share:default",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://openrouter.ai/*" }]
+      "allow": [
+        { "url": "https://openrouter.ai/*" },
+        { "url": "https://world.openfoodfacts.org/*" }
+      ]
     }
   ]
 }
