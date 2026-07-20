@@ -80,6 +80,25 @@ fn delete_photo(app: tauri::AppHandle, filename: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Prepares a destination path for a database export: clears old exports and
+/// returns the absolute path the frontend should `VACUUM INTO` (the snapshot
+/// itself must be written by SQLite for consistency with the live WAL).
+#[tauri::command]
+fn prepare_db_export(app: tauri::AppHandle, file_name: String) -> Result<String, String> {
+    if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+        return Err("invalid file name".into());
+    }
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("exports");
+    // VACUUM INTO refuses to overwrite; start from an empty dir.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join(file_name).to_string_lossy().into_owned())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -93,7 +112,13 @@ pub fn run() {
         )
         .plugin(tauri_plugin_fasting::init())
         .plugin(tauri_plugin_health_connect::init())
-        .invoke_handler(tauri::generate_handler![save_photo, read_photo, delete_photo])
+        .plugin(tauri_plugin_share::init())
+        .invoke_handler(tauri::generate_handler![
+            save_photo,
+            read_photo,
+            delete_photo,
+            prepare_db_export
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

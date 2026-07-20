@@ -21,6 +21,7 @@ import {
   syncHealthConnectWorkouts,
 } from "../lib/healthConnect";
 import type { HealthConnectStatus } from "../lib/healthConnect";
+import { exportDatabase } from "../lib/exportDb";
 
 const MAX_LIST_ROWS = 40;
 
@@ -121,6 +122,8 @@ export default function SettingsPage() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_VISION_MODEL);
+  // The model list is long — keep it tucked away until explicitly opened.
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   // Garmin / Health Connect
   const [hcStatus, setHcStatus] = useState<HealthConnectStatus | null>(null);
@@ -128,6 +131,11 @@ export default function SettingsPage() {
   const [hcBusy, setHcBusy] = useState(false);
   const [hcMessage, setHcMessage] = useState<string | null>(null);
   const [hcError, setHcError] = useState<string | null>(null);
+
+  // Database export
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   // Fasting
   const [fastHours, setFastHours] = useState(String(DEFAULT_FAST_HOURS));
@@ -247,7 +255,26 @@ export default function SettingsPage() {
   async function selectModel(id: string) {
     setSelectedModel(id);
     setTest({ status: "idle" });
+    setShowModelPicker(false);
     await setSetting(SETTING_KEYS.visionModel, id);
+  }
+
+  async function runExport() {
+    setExporting(true);
+    setExportMsg(null);
+    setExportErr(null);
+    try {
+      const res = await exportDatabase();
+      setExportMsg(
+        res.shared
+          ? "Snapshot ready — pick where to send it in the share sheet."
+          : `Snapshot saved to ${res.path}`,
+      );
+    } catch (e) {
+      setExportErr(errorMessage(e));
+    } finally {
+      setExporting(false);
+    }
   }
 
   function commitFastHours() {
@@ -376,9 +403,14 @@ export default function SettingsPage() {
         <h1 className="page-title">Settings</h1>
       </header>
 
-      {/* OpenRouter ------------------------------------------------------- */}
+      {/* AI analysis ------------------------------------------------------ */}
+      <div className="section-title">AI analysis</div>
       <div className="card">
-        <h2 className="card-title">OpenRouter</h2>
+        <h2 className="card-title">OpenRouter API key</h2>
+        <p className="muted small" style={{ margin: "0 0 10px" }}>
+          Powers the photo diary: captures are sent to an AI model of your
+          choice for analysis. Create a key at openrouter.ai/keys.
+        </p>
         <div className="field">
           <label className="label" htmlFor="or-key">
             API key
@@ -440,17 +472,13 @@ export default function SettingsPage() {
           </div>
         )}
         <p className="muted small" style={{ margin: "12px 0 0" }}>
-          Stored only on this device. Create keys at openrouter.ai/keys.
+          Stored only on this device.
         </p>
       </div>
 
       {/* Vision model ------------------------------------------------------ */}
       <div className="card">
         <h2 className="card-title">Vision model</h2>
-        <p className="muted small" style={{ margin: "0 0 10px" }}>
-          Analyzes your captures and logs diary entries. Vision models with tool
-          calling — the diary agent needs both.
-        </p>
         <div
           className="list-row"
           style={{ background: "var(--bg-elev)", marginBottom: 10 }}
@@ -461,110 +489,97 @@ export default function SettingsPage() {
               {selectedInfo ? modelSub(selectedInfo) : "Not in cached list"}
             </div>
           </div>
-          <div className="row-end" style={{ color: "var(--accent)", fontWeight: 700 }}>
-            ✓
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
           <button
-            className="btn btn-sm"
-            onClick={() => void refreshModels(false)}
-            disabled={refreshing}
+            className="btn btn-ghost btn-sm"
+            style={{ flex: "0 0 auto" }}
+            onClick={() => setShowModelPicker((v) => !v)}
           >
-            Refresh models
+            {showModelPicker ? "Done" : "Change"}
           </button>
-          {refreshing ? (
-            <div className="spinner" />
-          ) : (
-            models.length > 0 &&
-            cacheAt && (
-              <span className="faint small">
-                {models.length} models · refreshed {relativeTime(cacheAt)}
-              </span>
-            )
-          )}
         </div>
-        {refreshError && (
-          <div className="error-text" style={{ marginBottom: 8 }}>
-            {refreshError}
-          </div>
-        )}
-        <div className="field" style={{ marginBottom: 8 }}>
-          <input
-            className="input"
-            placeholder="Search vision models…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </div>
-        {visionModels.length === 0 ? (
-          refreshing ? (
-            <div className="empty">
-              <div className="spinner" style={{ margin: "0 auto" }} />
-            </div>
-          ) : (
-            <div className="empty">
-              <div className="empty-icon">📡</div>
-              No models cached yet. Tap “Refresh models”.
-            </div>
-          )
-        ) : shown.length === 0 ? (
-          <div className="empty">No vision models match “{search.trim()}”.</div>
+        {!showModelPicker ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            The model that analyzes your captures. Only vision models with tool
+            calling are listed — the diary agent needs both.
+          </p>
         ) : (
-          <div className="list">
-            {shown.map((m) => (
-              <ModelRow
-                key={m.id}
-                model={m}
-                selected={m.id === selectedModel}
-                onSelect={(id) => void selectModel(id)}
-              />
-            ))}
-            {hiddenCount > 0 && (
-              <div className="faint small" style={{ textAlign: "center", padding: "6px 0" }}>
-                …and {hiddenCount} more — refine your search
+          <>
+            <div
+              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}
+            >
+              <button
+                className="btn btn-sm"
+                onClick={() => void refreshModels(false)}
+                disabled={refreshing}
+              >
+                Refresh models
+              </button>
+              {refreshing ? (
+                <div className="spinner" />
+              ) : (
+                models.length > 0 &&
+                cacheAt && (
+                  <span className="faint small">
+                    {models.length} models · refreshed {relativeTime(cacheAt)}
+                  </span>
+                )
+              )}
+            </div>
+            {refreshError && (
+              <div className="error-text" style={{ marginBottom: 8 }}>
+                {refreshError}
               </div>
             )}
-          </div>
-        )}
-      </div>
-
-      {/* Fasting ----------------------------------------------------------- */}
-      <div className="card">
-        <h2 className="card-title">Fasting</h2>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label className="label" htmlFor="fast-hours">
-            Default goal hours
-          </label>
-          <div className="input-row" style={{ alignItems: "center" }}>
-            <input
-              id="fast-hours"
-              className="input"
-              type="number"
-              min={1}
-              max={168}
-              step={0.5}
-              inputMode="numeric"
-              value={fastHours}
-              onChange={(e) => setFastHours(e.target.value)}
-              onBlur={commitFastHours}
-            />
-            {fastSaved && (
-              <span className="chip chip-accent" style={{ flex: "0 0 auto" }}>
-                Saved
-              </span>
+            <div className="field" style={{ marginBottom: 8 }}>
+              <input
+                className="input"
+                placeholder="Search vision models…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+            {visionModels.length === 0 ? (
+              refreshing ? (
+                <div className="empty">
+                  <div className="spinner" style={{ margin: "0 auto" }} />
+                </div>
+              ) : (
+                <div className="empty">
+                  <div className="empty-icon">📡</div>
+                  No models cached yet. Tap “Refresh models”.
+                </div>
+              )
+            ) : shown.length === 0 ? (
+              <div className="empty">No vision models match “{search.trim()}”.</div>
+            ) : (
+              <div className="list">
+                {shown.map((m) => (
+                  <ModelRow
+                    key={m.id}
+                    model={m}
+                    selected={m.id === selectedModel}
+                    onSelect={(id) => void selectModel(id)}
+                  />
+                ))}
+                {hiddenCount > 0 && (
+                  <div
+                    className="faint small"
+                    style={{ textAlign: "center", padding: "6px 0" }}
+                  >
+                    …and {hiddenCount} more — refine your search
+                  </div>
+                )}
+              </div>
             )}
-          </div>
-          <p className="muted small" style={{ margin: "8px 2px 0" }}>
-            Used when starting a new fast (1–168 hours — multi-day fasts welcome).
-          </p>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Garmin / Health Connect ------------------------------------------- */}
+      <div className="section-title">Watch sync</div>
       <div className="card">
         <h2 className="card-title">Garmin watch sync</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
@@ -635,7 +650,39 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Keto -------------------------------------------------------------- */}
+      {/* Goals ------------------------------------------------------------- */}
+      <div className="section-title">Goals</div>
+      <div className="card">
+        <h2 className="card-title">Fasting</h2>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="label" htmlFor="fast-hours">
+            Default goal hours
+          </label>
+          <div className="input-row" style={{ alignItems: "center" }}>
+            <input
+              id="fast-hours"
+              className="input"
+              type="number"
+              min={1}
+              max={168}
+              step={0.5}
+              inputMode="numeric"
+              value={fastHours}
+              onChange={(e) => setFastHours(e.target.value)}
+              onBlur={commitFastHours}
+            />
+            {fastSaved && (
+              <span className="chip chip-accent" style={{ flex: "0 0 auto" }}>
+                Saved
+              </span>
+            )}
+          </div>
+          <p className="muted small" style={{ margin: "8px 2px 0" }}>
+            Used when starting a new fast (1–168 hours — multi-day fasts welcome).
+          </p>
+        </div>
+      </div>
+
       <div className="card">
         <h2 className="card-title">Keto</h2>
         <div className="field" style={{ marginBottom: 0 }}>
@@ -669,7 +716,40 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* About ------------------------------------------------------------- */}
+      {/* Your data --------------------------------------------------------- */}
+      <div className="section-title">Your data</div>
+      <div className="card">
+        <h2 className="card-title">Export database</h2>
+        <p className="muted small" style={{ margin: "0 0 10px" }}>
+          Saves a consistent snapshot of the raw SQLite database — every meal,
+          workout, supplement, and fast. Photos are not included. Open it with
+          any SQLite tool, or keep it as a backup.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => void runExport()}
+            disabled={exporting}
+          >
+            Export database
+          </button>
+          {exporting && <div className="spinner" />}
+        </div>
+        {exportMsg && (
+          <p
+            className="muted small"
+            style={{ margin: "8px 0 0", overflowWrap: "anywhere" }}
+          >
+            {exportMsg}
+          </p>
+        )}
+        {exportErr && (
+          <div className="error-text" style={{ marginTop: 8 }}>
+            {exportErr}
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <h2 className="card-title">About</h2>
         <p className="muted small" style={{ margin: 0 }}>

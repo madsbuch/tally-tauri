@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows sharing files via the Android share sheet"
+permissions = ["allow-share-file"]
