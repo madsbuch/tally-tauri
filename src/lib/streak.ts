@@ -72,7 +72,7 @@ function clampInt(v: unknown, min: number, max: number): number {
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
@@ -152,7 +152,7 @@ export async function getStreakInfo(): Promise<StreakInfo> {
   // burn down extending a dead one.
   let current = 0;
   if (days.size > 0) {
-    const firstEver = [...days].sort()[0];
+    const firstEver = [...days].sort()[0] ?? today;
     let pending: string[] = [];
     let d = todayLogged ? today : shiftDay(today, -1);
     while (d >= firstEver) {

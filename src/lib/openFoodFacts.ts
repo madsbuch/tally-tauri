@@ -210,23 +210,23 @@ function shapeProduct(p: OffProduct): Record<string, unknown> | null {
 
   const out: Record<string, unknown> = { name, nutrients_per_100g: per100 };
   const barcode = str(p.code);
-  if (barcode) out.barcode = barcode;
+  if (barcode) out["barcode"] = barcode;
   const brand = str(p.brands);
-  if (brand) out.brand = brand;
+  if (brand) out["brand"] = brand;
   const quantity = str(p.quantity);
-  if (quantity) out.package_quantity = quantity;
+  if (quantity) out["package_quantity"] = quantity;
 
   const servingG = num(p.serving_quantity);
   if (servingG != null && servingG > 0) {
-    out.serving_size = str(p.serving_size) ?? `${servingG} g`;
-    out.nutrients_per_serving = roundNutrients(scaleNutrients(per100, servingG / 100));
+    out["serving_size"] = str(p["serving_size"]) ?? `${servingG} g`;
+    out["nutrients_per_serving"] = roundNutrients(scaleNutrients(per100, servingG / 100));
   }
 
   const grade = str(p.nutriscore_grade);
-  if (grade && /^[a-e]$/i.test(grade)) out.nutriscore = grade.toUpperCase();
+  if (grade && /^[a-e]$/i.test(grade)) out["nutriscore"] = grade.toUpperCase();
   const ingredients = str(p.ingredients_text);
   if (ingredients) {
-    out.ingredients =
+    out["ingredients"] =
       ingredients.length > MAX_INGREDIENTS_CHARS
         ? `${ingredients.slice(0, MAX_INGREDIENTS_CHARS)}…`
         : ingredients;
@@ -236,7 +236,7 @@ function shapeProduct(p: OffProduct): Record<string, unknown> | null {
 
 /** Execute a `search_packaged_food` call; the result string goes to the model. */
 export async function executeFoodFactsSearch(args: Record<string, unknown>): Promise<string> {
-  const query = str(args.query);
+  const query = str(args["query"]);
   if (!query) throw new Error("query is required");
   const raw = /^\d{8,14}$/.test(query)
     ? await fetchByBarcode(query)

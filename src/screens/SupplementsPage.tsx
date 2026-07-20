@@ -49,7 +49,7 @@ function errMsg(e: unknown): string {
 
 /** Shift a "YYYY-MM-DD" local day by `delta` days. */
 function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
@@ -57,7 +57,7 @@ function dayLabel(day: string): string {
   const today = todayStr();
   if (day === today) return "Today";
   if (day === shiftDay(today, -1)) return "Yesterday";
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -68,7 +68,7 @@ function dayLabel(day: string): string {
 /** Timestamp for a "take now" action: now for today, local noon for past days. */
 function takenAtIsoFor(day: string): string {
   if (day === todayStr()) return new Date().toISOString();
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, d, 12, 0, 0).toISOString();
 }
 

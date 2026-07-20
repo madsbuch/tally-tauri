@@ -65,7 +65,7 @@ export const db = drizzle(async (query, params, method) => {
  * `day` is "YYYY-MM-DD" in the user's local timezone.
  */
 export function dayRange(day: string): { start: string; end: string } {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   const start = new Date(y, m - 1, d);
   const end = new Date(y, m - 1, d + 1);
   return { start: start.toISOString(), end: end.toISOString() };
@@ -88,7 +88,7 @@ export async function getSetting(key: string): Promise<string | null> {
     .select({ value: settings.value })
     .from(settings)
     .where(eq(settings.key, key));
-  return rows.length > 0 ? rows[0].value : null;
+  return rows[0]?.value ?? null;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
@@ -505,7 +505,8 @@ export async function listPendingCaptures(): Promise<Capture[]> {
 
 export async function getCapture(id: number): Promise<Capture | null> {
   const rows = await db.select().from(captures).where(eq(captures.id, id)).limit(1);
-  return rows.length > 0 ? toCapture(rows[0]) : null;
+  const row = rows[0];
+  return row ? toCapture(row) : null;
 }
 
 export async function setCaptureStatus(
@@ -676,8 +677,8 @@ export async function getChatMessages(id: number): Promise<ChatMessage[] | null>
     .from(chats)
     .where(eq(chats.id, id))
     .limit(1);
-  if (rows.length === 0) return null;
-  const raw = rows[0].messages;
+  const raw = rows[0]?.messages;
+  if (raw === undefined) return null;
   const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
   return Array.isArray(parsed) ? (parsed as ChatMessage[]) : null;
 }
@@ -730,7 +731,8 @@ export async function getActiveFast(): Promise<Fast | null> {
     .where(isNull(fasts.endedAt))
     .orderBy(desc(fasts.startedAt))
     .limit(1);
-  return rows.length > 0 ? toFast(rows[0]) : null;
+  const row = rows[0];
+  return row ? toFast(row) : null;
 }
 
 export async function insertFast(goalHours: number, startedAt: string): Promise<Fast> {

@@ -31,7 +31,7 @@ import { DEFAULT_KETO_NET_CARB_LIMIT_G, SETTING_KEYS } from "../lib/types";
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
@@ -39,7 +39,7 @@ function dayTitle(day: string): string {
   const today = todayStr();
   if (day === today) return "Today";
   if (day === shiftDay(today, -1)) return "Yesterday";
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -49,7 +49,7 @@ function dayTitle(day: string): string {
 
 /** "Jul 14", with the year appended only when it isn't the current year. */
 function shortDate(day: string): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   if (y !== new Date().getFullYear()) opts.year = "numeric";
   return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
@@ -238,7 +238,7 @@ export default function NutrientsPage() {
   const netCarbPct = netCarbsPerDay != null ? (netCarbsPerDay / carbLimit) * 100 : null;
   const overCarbLimit = netCarbPct != null && netCarbPct > 100;
   const fatEnergyPct =
-    macroKcalTotal > 0 ? Math.round((macroKcal[2] / macroKcalTotal) * 100) : null;
+    macroKcalTotal > 0 ? Math.round(((macroKcal[2] ?? 0) / macroKcalTotal) * 100) : null;
 
   const ratio = omegaRatio(shown);
 
@@ -355,7 +355,7 @@ export default function NutrientsPage() {
                 const grams = (totals.food[m.key] ?? 0) / spanDays;
                 const pct =
                   macroKcalTotal > 0
-                    ? Math.round((macroKcal[i] / macroKcalTotal) * 100)
+                    ? Math.round(((macroKcal[i] ?? 0) / macroKcalTotal) * 100)
                     : 0;
                 return (
                   <div
