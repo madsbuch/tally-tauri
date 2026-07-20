@@ -29,6 +29,14 @@ lives in a SQLite database on the device — there is no backend.
   168 h). A sticky Android notification shows a **live countdown**
   (chronometer-based: keeps ticking even when the app is killed) plus an
   exact-alarm completion alert.
+- **Streak & achievements** — a logging streak (🔥 in the Diary header) that
+  counts any logged day; multi-day fasts count too, and every 7 straight days
+  banks a freeze token (max 3) that auto-covers a missed day. Tapping the
+  streak opens 30 achievements across logging, smart captures, fasting,
+  nutrition quality, training and Garmin-synced body metrics — deliberately
+  no daily-calorie-budget mechanics, since banking calories via fasting is a
+  supported pattern. The Fasting page also shows lifetime records (longest
+  fast, hours fasted, goals hit) and flags a new personal record live.
 - **OpenRouter integration** — bring your own API key, refresh the live model
   list in-app, and switch to newer/more capable vision models any time.
 
