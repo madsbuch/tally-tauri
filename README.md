@@ -14,6 +14,11 @@ lives in a SQLite database on the device — there is no backend.
   analyses stay in the timeline with a retry; interrupted ones resume on next
   launch. Meals get 26-nutrient estimates; workout screenshots become negative
   calories; unknown supplement names create catalog entries automatically.
+- **Open Food Facts lookup** — the diary agent and the assistant can search
+  the free Open Food Facts database, so branded/packaged products get real
+  label nutrition instead of an estimate (missing micronutrients are still
+  estimated by the model). Only the product name or barcode is sent — never
+  photos or personal data.
 - **Nutrients page** — macro/micro overview over a day, week, or month
   (multi-day spans show per-day averages): energy in/burned/net, macro split,
   and every micronutrient against adult reference intakes, filterable by
@@ -75,6 +80,10 @@ lives in a SQLite database on the device — there is no backend.
   this).
 - `src/lib/openrouter.ts` — model listing, tool-calling chat, and one-shot
   analysis helpers used by the manual entry path.
+- `src/lib/openFoodFacts.ts` — the shared `search_packaged_food` tool: Open
+  Food Facts name/barcode lookup with label nutrition mapped onto Tally's
+  nutrient keys (per 100 g and per serving). Used by both the diary agent and
+  the assistant.
 
 ## Development
 

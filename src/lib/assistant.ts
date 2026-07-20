@@ -19,6 +19,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ToolDef } from "./openrouter";
+import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
 import type { Nutrients } from "./types";
 
@@ -127,6 +128,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       },
     },
   },
+  FOOD_FACTS_TOOL,
   {
     type: "function",
     function: {
@@ -456,6 +458,10 @@ export async function executeAssistantTool(
     return runSql(args.sql);
   }
 
+  if (name === "search_packaged_food") {
+    return executeFoodFactsSearch(args);
+  }
+
   throw new Error(`Unknown tool "${name}"`);
 }
 
@@ -495,6 +501,7 @@ export function buildAssistantSystemPrompt(): string {
     "",
     "Ground every answer in the data — call query tools first, then deliver. Never guess numbers.",
     "The structured query_* tools cover most questions; use run_sql for aggregates, joins, or longer trends.",
+    "search_packaged_food looks up branded products in the public Open Food Facts database (label nutrition, ingredients, Nutri-Score) — use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself: "this week" = Monday through today, "last month" = the previous calendar month, and so on.',
     "Missing data is normal (rest days, unsynced watch, features unused) — say so rather than inventing values, and pass null for missing chart points.",
     "Watch data (workouts, sleep, health metrics) only reaches back to when the user connected Health Connect, so older days are simply absent — if the user wants more history, point them to Settings → Watch sync (“Allow history access” + Sync now).",

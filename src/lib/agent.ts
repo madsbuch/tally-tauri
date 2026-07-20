@@ -24,6 +24,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
+import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
 import { deletePhoto, readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
@@ -136,6 +137,7 @@ const DIARY_TOOLS: ToolDef[] = [
       },
     },
   },
+  FOOD_FACTS_TOOL,
 ];
 
 // ---------------------------------------------------------------------------
@@ -173,6 +175,7 @@ function buildSystemPrompt(capture: Capture, catalog: Supplement[]): string {
     `Supplement catalog: ${catalogTxt}.`,
     "Rules:",
     "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement.",
+    "- Branded/packaged products (wrappers, bottles, cans, labels): look them up with search_packaged_food first and base the nutrients on the best match, scaled to the portion actually consumed. The database often lacks micronutrients — estimate missing keys yourself. Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- Resolve all times yourself in local time; explicit times verbatim, relative phrases estimated, default to the current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
@@ -227,6 +230,10 @@ async function executeTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  if (name === "search_packaged_food") {
+    return executeFoodFactsSearch(args);
+  }
+
   const time = resolveAgentTime(str(args.time) ?? undefined, ctx.capture.day);
 
   if (name === "log_meal") {
@@ -296,7 +303,7 @@ async function executeTool(
 // The capture loop
 // ---------------------------------------------------------------------------
 
-const MAX_ROUNDS = 6;
+const MAX_ROUNDS = 10;
 const inFlight = new Set<number>();
 
 async function runCapture(capture: Capture): Promise<void> {
