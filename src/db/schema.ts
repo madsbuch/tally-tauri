@@ -1,0 +1,66 @@
+import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { Nutrients } from "../lib/types";
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
+export const foodEntries = sqliteTable(
+  "food_entries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eatenAt: text("eaten_at").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    photoPath: text("photo_path"),
+    nutrients: text("nutrients", { mode: "json" }).$type<Nutrients>().notNull().default({}),
+    modelId: text("model_id"),
+  },
+  (t) => [index("idx_food_entries_eaten_at").on(t.eatenAt)],
+);
+
+export const workouts = sqliteTable(
+  "workouts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    performedAt: text("performed_at").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    photoPath: text("photo_path"),
+    caloriesBurned: real("calories_burned").notNull().default(0),
+    durationMin: real("duration_min"),
+    modelId: text("model_id"),
+  },
+  (t) => [index("idx_workouts_performed_at").on(t.performedAt)],
+);
+
+export const supplements = sqliteTable("supplements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  doseAmount: real("dose_amount"),
+  doseUnit: text("dose_unit"),
+  nutrients: text("nutrients", { mode: "json" }).$type<Nutrients>().notNull().default({}),
+  notes: text("notes"),
+  archived: integer("archived").notNull().default(0),
+});
+
+export const supplementLogs = sqliteTable(
+  "supplement_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    supplementId: integer("supplement_id")
+      .notNull()
+      .references(() => supplements.id),
+    takenAt: text("taken_at").notNull(),
+    amount: real("amount").notNull().default(1),
+  },
+  (t) => [index("idx_supplement_logs_taken_at").on(t.takenAt)],
+);
+
+export const fasts = sqliteTable("fasts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  startedAt: text("started_at").notNull(),
+  goalHours: real("goal_hours").notNull(),
+  endedAt: text("ended_at"),
+});

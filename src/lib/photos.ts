@@ -1,0 +1,60 @@
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { appDataDir, join } from "@tauri-apps/api/path";
+
+/**
+ * Downscale and re-encode an image file to JPEG.
+ * Returns a data URL (for the vision model / preview) and the raw base64
+ * payload (for saving to disk via the Rust command).
+ */
+export async function compressImage(
+  file: Blob,
+  maxDim = 1280,
+  quality = 0.85,
+): Promise<{ dataUrl: string; base64: string }> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    return { dataUrl, base64 };
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** Persist a base64 JPEG via the Rust backend; returns the stored filename. */
+export function savePhoto(base64: string): Promise<string> {
+  return invoke<string>("save_photo", { dataBase64: base64 });
+}
+
+/** Delete a stored photo by filename. Never throws. */
+export async function deletePhoto(filename: string): Promise<void> {
+  try {
+    await invoke("delete_photo", { filename });
+  } catch (e) {
+    console.warn("Failed to delete photo", filename, e);
+  }
+}
+
+let photosDirPromise: Promise<string> | null = null;
+
+function photosDir(): Promise<string> {
+  if (!photosDirPromise) {
+    photosDirPromise = appDataDir().then((dir) => join(dir, "photos"));
+  }
+  return photosDirPromise;
+}
+
+/** Resolve a stored photo filename to a webview-displayable URL. */
+export async function photoSrc(filename: string): Promise<string> {
+  const dir = await photosDir();
+  return convertFileSrc(await join(dir, filename));
+}

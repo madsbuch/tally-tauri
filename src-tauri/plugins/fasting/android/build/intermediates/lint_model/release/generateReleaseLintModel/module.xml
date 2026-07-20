@@ -1,0 +1,19 @@
+<lint-module
+    format="1"
+    dir="/Users/madsbuch/mygit/tally/src-tauri/plugins/fasting/android"
+    name=":tauri-plugin-fasting"
+    type="LIBRARY"
+    maven="android:tauri-plugin-fasting:unspecified"
+    agpVersion="8.11.0"
+    buildFolder="build"
+    bootClassPath="/Users/madsbuch/Library/Android/sdk/platforms/android-34/android.jar:/Users/madsbuch/Library/Android/sdk/build-tools/35.0.0/core-lambda-stubs.jar"
+    javaSourceLevel="1.8"
+    compileTarget="android-34"
+    neverShrinking="true">
+  <lintOptions
+      abortOnError="true"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true"/>
+  <variant name="release"/>
+</lint-module>
