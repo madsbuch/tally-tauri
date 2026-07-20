@@ -155,6 +155,15 @@ export interface HealthMetric {
   updated_at: string;
 }
 
+/** A saved assistant conversation (without its transcript). */
+export interface ChatSummary {
+  id: number;
+  title: string;
+  /** ISO 8601 UTC timestamps. */
+  created_at: string;
+  updated_at: string;
+}
+
 /** Result of an AI food-photo analysis. */
 export interface FoodAnalysis {
   title: string;

@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import {
   captures,
+  chats,
   fasts,
   foodEntries,
   healthMetrics,
@@ -14,6 +15,7 @@ import {
 } from "../db/schema";
 import type {
   Capture,
+  ChatSummary,
   Fast,
   FoodEntry,
   HealthMetric,
@@ -22,6 +24,7 @@ import type {
   SupplementLogWithSupplement,
   Workout,
 } from "./types";
+import type { ChatMessage } from "./openrouter";
 import { sanitizeNutrients } from "./nutrients";
 
 const DB_URL = "sqlite:tally.db";
@@ -602,6 +605,68 @@ export async function listSupplementLogsForRange(
     .where(and(gte(supplementLogs.takenAt, start), lt(supplementLogs.takenAt, end)))
     .orderBy(desc(supplementLogs.takenAt));
   return rows.map((r) => ({ ...r, nutrients: sanitizeNutrients(r.nutrients) }));
+}
+
+// ---------------------------------------------------------------------------
+// Assistant chats
+// ---------------------------------------------------------------------------
+
+export async function listChats(limit = 50): Promise<ChatSummary[]> {
+  const rows = await db
+    .select({
+      id: chats.id,
+      title: chats.title,
+      createdAt: chats.createdAt,
+      updatedAt: chats.updatedAt,
+    })
+    .from(chats)
+    .orderBy(desc(chats.updatedAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  }));
+}
+
+/** Full transcript of a saved chat; null when the chat doesn't exist. */
+export async function getChatMessages(id: number): Promise<ChatMessage[] | null> {
+  const rows = await db
+    .select({ messages: chats.messages })
+    .from(chats)
+    .where(eq(chats.id, id))
+    .limit(1);
+  if (rows.length === 0) return null;
+  const raw = rows[0].messages;
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return Array.isArray(parsed) ? (parsed as ChatMessage[]) : null;
+}
+
+export async function createChat(
+  title: string,
+  messages: ChatMessage[],
+): Promise<number> {
+  const now = new Date().toISOString();
+  const rows = await db
+    .insert(chats)
+    .values({ createdAt: now, updatedAt: now, title, messages })
+    .returning({ id: chats.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function updateChatMessages(
+  id: number,
+  messages: ChatMessage[],
+): Promise<void> {
+  await db
+    .update(chats)
+    .set({ messages, updatedAt: new Date().toISOString() })
+    .where(eq(chats.id, id));
+}
+
+export async function deleteChat(id: number): Promise<void> {
+  await db.delete(chats).where(eq(chats.id, id));
 }
 
 // ---------------------------------------------------------------------------

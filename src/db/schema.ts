@@ -132,6 +132,23 @@ export const healthMetrics = sqliteTable("health_metrics", {
   updatedAt: text("updated_at").notNull(),
 });
 
+/**
+ * Saved assistant conversations. `messages` is the full OpenAI-style
+ * transcript (system/user/assistant/tool) so a chat can be reopened and
+ * continued with its context intact.
+ */
+export const chats = sqliteTable(
+  "chats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    title: text("title").notNull(),
+    messages: text("messages", { mode: "json" }).notNull(),
+  },
+  (t) => [index("idx_chats_updated_at").on(t.updatedAt)],
+);
+
 export const fasts = sqliteTable("fasts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   startedAt: text("started_at").notNull(),

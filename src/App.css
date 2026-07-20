@@ -684,6 +684,105 @@ textarea.input {
   margin: 4px 4px 0;
 }
 
+/* Collapsed reasoning/tool-activity rows between chat messages. */
+.chat-activity {
+  align-self: flex-start;
+  max-width: 88%;
+  color: var(--faint);
+  font-size: 12px;
+  padding: 0 4px;
+}
+
+.chat-activity summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.chat-activity summary::before {
+  content: "▸ ";
+}
+
+.chat-activity[open] summary::before {
+  content: "▾ ";
+}
+
+.chat-activity summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-activity-static::before {
+  content: "· ";
+}
+
+.chat-activity-body {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-activity-body p {
+  margin: 0 0 6px;
+}
+
+.chat-activity-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Chart bubbles get the full thread width. */
+.chat-msg-chart {
+  max-width: 100%;
+  width: 100%;
+}
+
+.chat-msg-chart .chat-bubble {
+  width: 100%;
+}
+
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.chart-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chart-unit {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 6px;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.chart-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 /* Rendered markdown inside an assistant bubble. */
 .chat-md {
   white-space: normal;

@@ -127,7 +127,122 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description:
+        "Deliver a message to the user. This is the ONLY way the user sees anything — plain assistant text is private reasoning. Markdown is rendered.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description:
+              "The message, in concise markdown. Lead with the answer; bold key figures; always include units.",
+          },
+        },
+        required: ["text"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_chart",
+      description:
+        "Deliver a rendered chart to the user. Use this for trends and comparisons instead of listing numbers — NEVER draw charts as text/ASCII in a message. All series share one unit and one y-axis; use a second chart for a second unit.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short chart title, e.g. 'Sleep — last 7 nights'." },
+          type: {
+            type: "string",
+            enum: ["bar", "line"],
+            description: "bar = comparison across categories; line = trend over time.",
+          },
+          unit: { type: "string", description: "Unit of every value, e.g. 'kcal', 'min', 'bpm'." },
+          x_labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "Category/time labels, short, e.g. ['Mon 14','Tue 15']. Max 31.",
+          },
+          series: {
+            type: "array",
+            description: "1-3 series. values aligns with x_labels; null = missing.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                values: { type: "array", items: { type: ["number", "null"] } },
+              },
+              required: ["name", "values"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["title", "type", "x_labels", "series"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// Chart spec
+// ---------------------------------------------------------------------------
+
+export interface ChartSeries {
+  name: string;
+  values: (number | null)[];
+}
+
+export interface ChartSpec {
+  type: "bar" | "line";
+  title: string;
+  unit?: string;
+  x_labels: string[];
+  series: ChartSeries[];
+}
+
+const MAX_CHART_POINTS = 31;
+const MAX_CHART_SERIES = 3;
+
+/** Validate & normalize send_chart args; throws a model-readable error. */
+export function sanitizeChart(args: Record<string, unknown>): ChartSpec {
+  const type = args.type === "line" ? "line" : args.type === "bar" ? "bar" : null;
+  if (!type) throw new Error('type must be "bar" or "line"');
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  if (!title) throw new Error("title is required");
+  const xRaw = Array.isArray(args.x_labels) ? args.x_labels : null;
+  if (!xRaw || xRaw.length === 0) throw new Error("x_labels must be a non-empty array");
+  if (xRaw.length > MAX_CHART_POINTS) {
+    throw new Error(`Too many points (${xRaw.length}) — aggregate to at most ${MAX_CHART_POINTS}`);
+  }
+  const x_labels = xRaw.map((l) => String(l));
+  const sRaw = Array.isArray(args.series) ? args.series : null;
+  if (!sRaw || sRaw.length === 0) throw new Error("series must be a non-empty array");
+  if (sRaw.length > MAX_CHART_SERIES) {
+    throw new Error(`At most ${MAX_CHART_SERIES} series per chart — split into several charts`);
+  }
+  const series: ChartSeries[] = sRaw.map((s, i) => {
+    const o = (s ?? {}) as Record<string, unknown>;
+    const name = typeof o.name === "string" && o.name.trim() ? o.name.trim() : `Series ${i + 1}`;
+    const vRaw = Array.isArray(o.values) ? o.values : [];
+    const values = x_labels.map((_, j) => {
+      const v = vRaw[j];
+      const n = typeof v === "string" ? parseFloat(v) : v;
+      return typeof n === "number" && isFinite(n) ? n : null;
+    });
+    if (values.every((v) => v == null)) {
+      throw new Error(`series "${name}" has no numeric values`);
+    }
+    return { name, values };
+  });
+  const unit = typeof args.unit === "string" && args.unit.trim() ? args.unit.trim() : undefined;
+  return { type, title, unit, x_labels, series };
+}
 
 // ---------------------------------------------------------------------------
 // Tool execution
@@ -375,14 +490,17 @@ export function buildAssistantSystemPrompt(): string {
     "You are Tally's health assistant. Tally is a local-first tracker holding the user's food diary, workouts, sleep, daily wellness metrics (synced from their Garmin watch via Health Connect), supplements, and fasting history.",
     `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
     "",
-    "Ground every answer in the data — call tools first, then answer. Never guess numbers.",
+    "COMMUNICATION: the user ONLY sees what you deliver through send_message and send_chart. Plain assistant text is a private reasoning scratchpad — use it to plan, then deliver. Every turn MUST end with at least one send_message.",
+    "Use send_chart whenever numbers form a trend or comparison (sleep over a week, calories in vs out, resting HR over a month). Charts are rendered natively — never draw a chart with text, blocks, or ASCII in a message. Keep one unit per chart; send two charts for two units.",
+    "",
+    "Ground every answer in the data — call query tools first, then deliver. Never guess numbers.",
     "The structured query_* tools cover most questions; use run_sql for aggregates, joins, or longer trends.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself: "this week" = Monday through today, "last month" = the previous calendar month, and so on.',
-    "Missing data is normal (rest days, unsynced watch, features unused) — say so rather than inventing values.",
+    "Missing data is normal (rest days, unsynced watch, features unused) — say so rather than inventing values, and pass null for missing chart points.",
     "",
     DB_SCHEMA_DOC,
     "",
-    "Style: answer in markdown, rendered in a narrow mobile chat bubble. Lead with the answer in a short sentence, then use compact bullet lists or a small table when they make numbers clearer. Bold the key figures, always include units, and skip headers. Be concise; mention notable patterns or caveats only when genuinely useful.",
+    "Message style: concise markdown in a narrow mobile chat bubble. Lead with the answer in a short sentence, bold the key figures, always include units, skip headers. A short bullet list is fine; put the numbers a chart already shows in the chart, not the text.",
   ].join("\n");
 }
 
@@ -390,55 +508,84 @@ export function buildAssistantSystemPrompt(): string {
 // The conversation loop
 // ---------------------------------------------------------------------------
 
-const MAX_ROUNDS = 8;
+const MAX_ROUNDS = 10;
 
-export interface AssistantTurnResult {
-  /** Final plain-text reply. */
-  reply: string;
-  /** Names of tools called while producing the reply (for the UI). */
-  toolsUsed: string[];
-}
+/**
+ * Everything that happens during a turn, in thread order. `message` and
+ * `chart` are user-visible; `reasoning` and `tool` belong to the collapsed
+ * activity thread.
+ */
+export type AssistantEvent =
+  | { type: "reasoning"; text: string }
+  | { type: "tool"; name: string }
+  | { type: "message"; text: string }
+  | { type: "chart"; chart: ChartSpec };
 
 /**
  * Run one user turn: appends to `messages` IN PLACE (assistant/tool messages
- * included) and returns the final text reply. `messages` must already contain
- * the system prompt and the new user message.
+ * included) and streams events as they happen. `messages` must already
+ * contain the system prompt and the new user message. Resolves once the
+ * model stops; rejects if nothing was delivered to the user.
  */
 export async function runAssistantTurn(
   messages: ChatMessage[],
-  onToolCall?: (name: string) => void,
-): Promise<AssistantTurnResult> {
+  onEvent: (e: AssistantEvent) => void,
+): Promise<void> {
   const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
   if (!apiKey) throw new Error("Add your OpenRouter API key in Settings first.");
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
 
-  const toolsUsed: string[] = [];
+  let delivered = 0;
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    // Last round: no tools, forcing a final text answer.
-    const tools = round < MAX_ROUNDS - 1 ? ASSISTANT_TOOLS : [];
-    const turn = await chatWithTools(apiKey, model, messages, tools);
+    const turn = await chatWithTools(apiKey, model, messages, ASSISTANT_TOOLS);
+    const content = turn.content?.trim() || "";
+
     if (turn.tool_calls.length === 0) {
-      const reply = turn.content?.trim() || "I couldn't find an answer to that.";
-      messages.push({ role: "assistant", content: reply });
-      return { reply, toolsUsed };
+      messages.push({ role: "assistant", content: turn.content });
+      if (content) {
+        // A model that answers in prose instead of send_message still reaches
+        // the user; with prior deliveries it's just trailing reasoning.
+        if (delivered === 0) onEvent({ type: "message", text: content });
+        else onEvent({ type: "reasoning", text: content });
+        return;
+      }
+      if (delivered > 0) return;
+      throw new Error("The model returned nothing — try rephrasing.");
     }
+
+    if (content) onEvent({ type: "reasoning", text: content });
     messages.push({
       role: "assistant",
       content: turn.content,
       tool_calls: turn.tool_calls,
     });
+
     for (const call of turn.tool_calls) {
-      if (!toolsUsed.includes(call.function.name)) toolsUsed.push(call.function.name);
-      onToolCall?.(call.function.name);
       let result: string;
       try {
         const args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
-        result = await executeAssistantTool(call.function.name, args);
+        if (call.function.name === "send_message") {
+          const text = typeof args.text === "string" ? args.text.trim() : "";
+          if (!text) throw new Error("text is required");
+          onEvent({ type: "message", text });
+          delivered++;
+          result = "Delivered.";
+        } else if (call.function.name === "send_chart") {
+          const chart = sanitizeChart(args);
+          onEvent({ type: "chart", chart });
+          delivered++;
+          result = "Chart delivered.";
+        } else {
+          onEvent({ type: "tool", name: call.function.name });
+          result = await executeAssistantTool(call.function.name, args);
+        }
       } catch (e) {
         result = `Error: ${e instanceof Error ? e.message : String(e)}`;
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
   }
-  throw new Error("The assistant got stuck calling tools — try rephrasing.");
+  if (delivered === 0) {
+    throw new Error("The assistant got stuck calling tools — try rephrasing.");
+  }
 }
