@@ -49,8 +49,10 @@ export function onDiaryChanged(handler: () => void): () => void {
 // ---------------------------------------------------------------------------
 
 const TIME_DESC =
-  'Local time the item happened, as "HH:MM" (on the diary day) or "YYYY-MM-DD HH:MM". ' +
-  "Resolve relative phrases yourself using the current time given in the system prompt " +
+  'Local wall-clock time the item happened, as "HH:MM" (on the diary day) or "YYYY-MM-DD HH:MM". ' +
+  "Times the user mentions are already in their local timezone — pass them through VERBATIM " +
+  '("at 8am" → "08:00"); NEVER convert between timezones or to UTC, and never append "Z" or an offset. ' +
+  "Resolve relative phrases yourself using the current local time given in the system prompt " +
   '("earlier today", "this morning" ≈ 08:00, "after lunch" ≈ 13:00). Never a future time.';
 
 function nutrientsSchema(): Record<string, unknown> {
@@ -174,26 +176,52 @@ function buildSystemPrompt(capture: Capture, catalog: Supplement[]): string {
     "Rules:",
     "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
-    "- Resolve all times yourself in local time; explicit times verbatim, relative phrases estimated, default to the current time. Never a future time.",
+    "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
     "- After your final tool call, reply with one short plain-text sentence of confirmation.",
     "- If there is nothing usable to record, call no tools and explain why in one plain-text sentence.",
   ].join("\n");
 }
 
-/** "HH:MM" (on `day`) or "YYYY-MM-DD HH:MM" → UTC ISO, clamped to now. */
+/**
+ * "HH:MM" (on `day`) or "YYYY-MM-DD HH:MM" → UTC ISO, clamped to now.
+ *
+ * Bare times are LOCAL wall-clock. If the model disobeys and appends an
+ * explicit timezone ("Z" or ±HH:MM), the offset is honored rather than
+ * misread as local — that's how "8am" once became 09:00 in the diary.
+ */
 export function resolveAgentTime(raw: string | undefined, day: string): string {
   const now = new Date();
   let d: Date | null = null;
   if (typeof raw === "string") {
     const t = raw.trim();
+    const zoned =
+      /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})$/i.exec(
+        t,
+      );
+    if (zoned) {
+      const off =
+        zoned[4].toUpperCase() === "Z"
+          ? "Z"
+          : zoned[4].includes(":")
+            ? zoned[4]
+            : `${zoned[4].slice(0, 3)}:${zoned[4].slice(3)}`;
+      const parsed = new Date(
+        `${zoned[1]}T${zoned[2].padStart(2, "0")}:${zoned[3]}:00${off}`,
+      );
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
     const full = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/.exec(t);
-    const hm = /^(\d{1,2}):(\d{2})$/.exec(t);
-    if (full) {
+    const hm = /^(\d{1,2}):(\d{2})(?:\s*(am|pm))?$/i.exec(t);
+    if (!d && full) {
       d = new Date(+full[1], +full[2] - 1, +full[3], +full[4], +full[5]);
-    } else if (hm) {
+    } else if (!d && hm) {
+      let hh = +hm[1];
+      const ap = hm[3]?.toLowerCase();
+      if (ap === "pm" && hh < 12) hh += 12;
+      if (ap === "am" && hh === 12) hh = 0;
       const [y, m, dd] = day.split("-").map(Number);
-      d = new Date(y, m - 1, dd, +hm[1], +hm[2]);
+      d = new Date(y, m - 1, dd, hh, +hm[2]);
     }
   }
   if (!d || isNaN(d.getTime())) d = now;
