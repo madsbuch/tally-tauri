@@ -296,7 +296,7 @@ async function executeTool(
 // The capture loop
 // ---------------------------------------------------------------------------
 
-const MAX_ROUNDS = 5;
+const MAX_ROUNDS = 6;
 const inFlight = new Set<number>();
 
 async function runCapture(capture: Capture): Promise<void> {
@@ -335,10 +335,30 @@ async function runCapture(capture: Capture): Promise<void> {
   };
 
   let lastText: string | null = null;
+  let nudged = false;
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const turn = await chatWithTools(apiKey, model, messages, DIARY_TOOLS);
-    lastText = turn.content ?? lastText;
-    if (turn.tool_calls.length === 0) break;
+    if (turn.content?.trim()) lastText = turn.content.trim();
+    if (turn.tool_calls.length === 0) {
+      // Text-only reply with nothing logged yet: vision models occasionally
+      // describe the meal in prose instead of calling log_meal. Push back
+      // once before treating it as a failure.
+      if (ctx.logged === 0 && !nudged) {
+        nudged = true;
+        messages.push({ role: "assistant", content: turn.content ?? "" });
+        messages.push({
+          role: "user",
+          content:
+            "Nothing has been recorded yet. If the capture shows any food, drink, " +
+            "exercise, or supplement, record it NOW by calling the matching tool " +
+            "(log_meal / log_workout / log_supplement) — a rough estimate is better " +
+            "than nothing. Only reply in plain text if there is truly nothing to " +
+            "record, and say why.",
+        });
+        continue;
+      }
+      break;
+    }
     messages.push({
       role: "assistant",
       content: turn.content,

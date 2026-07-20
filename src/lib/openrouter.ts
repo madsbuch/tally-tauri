@@ -82,13 +82,105 @@ export interface AssistantTurn {
   tool_calls: ToolCall[];
 }
 
-interface ChatResponse {
-  choices?: {
-    message?: { content?: string | null; tool_calls?: ToolCall[] };
-    finish_reason?: string;
-    error?: { message?: string; code?: number | string };
-  }[];
+interface ChatChoice {
+  message?: { content?: unknown; tool_calls?: ToolCall[] };
+  finish_reason?: string;
   error?: { message?: string; code?: number | string };
+}
+
+interface ChatResponse {
+  choices?: ChatChoice[];
+  error?: { message?: string; code?: number | string };
+}
+
+// HTTP statuses worth retrying: timeout, too-early, rate limit, server/gateway.
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1_000;
+const REQUEST_TIMEOUT_MS = 90_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Some providers return assistant content as an array of parts; flatten it. */
+function contentToText(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((p) =>
+        p && typeof p === "object" && typeof (p as { text?: unknown }).text === "string"
+          ? (p as { text: string }).text
+          : "",
+      )
+      .join("");
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+/**
+ * POST /chat/completions with a per-request timeout and automatic retries
+ * (exponential backoff) on network failures, retryable HTTP statuses,
+ * per-choice provider errors embedded in HTTP 200 responses, and completely
+ * empty completions — all of which providers produce transiently.
+ */
+async function requestChatTurn(
+  apiKey: string,
+  body: Record<string, unknown>,
+): Promise<AssistantTurn> {
+  let lastError: Error = new OpenRouterError("OpenRouter request failed", 0);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let res: Awaited<ReturnType<typeof fetch>>;
+      try {
+        res = await fetch(`${BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            ...APP_HEADERS,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      const json = (await res.json().catch(() => ({}))) as ChatResponse;
+      if (!res.ok || json.error) {
+        const msg = json.error?.message ?? `HTTP ${res.status}`;
+        const err = new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
+        if (!RETRYABLE_STATUS.has(res.status)) throw err;
+        lastError = err;
+        continue;
+      }
+      const choice = json.choices?.[0];
+      if (!choice || choice.error || choice.finish_reason === "error") {
+        lastError = new OpenRouterError(
+          `Model error: ${choice?.error?.message ?? "provider returned an error"}`,
+          res.status,
+        );
+        continue;
+      }
+      const content = contentToText(choice.message?.content);
+      const tool_calls = choice.message?.tool_calls ?? [];
+      if ((content == null || content.trim() === "") && tool_calls.length === 0) {
+        lastError = new OpenRouterError("Model returned an empty response", res.status);
+        continue;
+      }
+      return { content, tool_calls };
+    } catch (e) {
+      // Non-retryable errors are OpenRouterErrors thrown above; anything else
+      // is a network failure or timeout — retry.
+      if (e instanceof OpenRouterError) throw e;
+      lastError = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -101,31 +193,7 @@ export async function chatWithTools(
   messages: ChatMessage[],
   tools: ToolDef[],
 ): Promise<AssistantTurn> {
-  const res = await fetch(`${BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...APP_HEADERS,
-    },
-    body: JSON.stringify({ model, messages, tools }),
-  });
-  const json = (await res.json().catch(() => ({}))) as ChatResponse;
-  if (!res.ok || json.error) {
-    const msg = json.error?.message ?? `HTTP ${res.status}`;
-    throw new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
-  }
-  const choice = json.choices?.[0];
-  if (choice?.error || choice?.finish_reason === "error") {
-    throw new OpenRouterError(
-      `Model error: ${choice.error?.message ?? "provider returned an error"}`,
-      res.status,
-    );
-  }
-  return {
-    content: typeof choice?.message?.content === "string" ? choice.message.content : null,
-    tool_calls: choice?.message?.tool_calls ?? [],
-  };
+  return requestChatTurn(apiKey, { model, messages, tools });
 }
 
 /** True when the model advertises OpenAI-style tool calling. */
@@ -139,31 +207,9 @@ export async function chat(
   model: string,
   messages: ChatMessage[],
 ): Promise<string> {
-  const res = await fetch(`${BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...APP_HEADERS,
-    },
-    body: JSON.stringify({ model, messages }),
-  });
-  const json = (await res.json().catch(() => ({}))) as ChatResponse;
-  if (!res.ok || json.error) {
-    const msg = json.error?.message ?? `HTTP ${res.status}`;
-    throw new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
-  }
-  const choice = json.choices?.[0];
-  // Providers can embed per-choice errors in HTTP 200 responses.
-  if (choice?.error || choice?.finish_reason === "error") {
-    throw new OpenRouterError(
-      `Model error: ${choice.error?.message ?? "provider returned an error"}`,
-      res.status,
-    );
-  }
-  const content = choice?.message?.content;
-  if (typeof content !== "string" || content.length === 0) {
-    throw new OpenRouterError("Model returned an empty response", res.status);
+  const { content } = await requestChatTurn(apiKey, { model, messages });
+  if (content == null || content.trim() === "") {
+    throw new OpenRouterError("Model returned an empty response", 0);
   }
   return content;
 }
