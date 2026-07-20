@@ -164,7 +164,10 @@ export const SETTING_KEYS = {
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
   healthConnectLastSyncAt: "health_connect_last_sync_at",
+  ketoNetCarbLimit: "keto_net_carb_limit_g",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
 export const DEFAULT_FAST_HOURS = 16;
+/** Daily net-carb budget (g) that keeps most people in ketosis. */
+export const DEFAULT_KETO_NET_CARB_LIMIT_G = 25;

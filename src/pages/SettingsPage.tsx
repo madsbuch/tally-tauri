@@ -9,6 +9,7 @@ import {
 } from "../lib/openrouter";
 import {
   DEFAULT_FAST_HOURS,
+  DEFAULT_KETO_NET_CARB_LIMIT_G,
   DEFAULT_VISION_MODEL,
   SETTING_KEYS,
 } from "../lib/types";
@@ -134,6 +135,12 @@ export default function SettingsPage() {
   const fastSavedTimer = useRef<number | null>(null);
   const lastFastHoursRef = useRef(String(DEFAULT_FAST_HOURS));
 
+  // Keto
+  const [carbLimit, setCarbLimit] = useState(String(DEFAULT_KETO_NET_CARB_LIMIT_G));
+  const [carbSaved, setCarbSaved] = useState(false);
+  const carbSavedTimer = useRef<number | null>(null);
+  const lastCarbLimitRef = useRef(String(DEFAULT_KETO_NET_CARB_LIMIT_G));
+
   const bootedRef = useRef(false);
 
   async function refreshModels(silent: boolean) {
@@ -160,12 +167,13 @@ export default function SettingsPage() {
     bootedRef.current = true;
     (async () => {
       try {
-        const [key, model, cache, at, hours, hcAt] = await Promise.all([
+        const [key, model, cache, at, hours, carbs, hcAt] = await Promise.all([
           getSetting(SETTING_KEYS.openrouterApiKey),
           getSetting(SETTING_KEYS.visionModel),
           getSetting(SETTING_KEYS.modelsCache),
           getSetting(SETTING_KEYS.modelsCacheAt),
           getSetting(SETTING_KEYS.fastDefaultHours),
+          getSetting(SETTING_KEYS.ketoNetCarbLimit),
           getSetting(SETTING_KEYS.healthConnectLastSyncAt),
         ]);
         setHcLastSync(hcAt);
@@ -175,6 +183,10 @@ export default function SettingsPage() {
         if (hours) {
           setFastHours(hours);
           lastFastHoursRef.current = hours;
+        }
+        if (carbs) {
+          setCarbLimit(carbs);
+          lastCarbLimitRef.current = carbs;
         }
         let cached: ORModel[] | null = null;
         if (cache) {
@@ -197,6 +209,7 @@ export default function SettingsPage() {
     })();
     return () => {
       if (fastSavedTimer.current != null) window.clearTimeout(fastSavedTimer.current);
+      if (carbSavedTimer.current != null) window.clearTimeout(carbSavedTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -299,6 +312,25 @@ export default function SettingsPage() {
     } finally {
       setHcBusy(false);
     }
+  }
+
+  function commitCarbLimit() {
+    const n = parseFloat(carbLimit);
+    // Empty/invalid input: restore the last committed value, don't overwrite.
+    if (!isFinite(n)) {
+      setCarbLimit(lastCarbLimitRef.current);
+      return;
+    }
+    const clamped = Math.min(150, Math.max(5, Math.round(n)));
+    const str = String(clamped);
+    setCarbLimit(str);
+    if (str === lastCarbLimitRef.current) return;
+    lastCarbLimitRef.current = str;
+    void setSetting(SETTING_KEYS.ketoNetCarbLimit, str).then(() => {
+      setCarbSaved(true);
+      if (carbSavedTimer.current != null) window.clearTimeout(carbSavedTimer.current);
+      carbSavedTimer.current = window.setTimeout(() => setCarbSaved(false), 1500);
+    });
   }
 
   const visionModels = useMemo(() => {
@@ -601,6 +633,40 @@ export default function SettingsPage() {
             {hcError}
           </div>
         )}
+      </div>
+
+      {/* Keto -------------------------------------------------------------- */}
+      <div className="card">
+        <h2 className="card-title">Keto</h2>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label className="label" htmlFor="keto-carb-limit">
+            Daily net-carb limit (g)
+          </label>
+          <div className="input-row" style={{ alignItems: "center" }}>
+            <input
+              id="keto-carb-limit"
+              className="input"
+              type="number"
+              min={5}
+              max={150}
+              step={1}
+              inputMode="numeric"
+              value={carbLimit}
+              onChange={(e) => setCarbLimit(e.target.value)}
+              onBlur={commitCarbLimit}
+            />
+            {carbSaved && (
+              <span className="chip chip-accent" style={{ flex: "0 0 auto" }}>
+                Saved
+              </span>
+            )}
+          </div>
+          <p className="muted small" style={{ margin: "8px 2px 0" }}>
+            The Keto card on the Nutrients page tracks net carbs (carbs − fiber)
+            against this budget. Strict keto is usually 20–25 g, relaxed low-carb
+            up to 50 g.
+          </p>
+        </div>
       </div>
 
       {/* About ------------------------------------------------------------- */}
