@@ -27,9 +27,12 @@ import {
   getSetting,
   listCapturesForDay,
   listFoodEntriesForDay,
+  listFoodEntriesForRange,
   listSupplementLogsForDay,
+  listSupplementLogsForRange,
   listSupplements,
   listWorkoutsForDay,
+  listWorkoutsForRange,
   todayStr,
   updateFoodEntry,
   updateSupplement,
@@ -93,6 +96,54 @@ function dayTitle(day: string): string {
   });
 }
 
+/** "Jul 14", with the year appended only when it isn't the current year. */
+function shortDate(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  if (y !== new Date().getFullYear()) opts.year = "numeric";
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
+}
+
+// ---------------------------------------------------------------------------
+// Totals periods (day / week / month)
+// ---------------------------------------------------------------------------
+
+type TotalsPeriod = "day" | "week" | "month";
+
+/** Monday-to-Sunday week containing `day`, both bounds inclusive. */
+function weekRangeOf(day: string): { start: string; end: string } {
+  const [y, m, d] = day.split("-").map(Number);
+  const monOffset = (new Date(y, m - 1, d).getDay() + 6) % 7; // Mon = 0
+  const start = todayStr(new Date(y, m - 1, d - monOffset));
+  return { start, end: shiftDay(start, 6) };
+}
+
+/** Calendar month containing `day`, both bounds inclusive. */
+function monthRangeOf(day: string): { start: string; end: string } {
+  const [y, m] = day.split("-").map(Number);
+  return {
+    start: todayStr(new Date(y, m - 1, 1)),
+    end: todayStr(new Date(y, m, 0)),
+  };
+}
+
+/** Whole days from `start` through `end`, both inclusive. */
+function daysBetween(start: string, end: string): number {
+  const toDate = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  };
+  return Math.round((toDate(end).getTime() - toDate(start).getTime()) / 86_400_000) + 1;
+}
+
+function monthTitle(day: string): string {
+  const [y, m] = day.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function timeOf(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -131,6 +182,33 @@ function numToInput(v: number): string {
 function fmtSignedInt(n: number): string {
   const r = Math.round(n);
   return r < 0 ? `−${-r}` : String(r);
+}
+
+/** Accent fill on --bg-elev track; turns warn-colored when over budget. */
+function MeterBar({ pct, warn }: { pct: number; warn?: boolean }) {
+  // Cap at 100%; keep a sliver visible for tiny non-zero values.
+  const width = pct <= 0 ? 0 : Math.min(100, Math.max(pct, 1.5));
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        height: 8,
+        borderRadius: 999,
+        background: "var(--bg-elev)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          width: `${width}%`,
+          height: "100%",
+          borderRadius: 999,
+          background: warn ? "var(--warn)" : "var(--accent)",
+        }}
+      />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1613,7 +1691,14 @@ export default function DiaryPage() {
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [captures, setCaptures] = useState<Capture[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showTotals, setShowTotals] = useState(false);
+  const [period, setPeriod] = useState<TotalsPeriod>("day");
+  const [rangeData, setRangeData] = useState<{
+    key: string;
+    entries: FoodEntry[];
+    workouts: Workout[];
+    suppLogs: SupplementLogWithSupplement[];
+  } | null>(null);
+  const [calTarget, setCalTarget] = useState<number | null>(null);
   const [detail, setDetail] = useState<TimelineItem | null>(null);
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -1683,22 +1768,82 @@ export default function DiaryPage() {
     };
   }, [day, refresh]);
 
+  // Calorie target (configured in Settings). Pages remount on tab switch, so
+  // a target edited in Settings is picked up when coming back here.
+  useEffect(() => {
+    let alive = true;
+    getSetting(SETTING_KEYS.calorieTarget)
+      .then((raw) => {
+        if (!alive) return;
+        const n = raw != null ? parseFloat(raw) : NaN;
+        setCalTarget(isFinite(n) && n > 0 ? n : null);
+      })
+      .catch(() => {
+        /* no target — hide the card */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Week/month totals need entries beyond the shown day — fetch the range.
+  const range =
+    period === "week"
+      ? weekRangeOf(day)
+      : period === "month"
+        ? monthRangeOf(day)
+        : null;
+  const rangeKey = range ? `${range.start}..${range.end}` : null;
+
+  useEffect(() => {
+    if (!rangeKey) {
+      setRangeData(null);
+      return;
+    }
+    const [start, end] = rangeKey.split("..");
+    let alive = true;
+    Promise.all([
+      listFoodEntriesForRange(start, end),
+      listWorkoutsForRange(start, end),
+      listSupplementLogsForRange(start, end),
+    ])
+      .then(([e, w, s]) => {
+        if (alive) {
+          setRangeData({ key: rangeKey, entries: e, workouts: w, suppLogs: s });
+        }
+      })
+      .catch((err) => {
+        if (alive) setLoadError(errMsg(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [rangeKey, refresh]);
+
+  // Lists the totals are computed over: the shown day, or the fetched range.
+  const scopeEntries =
+    period === "day" ? entries : rangeData?.key === rangeKey ? rangeData.entries : null;
+  const scopeWorkouts =
+    period === "day" ? workouts : rangeData?.key === rangeKey ? rangeData.workouts : null;
+  const scopeSuppLogs =
+    period === "day" ? suppLogs : rangeData?.key === rangeKey ? rangeData.suppLogs : null;
+
   const totals = useMemo(
     () =>
       sumNutrients([
-        ...(entries ?? []).map((e) => e.nutrients),
-        ...(suppLogs ?? []).map((l) => scaleNutrients(l.nutrients, l.amount)),
+        ...(scopeEntries ?? []).map((e) => e.nutrients),
+        ...(scopeSuppLogs ?? []).map((l) => scaleNutrients(l.nutrients, l.amount)),
       ]),
-    [entries, suppLogs],
+    [scopeEntries, scopeSuppLogs],
   );
 
   const eaten = useMemo(
-    () => (entries ?? []).reduce((acc, e) => acc + (e.nutrients.calories ?? 0), 0),
-    [entries],
+    () => (scopeEntries ?? []).reduce((acc, e) => acc + (e.nutrients.calories ?? 0), 0),
+    [scopeEntries],
   );
   const burned = useMemo(
-    () => (workouts ?? []).reduce((acc, w) => acc + w.calories_burned, 0),
-    [workouts],
+    () => (scopeWorkouts ?? []).reduce((acc, w) => acc + w.calories_burned, 0),
+    [scopeWorkouts],
   );
 
   const timeline = useMemo<TimelineItem[]>(() => {
@@ -1724,11 +1869,32 @@ export default function DiaryPage() {
     return items;
   }, [entries, workouts, suppLogs, captures]);
 
-  const isToday = day === todayStr();
+  const today = todayStr();
+  const isToday = day === today;
   const loaded =
     entries !== null && workouts !== null && suppLogs !== null && captures !== null;
   const loading = !loaded && loadError === null;
   const bump = () => setRefresh((n) => n + 1);
+
+  // Totals-section derivations.
+  const totalsReady = period === "day" ? loaded : scopeEntries !== null;
+  const daysInPeriod = range ? daysBetween(range.start, range.end) : 1;
+  const containsToday = range != null && range.start <= today && today <= range.end;
+  const elapsedDays =
+    range && containsToday ? daysBetween(range.start, today) : daysInPeriod;
+  const net = eaten - burned;
+  const periodTarget = calTarget != null ? calTarget * daysInPeriod : null;
+  const overTarget = periodTarget != null && net > periodTarget;
+  const totalsTitle =
+    period === "day"
+      ? "Daily totals"
+      : period === "week"
+        ? containsToday
+          ? "This week"
+          : `Week of ${shortDate(range!.start)}`
+        : containsToday
+          ? "This month"
+          : monthTitle(day);
 
   return (
     <div className="page page-with-fab">
@@ -1770,36 +1936,124 @@ export default function DiaryPage() {
 
       {loaded && !loadError && (
         <>
-          <div className="section-title">Daily totals</div>
-          <div className="stat-grid">
-            <div className="stat">
-              <div className="stat-value">{Math.round(eaten)}</div>
-              <div className="stat-label">Eaten</div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              margin: "20px 2px 8px",
+            }}
+          >
+            <div className="section-title" style={{ margin: 0 }}>
+              {totalsTitle}
             </div>
-            <div className="stat">
-              <div className="stat-value">{Math.round(burned)}</div>
-              <div className="stat-label">Burned</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">{fmtSignedInt(eaten - burned)}</div>
-              <div className="stat-label">Net</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">{Math.round(totals.protein_g ?? 0)}g</div>
-              <div className="stat-label">Protein</div>
+            <div className="seg" style={{ padding: 2, gap: 2 }}>
+              {(
+                [
+                  { value: "day", label: "Day" },
+                  { value: "week", label: "Week" },
+                  { value: "month", label: "Month" },
+                ] as { value: TotalsPeriod; label: string }[]
+              ).map((o) => (
+                <button
+                  key={o.value}
+                  className={`seg-item${period === o.value ? " seg-item-active" : ""}`}
+                  style={{ flex: "0 0 auto", padding: "4px 10px", fontSize: 12 }}
+                  onClick={() => setPeriod(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
           </div>
-          <button
-            className="btn btn-ghost btn-sm btn-block"
-            style={{ marginTop: 8 }}
-            onClick={() => setShowTotals((v) => !v)}
-          >
-            {showTotals ? "Hide all nutrients" : "Show all nutrients"}
-          </button>
-          {showTotals && (
-            <div className="card" style={{ marginTop: 8 }}>
-              <NutrientTable nutrients={totals} />
+          {range && (
+            <div className="faint small" style={{ margin: "-4px 2px 8px" }}>
+              {shortDate(range.start)} – {shortDate(range.end)}
+              {containsToday ? ` · day ${elapsedDays} of ${daysInPeriod}` : ""}
             </div>
+          )}
+
+          {!totalsReady ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 20 }}>
+              <span className="spinner" />
+            </div>
+          ) : (
+            <>
+              <div className="stat-grid">
+                <div className="stat">
+                  <div className="stat-value">{Math.round(eaten)}</div>
+                  <div className="stat-label">Eaten</div>
+                </div>
+                <div className="stat">
+                  <div className="stat-value">{Math.round(burned)}</div>
+                  <div className="stat-label">Burned</div>
+                </div>
+                <div className="stat">
+                  <div className="stat-value">{fmtSignedInt(net)}</div>
+                  <div className="stat-label">Net</div>
+                </div>
+                <div className="stat">
+                  <div className="stat-value">{Math.round(totals.protein_g ?? 0)}g</div>
+                  <div className="stat-label">Protein</div>
+                </div>
+              </div>
+
+              {calTarget != null && periodTarget != null && (
+                <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div className="card-title" style={{ margin: 0 }}>
+                      Calorie target
+                    </div>
+                    <span className={`chip ${overTarget ? "chip-warn" : "chip-accent"}`}>
+                      {overTarget
+                        ? `${Math.round(net - periodTarget)} kcal over`
+                        : `${Math.round(periodTarget - net)} kcal left`}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <MeterBar pct={(net / periodTarget) * 100} warn={overTarget} />
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 12.5,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      <span style={{ fontWeight: 650 }}>{fmtSignedInt(net)}</span>
+                      <span className="faint"> / {Math.round(periodTarget)} kcal</span>
+                    </span>
+                  </div>
+                  {period !== "day" && containsToday && (
+                    <div className="faint small" style={{ marginTop: 8 }}>
+                      Budget through today: {Math.round(calTarget * elapsedDays)} kcal
+                      — you're {Math.abs(Math.round(calTarget * elapsedDays - net))}{" "}
+                      kcal {calTarget * elapsedDays - net >= 0 ? "under" : "over"} pace.
+                    </div>
+                  )}
+                  <div
+                    className="faint small"
+                    style={{ marginTop: period !== "day" && containsToday ? 4 : 8 }}
+                  >
+                    Net kcal (eaten − burned) vs {Math.round(calTarget)} kcal/day
+                    {period !== "day" ? ` × ${daysInPeriod} days` : ""}.
+                  </div>
+                </div>
+              )}
+              {calTarget == null && (
+                <div className="faint small" style={{ margin: "8px 2px 0" }}>
+                  Set a daily calorie target in Settings to track your budget here.
+                </div>
+              )}
+            </>
           )}
 
           <div className="section-title">Timeline</div>
