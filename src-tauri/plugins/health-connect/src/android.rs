@@ -31,6 +31,12 @@ impl<R: Runtime> HealthConnect<R> {
         Ok(self.0.run_mobile_plugin("requestHealthPermissions", ())?)
     }
 
+    pub fn revoke_permissions(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("revokeHealthPermissions", ())?;
+        Ok(())
+    }
+
     pub fn read_exercise_sessions(
         &self,
         args: ReadSessionsArgs,

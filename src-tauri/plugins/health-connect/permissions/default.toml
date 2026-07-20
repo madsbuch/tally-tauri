@@ -5,6 +5,7 @@ description = "Allows querying Health Connect availability and reading exercise,
 permissions = [
   "allow-get-status",
   "allow-request-permissions",
+  "allow-revoke-permissions",
   "allow-read-exercise-sessions",
   "allow-read-sleep-sessions",
   "allow-read-daily-metrics",
