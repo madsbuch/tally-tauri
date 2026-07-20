@@ -8,6 +8,7 @@ import SettingsPage from "./pages/SettingsPage";
 import { getDb } from "./lib/db";
 import { resyncFastNotification } from "./lib/fasting";
 import { resumePendingCaptures } from "./lib/agent";
+import { syncHealthConnectWorkouts } from "./lib/healthConnect";
 
 type TabId = "diary" | "nutrients" | "fasting" | "settings";
 
@@ -67,10 +68,19 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("diary");
 
   useEffect(() => {
-    // Warm the DB (runs migrations), re-sync the fasting notification, and
-    // resume any captures whose background analysis was interrupted.
+    // Warm the DB (runs migrations), re-sync the fasting notification, resume
+    // any captures whose background analysis was interrupted, and pull new
+    // Garmin/Health Connect workouts (no-op unless connected in Settings).
     getDb()
-      .then(() => Promise.all([resyncFastNotification(), resumePendingCaptures()]))
+      .then(() =>
+        Promise.all([
+          resyncFastNotification(),
+          resumePendingCaptures(),
+          syncHealthConnectWorkouts().catch((e) =>
+            console.warn("Health Connect sync failed", e),
+          ),
+        ]),
+      )
       .catch((e) => console.error("Startup failed", e));
   }, []);
 

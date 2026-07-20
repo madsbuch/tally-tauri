@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- connect-client declares minSdk 26; the app supports 24. Availability is
+         checked at runtime (getSdkStatus + SDK_INT guard) before any use. -->
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
+
+    <!-- Health Connect read permissions (granted per-type by the user). -->
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+
+    <!-- Package visibility for the Health Connect provider app (Android 13-). -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+</manifest>

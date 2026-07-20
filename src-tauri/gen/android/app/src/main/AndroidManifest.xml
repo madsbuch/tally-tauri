@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Health Connect's connect-client declares minSdk 26; the app stays at 24
+         and guards availability at runtime in the health-connect plugin. -->
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Exact-alarm delivery for the fast-completion alert (user-facing timer). -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -24,7 +28,23 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- Health Connect permission rationale (Android 13). -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
         </activity>
+
+        <!-- Health Connect permission rationale entry point (Android 14+). -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
           android:name="androidx.core.content.FileProvider"

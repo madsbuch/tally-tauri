@@ -180,10 +180,16 @@ function toWorkout(r: WorkoutRow): Workout {
     calories_burned: r.caloriesBurned,
     duration_min: r.durationMin,
     model_id: r.modelId,
+    source: r.source,
+    external_id: r.externalId,
   };
 }
 
-export async function addWorkout(w: Omit<Workout, "id">): Promise<number> {
+/** Manual/agent entries omit `source`/`external_id` — they default to null. */
+export type NewWorkout = Omit<Workout, "id" | "source" | "external_id"> &
+  Partial<Pick<Workout, "source" | "external_id">>;
+
+export async function addWorkout(w: NewWorkout): Promise<number> {
   const rows = await db
     .insert(workouts)
     .values({
@@ -194,9 +200,45 @@ export async function addWorkout(w: Omit<Workout, "id">): Promise<number> {
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       modelId: w.model_id,
+      source: w.source ?? null,
+      externalId: w.external_id ?? null,
     })
     .returning({ id: workouts.id });
   return rows[0]?.id ?? 0;
+}
+
+/**
+ * Insert-or-update a workout coming from an external system (Health Connect).
+ * Keyed on `external_id`, so re-syncing the same window is idempotent and
+ * upstream edits (e.g. corrected calories in Garmin) flow through.
+ */
+export async function upsertExternalWorkout(
+  w: Omit<Workout, "id"> & { external_id: string },
+): Promise<void> {
+  await db
+    .insert(workouts)
+    .values({
+      performedAt: w.performed_at,
+      title: w.title,
+      description: w.description,
+      photoPath: w.photo_path,
+      caloriesBurned: w.calories_burned,
+      durationMin: w.duration_min,
+      modelId: w.model_id,
+      source: w.source,
+      externalId: w.external_id,
+    })
+    .onConflictDoUpdate({
+      target: workouts.externalId,
+      set: {
+        performedAt: w.performed_at,
+        title: w.title,
+        description: w.description,
+        caloriesBurned: w.calories_burned,
+        durationMin: w.duration_min,
+        source: w.source,
+      },
+    });
 }
 
 export async function updateWorkout(w: Workout): Promise<void> {
