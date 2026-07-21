@@ -221,5 +221,13 @@ export const SETTING_KEYS = {
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
 export const DEFAULT_FAST_HOURS = 16;
+/**
+ * Entries at or above this many kcal count as a meal for fasting purposes:
+ * they anchor new fasts and break an active one. Below it (black coffee,
+ * diet soda, broth) an entry can be logged mid-fast without ending it.
+ * Entries with NO calorie estimate count as meals — an unestimated entry is
+ * far more likely a real meal than a zero-calorie drink.
+ */
+export const FAST_BREAK_KCAL = 20;
 /** Daily net-carb budget (g) that keeps most people in ketosis. */
 export const DEFAULT_KETO_NET_CARB_LIMIT_G = 25;
