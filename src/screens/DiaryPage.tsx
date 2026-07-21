@@ -13,7 +13,6 @@ import {
   NUTRIENT_DEFS,
   NUTRIENT_KEYS,
   scaleNutrients,
-  sumNutrients,
 } from "../lib/nutrients";
 import {
   addFoodEntry,
@@ -28,6 +27,7 @@ import {
   listCapturesForDay,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
+  listHealthMetricsForRange,
   listSupplementLogsForDay,
   listSupplementLogsForRange,
   listSupplements,
@@ -2005,6 +2005,28 @@ export default function DiaryPage() {
     };
   }, [rangeKey, refresh]);
 
+  // Steps for the shown day/period, synced from Health Connect. Null when no
+  // day in the scope has step data (nothing synced) — the line is hidden then.
+  const [steps, setSteps] = useState<number | null>(null);
+  useEffect(() => {
+    const [start = day, end = day] = rangeKey ? rangeKey.split("..") : [day, day];
+    let alive = true;
+    listHealthMetricsForRange(start, end)
+      .then((ms) => {
+        if (!alive) return;
+        const vals = ms
+          .map((m) => m.steps)
+          .filter((s): s is number => s != null);
+        setSteps(vals.length ? vals.reduce((a, b) => a + b, 0) : null);
+      })
+      .catch(() => {
+        if (alive) setSteps(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [day, rangeKey, refresh]);
+
   // Lists the totals are computed over: the shown day, or the fetched range.
   const scopeEntries =
     period === "day" ? entries : rangeData?.key === rangeKey ? rangeData.entries : null;
@@ -2012,15 +2034,6 @@ export default function DiaryPage() {
     period === "day" ? workouts : rangeData?.key === rangeKey ? rangeData.workouts : null;
   const scopeSuppLogs =
     period === "day" ? suppLogs : rangeData?.key === rangeKey ? rangeData.suppLogs : null;
-
-  const totals = useMemo(
-    () =>
-      sumNutrients([
-        ...(scopeEntries ?? []).map((e) => e.nutrients),
-        ...(scopeSuppLogs ?? []).map((l) => scaleNutrients(l.nutrients, l.amount)),
-      ]),
-    [scopeEntries, scopeSuppLogs],
-  );
 
   const eaten = useMemo(
     () => (scopeEntries ?? []).reduce((acc, e) => acc + (e.nutrients.calories ?? 0), 0),
@@ -2206,27 +2219,8 @@ export default function DiaryPage() {
                   totals{containsToday ? " and pace" : ""} are incomplete.
                 </div>
               )}
-              <div className="stat-grid">
-                <div className="stat">
-                  <div className="stat-value">{Math.round(eaten)}</div>
-                  <div className="stat-label">Eaten</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-value">{Math.round(burned)}</div>
-                  <div className="stat-label">Burned</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-value">{fmtSignedInt(net)}</div>
-                  <div className="stat-label">Net</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-value">{Math.round(totals.protein_g ?? 0)}g</div>
-                  <div className="stat-label">Protein</div>
-                </div>
-              </div>
-
               {calTarget != null && periodTarget != null && (
-                <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
+                <div className="card" style={{ marginTop: 0, marginBottom: 0 }}>
                   <div
                     style={{
                       display: "flex",
@@ -2277,6 +2271,14 @@ export default function DiaryPage() {
               {calTarget == null && (
                 <div className="faint small" style={{ margin: "8px 2px 0" }}>
                   Set a daily calorie target in Settings to track your budget here.
+                </div>
+              )}
+              {steps != null && (
+                <div className="muted small" style={{ margin: "10px 2px 0" }}>
+                  👟 {Math.round(steps).toLocaleString()} steps
+                  {period !== "day" && elapsedDays > 0
+                    ? ` · ~${Math.round(steps / elapsedDays).toLocaleString()} per day`
+                    : ""}
                 </div>
               )}
             </>
