@@ -7,6 +7,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type { Nutrients } from "../lib/types";
+import type { ChatMessage } from "../lib/schemas";
 
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
@@ -144,7 +145,7 @@ export const chats = sqliteTable(
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     title: text("title").notNull(),
-    messages: text("messages", { mode: "json" }).notNull(),
+    messages: text("messages", { mode: "json" }).$type<ChatMessage[]>().notNull(),
   },
   (t) => [index("idx_chats_updated_at").on(t.updatedAt)],
 );

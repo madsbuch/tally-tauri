@@ -18,6 +18,7 @@ import {
 } from "../lib/assistant";
 import type { AssistantEvent, ChartSpec } from "../lib/assistant";
 import type { ChatMessage } from "../lib/openrouter";
+import { parseToolArgs } from "../lib/schemas";
 import AssistantChart from "../components/AssistantChart";
 
 /**
@@ -125,7 +126,7 @@ function transcriptToUi(messages: ChatMessage[]): UiItem[] {
     for (const call of calls) {
       let args: Record<string, unknown> = {};
       try {
-        args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+        args = parseToolArgs(call.function.arguments);
       } catch {
         // Malformed args — surfaced to the model at runtime; skip in replay.
       }

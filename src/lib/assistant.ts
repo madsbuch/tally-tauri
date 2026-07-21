@@ -19,6 +19,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ToolDef } from "./openrouter";
+import { parseToolArgs } from "./schemas";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
 import type { Nutrients } from "./types";
@@ -581,7 +582,7 @@ export async function runAssistantTurn(
     for (const call of turn.tool_calls) {
       let result: string;
       try {
-        const args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+        const args = parseToolArgs(call.function.arguments);
         if (call.function.name === "send_message") {
           const text = typeof args["text"] === "string" ? args["text"].trim() : "";
           if (!text) throw new Error("text is required");

@@ -10,6 +10,8 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { ToolDef } from "./openrouter";
 import { NUTRIENT_DEFS, scaleNutrients } from "./nutrients";
+import { parseOffBarcodeResponse, parseOffSearchResponse } from "./schemas";
+import type { OffProduct } from "./schemas";
 import type { NutrientKey, Nutrients } from "./types";
 
 const BASE = "https://world.openfoodfacts.org";
@@ -147,18 +149,6 @@ function roundNutrients(n: Nutrients): Nutrients {
 // API access
 // ---------------------------------------------------------------------------
 
-interface OffProduct {
-  code?: unknown;
-  product_name?: unknown;
-  brands?: unknown;
-  quantity?: unknown;
-  serving_size?: unknown;
-  serving_quantity?: unknown;
-  nutriments?: unknown;
-  nutriscore_grade?: unknown;
-  ingredients_text?: unknown;
-}
-
 const FIELDS = [
   "code",
   "product_name",
@@ -193,20 +183,17 @@ async function searchByName(query: string): Promise<OffProduct[]> {
   const url =
     `${BASE}/cgi/search.pl?action=process&json=1&search_simple=1` +
     `&page_size=${PAGE_SIZE}&fields=${FIELDS}&search_terms=${encodeURIComponent(query)}`;
-  const json = (await offFetch(url)) as { products?: OffProduct[] };
-  return Array.isArray(json.products) ? json.products : [];
+  return parseOffSearchResponse(await offFetch(url));
 }
 
 async function fetchByBarcode(code: string): Promise<OffProduct[]> {
   const url = `${BASE}/api/v2/product/${code}?fields=${FIELDS}`;
-  let json: { status?: unknown; product?: OffProduct };
   try {
-    json = (await offFetch(url)) as typeof json;
+    return parseOffBarcodeResponse(await offFetch(url));
   } catch {
     // OFF answers 404 for unknown barcodes — that's "no match", not a failure.
     return [];
   }
-  return json.status === 1 && json.product ? [json.product] : [];
 }
 
 // ---------------------------------------------------------------------------
