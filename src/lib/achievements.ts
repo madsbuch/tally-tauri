@@ -22,13 +22,14 @@ import {
   listUnlockedAchievements,
   todayStr,
 } from "./db";
-import { REFERENCE_INTAKES, scaleNutrients, sumNutrients } from "./nutrients";
+import { REFERENCE_INTAKES, nutrientDef, scaleNutrients, sumNutrients } from "./nutrients";
 import { getStreakInfo } from "./streak";
 import type { StreakInfo } from "./streak";
 import type {
   Fast,
   FoodEntry,
   HealthMetric,
+  NutrientKey,
   Nutrients,
   SleepSession,
   SupplementLogWithSupplement,
@@ -377,9 +378,12 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     category: "nutrition",
     check: (ctx) =>
       someDay(ctx, (n) =>
-        Object.entries(REFERENCE_INTAKES).every(
-          ([key, ref]) => (n[key as keyof Nutrients] ?? 0) >= 0.8 * ref,
-        ),
+        Object.entries(REFERENCE_INTAKES).every(([key, ref]) => {
+          // Micros only — "other" compounds (e.g. creatine) have supplementation
+          // targets, not dietary references, and shouldn't gate this.
+          if (nutrientDef(key as NutrientKey).group !== "micro") return true;
+          return (n[key as keyof Nutrients] ?? 0) >= 0.8 * ref;
+        }),
       ),
   },
   {

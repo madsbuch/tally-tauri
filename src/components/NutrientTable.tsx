@@ -2,51 +2,44 @@ import { NUTRIENT_DEFS, formatAmount } from "../lib/nutrients";
 import type { Nutrients } from "../lib/types";
 
 /**
- * Two-column table of all present nutrients, grouped into macros and micros.
- * Missing keys are skipped.
+ * Two-column table of all present nutrients, grouped into macros, micros and
+ * other compounds. Missing keys are skipped.
  */
 export default function NutrientTable({ nutrients }: { nutrients: Nutrients }) {
-  const macros = NUTRIENT_DEFS.filter(
-    (d) => d.group === "macro" && nutrients[d.key] != null,
-  );
-  const micros = NUTRIENT_DEFS.filter(
-    (d) => d.group === "micro" && nutrients[d.key] != null,
-  );
+  const sections = (
+    [
+      { group: "macro", title: "Macros" },
+      { group: "micro", title: "Micros" },
+      { group: "other", title: "Other" },
+    ] as const
+  )
+    .map((s) => ({
+      ...s,
+      defs: NUTRIENT_DEFS.filter((d) => d.group === s.group && nutrients[d.key] != null),
+    }))
+    .filter((s) => s.defs.length > 0);
 
-  if (macros.length === 0 && micros.length === 0) {
+  if (sections.length === 0) {
     return <div className="muted small">No nutrient data.</div>;
   }
 
   return (
     <div>
-      {macros.length > 0 && (
-        <>
-          <div className="section-title" style={{ marginTop: 6 }}>
-            Macros
+      {sections.map((s, i) => (
+        <div key={s.group}>
+          <div className="section-title" style={i === 0 ? { marginTop: 6 } : undefined}>
+            {s.title}
           </div>
           <div className="nutrient-grid">
-            {macros.map((d) => (
+            {s.defs.map((d) => (
               <div key={d.key} className="nutrient-row">
                 <span className="n-label">{d.label}</span>
                 <span className="n-value">{formatAmount(d.key, nutrients[d.key]!)}</span>
               </div>
             ))}
           </div>
-        </>
-      )}
-      {micros.length > 0 && (
-        <>
-          <div className="section-title">Micros</div>
-          <div className="nutrient-grid">
-            {micros.map((d) => (
-              <div key={d.key} className="nutrient-row">
-                <span className="n-label">{d.label}</span>
-                <span className="n-value">{formatAmount(d.key, nutrients[d.key]!)}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+        </div>
+      ))}
     </div>
   );
 }

@@ -12,7 +12,7 @@ lives in a SQLite database on the device — there is no backend.
   records it via tool calls (`log_meal` / `log_workout` / `log_supplement`),
   resolving relative times itself. One capture can log several items. Failed
   analyses stay in the timeline with a retry; interrupted ones resume on next
-  launch. Meals get 26-nutrient estimates; workout screenshots become negative
+  launch. Meals get 38-nutrient estimates; workout screenshots become negative
   calories; unknown supplement names create catalog entries automatically.
 - **Open Food Facts lookup** — the diary agent and the assistant can search
   the free Open Food Facts database, so branded/packaged products get real
@@ -22,7 +22,9 @@ lives in a SQLite database on the device — there is no backend.
 - **Nutrients page** — macro/micro overview over a day, week, or month
   (multi-day spans show per-day averages): energy in/burned/net, macro split,
   and every micronutrient against adult reference intakes, filterable by
-  source (food vs supplements), with the omega-6:omega-3 ratio.
+  source (food vs supplements), with the omega-6:omega-3 ratio. Creatine and
+  caffeine live in their own "Other" section — creatine against a 5 g/day
+  supplementation target.
 - **Garmin / Health Connect sync** — workouts your watch records (calories,
   distance, avg heart rate) flow in automatically via Android Health Connect.
   Enable Health Connect in the Garmin Connect app, tap "Connect" in Tally's

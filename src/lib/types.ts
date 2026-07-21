@@ -6,6 +6,7 @@ export type NutrientKey =
   | "carbs_g"
   | "fat_g"
   | "saturated_fat_g"
+  | "trans_fat_g"
   | "fiber_g"
   | "sugar_g"
   | "omega3_g"
@@ -15,8 +16,11 @@ export type NutrientKey =
   | "potassium_mg"
   | "calcium_mg"
   | "magnesium_mg"
+  | "phosphorus_mg"
   | "iron_mg"
   | "zinc_mg"
+  | "copper_mg"
+  | "manganese_mg"
   | "selenium_ug"
   | "iodine_ug"
   | "cholesterol_mg"
@@ -25,9 +29,18 @@ export type NutrientKey =
   | "vitamin_d_ug"
   | "vitamin_e_mg"
   | "vitamin_k_ug"
+  | "thiamin_mg"
+  | "riboflavin_mg"
+  | "niacin_mg"
+  | "pantothenic_acid_mg"
   | "vitamin_b6_mg"
+  | "biotin_ug"
   | "vitamin_b12_ug"
-  | "folate_ug";
+  | "folate_ug"
+  | "choline_mg"
+  // Other compounds (no classic macro/micro role)
+  | "creatine_g"
+  | "caffeine_mg";
 
 /** Sparse map of nutrient amounts. Missing key = unknown / not estimated. */
 export type Nutrients = Partial<Record<NutrientKey, number>>;

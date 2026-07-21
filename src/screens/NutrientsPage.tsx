@@ -16,6 +16,7 @@ import {
   scaleNutrients,
   sumNutrients,
 } from "../lib/nutrients";
+import type { NutrientDef } from "../lib/nutrients";
 import type {
   FoodEntry,
   NutrientKey,
@@ -114,6 +115,71 @@ function MeterBar({ pct, warn }: { pct: number; warn?: boolean }) {
           background: warn ? "var(--warn)" : "var(--accent)",
         }}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reference row — amount plus a meter against the daily reference, if any
+// ---------------------------------------------------------------------------
+
+function RefRow({
+  def,
+  value,
+  last,
+}: {
+  def: NutrientDef;
+  value: number | undefined;
+  last: boolean;
+}) {
+  const ref = REFERENCE_INTAKES[def.key];
+  const pct = ref != null && value != null ? (value / ref) * 100 : null;
+  const over = def.key === "sodium_mg" && pct != null && pct > 100;
+  return (
+    <div style={{ padding: "7px 0", borderBottom: last ? "none" : HAIRLINE }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 8,
+          fontSize: 13,
+        }}
+      >
+        <span style={{ color: "var(--muted)" }}>{def.label}</span>
+        <span
+          style={{
+            fontWeight: 650,
+            fontVariantNumeric: "tabular-nums",
+            color: over ? "var(--warn)" : undefined,
+          }}
+        >
+          {value != null ? formatAmount(def.key, value) : "—"}
+        </span>
+      </div>
+      {ref != null && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginTop: 5,
+          }}
+        >
+          <MeterBar pct={pct ?? 0} warn={over} />
+          <span
+            style={{
+              minWidth: 40,
+              flexShrink: 0,
+              textAlign: "right",
+              fontSize: 11.5,
+              fontVariantNumeric: "tabular-nums",
+              color: over ? "var(--warn)" : "var(--faint)",
+            }}
+          >
+            {pct != null ? `${Math.round(pct)}%` : "—"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -248,6 +314,7 @@ export default function NutrientsPage() {
     (workouts?.length ?? 0) > 0;
 
   const microDefs = NUTRIENT_DEFS.filter((d) => d.group === "micro");
+  const otherDefs = NUTRIENT_DEFS.filter((d) => d.group === "other");
 
   const avgSuffix = multi ? " · avg/day" : "";
   const navTitle = !multi
@@ -534,68 +601,34 @@ export default function NutrientsPage() {
           {/* Micronutrients */}
           <div className="card">
             <div className="card-title">Micronutrients{avgSuffix}</div>
-            {microDefs.map((def, i) => {
-              const value = shown[def.key];
-              const ref = REFERENCE_INTAKES[def.key];
-              const pct = ref != null && value != null ? (value / ref) * 100 : null;
-              const over = def.key === "sodium_mg" && pct != null && pct > 100;
-              return (
-                <div
-                  key={def.key}
-                  style={{
-                    padding: "7px 0",
-                    borderBottom: i === microDefs.length - 1 ? "none" : HAIRLINE,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 8,
-                      fontSize: 13,
-                    }}
-                  >
-                    <span style={{ color: "var(--muted)" }}>{def.label}</span>
-                    <span
-                      style={{
-                        fontWeight: 650,
-                        fontVariantNumeric: "tabular-nums",
-                        color: over ? "var(--warn)" : undefined,
-                      }}
-                    >
-                      {value != null ? formatAmount(def.key, value) : "—"}
-                    </span>
-                  </div>
-                  {ref != null && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 5,
-                      }}
-                    >
-                      <MeterBar pct={pct ?? 0} warn={over} />
-                      <span
-                        style={{
-                          minWidth: 40,
-                          flexShrink: 0,
-                          textAlign: "right",
-                          fontSize: 11.5,
-                          fontVariantNumeric: "tabular-nums",
-                          color: over ? "var(--warn)" : "var(--faint)",
-                        }}
-                      >
-                        {pct != null ? `${Math.round(pct)}%` : "—"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {microDefs.map((def, i) => (
+              <RefRow
+                key={def.key}
+                def={def}
+                value={shown[def.key]}
+                last={i === microDefs.length - 1}
+              />
+            ))}
             <div className="faint small" style={{ marginTop: 10 }}>
               Bars compare the {multi ? `average intake per day over these ${spanDays} days` : "day's intake"}{" "}
               with an approximate adult daily reference. Sodium turns amber when over.
+            </div>
+          </div>
+
+          {/* Other compounds — creatine, caffeine, … */}
+          <div className="card">
+            <div className="card-title">Other{avgSuffix}</div>
+            {otherDefs.map((def, i) => (
+              <RefRow
+                key={def.key}
+                def={def}
+                value={shown[def.key]}
+                last={i === otherDefs.length - 1}
+              />
+            ))}
+            <div className="faint small" style={{ marginTop: 10 }}>
+              The creatine bar tracks a common 5 g/day supplementation target,
+              not a dietary reference.
             </div>
           </div>
         </>
