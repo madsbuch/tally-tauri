@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Fast } from "../lib/types";
-import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
+import type { Fast, FoodEntry } from "../lib/types";
+import { DEFAULT_FAST_HOURS, FAST_BREAK_KCAL, SETTING_KEYS } from "../lib/types";
+import { onDiaryChanged } from "../lib/agent";
 import {
   deleteFast,
   getActiveFast,
   getLastMealAt,
   getSetting,
   listAllFasts,
+  listMealsSince,
   listRecentFasts,
   setSetting,
 } from "../lib/db";
@@ -250,6 +252,8 @@ export default function FastingPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Fast | null>(null);
   const [lastMealAt, setLastMealAt] = useState<string | null>(null);
+  /** Fast-breaking meals tracked inside the active fast's window. */
+  const [fastMeals, setFastMeals] = useState<FoodEntry[]>([]);
   const [history, setHistory] = useState<Fast[]>([]);
   const [allFasts, setAllFasts] = useState<Fast[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -273,18 +277,16 @@ export default function FastingPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [fast, fasts, all, saved, lastMeal] = await Promise.all([
+        const [fast, fasts, all, saved] = await Promise.all([
           getActiveFast(),
           listRecentFasts(30),
           listAllFasts(),
           getSetting(SETTING_KEYS.fastDefaultHours),
-          getLastMealAt(),
         ]);
         if (cancelled) return;
         setActive(fast);
         setHistory(fasts);
         setAllFasts(all);
-        setLastMealAt(lastMeal);
         const savedHours = saved != null ? parseFloat(saved) : NaN;
         if (isFinite(savedHours) && savedHours >= MIN_HOURS && savedHours <= MAX_HOURS) {
           if (PRESET_HOURS.includes(savedHours)) {
@@ -312,6 +314,27 @@ export default function FastingPage() {
     const id = window.setInterval(() => setNow(new Date()), active ? 1000 : 60_000);
     return () => window.clearInterval(id);
   }, [active]);
+
+  // Meal-derived state: the anchor for the next fast and any meals tracked
+  // inside the active fast's window. Refreshed when the diary changes (the
+  // background capture agent resolves entries while this page is open).
+  const refreshMealState = useCallback(async (fast: Fast | null) => {
+    try {
+      const [meals, lastMeal] = await Promise.all([
+        fast ? listMealsSince(fast.started_at) : Promise.resolve([]),
+        getLastMealAt(),
+      ]);
+      setFastMeals(meals);
+      setLastMealAt(lastMeal);
+    } catch (e) {
+      console.warn("Could not refresh meal state", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMealState(active);
+    return onDiaryChanged(() => void refreshMealState(active));
+  }, [active, refreshMealState]);
 
   const parsedCustom = parseFloat(customHours);
   const customValid =
@@ -344,6 +367,24 @@ export default function FastingPage() {
     }
   }
 
+  /** Shared teardown; `endedAt` backdates the end (meal tracked mid-fast). */
+  async function doEnd(fast: Fast, endedAt?: Date) {
+    setError(null);
+    setEnding(true);
+    try {
+      await endFast(fast, endedAt);
+      // Clearing `active` retriggers refreshMealState — meals logged during
+      // the fast become the anchor for the next one.
+      setActive(null);
+      setNotifWarn(false);
+      await loadHistory();
+    } catch {
+      setError("Could not end the fast.");
+    } finally {
+      setEnding(false);
+    }
+  }
+
   async function handleEnd(fast: Fast, early: boolean) {
     if (
       early &&
@@ -351,20 +392,22 @@ export default function FastingPage() {
     ) {
       return;
     }
-    setError(null);
-    setEnding(true);
-    try {
-      await endFast(fast);
-      setActive(null);
-      setNotifWarn(false);
-      await loadHistory();
-      // Meals logged during the fast move the anchor for the next one.
-      setLastMealAt(await getLastMealAt());
-    } catch {
-      setError("Could not end the fast.");
-    } finally {
-      setEnding(false);
+    await doEnd(fast);
+  }
+
+  /** End the fast at the moment a mid-fast meal was eaten, not at "now". */
+  async function handleEndAtMeal(fast: Fast, meal: FoodEntry) {
+    const longSpan = fast.goal_hours > 6 * 24;
+    // A future-dated entry still ends the fast, but not beyond "now".
+    const when = new Date(Math.min(new Date(meal.eaten_at).getTime(), Date.now()));
+    if (
+      !window.confirm(
+        `End this fast at ${formatDayStamp(when, longSpan)}, when "${meal.title}" was eaten? It will be saved to history.`,
+      )
+    ) {
+      return;
     }
+    await doEnd(fast, when);
   }
 
   async function handleDelete(id: number) {
@@ -411,6 +454,9 @@ export default function FastingPage() {
     const overtimeMs = Math.max(0, prog.elapsedMs - active.goal_hours * HOUR_MS);
     const longSpan = active.goal_hours > 6 * 24;
     const stage = FASTING_STAGES[fastingStageIndex(prog.elapsedMs / HOUR_MS)];
+    // Oldest fast-breaking meal tracked inside the window — the honest end
+    // time if the fast was actually broken.
+    const flaggedMeal = fastMeals[0];
     const goalLabel =
       active.goal_hours >= 48
         ? `of ${active.goal_hours}h goal (${oneDecimal(active.goal_hours / 24)} days)`
@@ -475,6 +521,40 @@ export default function FastingPage() {
             <div className="stat-label">Progress</div>
           </div>
         </div>
+
+        {flaggedMeal && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-title">
+              🍽️ {fastMeals.length === 1 ? "Meal" : "Meals"} tracked during this fast
+            </div>
+            {fastMeals.map((m) => (
+              <div key={m.id} className="small" style={{ padding: "3px 0" }}>
+                <span style={{ fontWeight: 600 }}>{m.title}</span>
+                <span className="muted">
+                  {" — "}
+                  {formatDayStamp(new Date(m.eaten_at), longSpan)}
+                  {m.nutrients.calories != null
+                    ? ` · ~${Math.round(m.nutrients.calories)} kcal`
+                    : ""}
+                </span>
+              </div>
+            ))}
+            <div className="muted small" style={{ marginTop: 6 }}>
+              If this broke your fast, end it at the meal's time so the record stays
+              honest. Backfilling a meal you ate before the fast? Give it a time
+              before {formatDayStamp(new Date(active.started_at), longSpan)} and this
+              note disappears.
+            </div>
+            <button
+              className="btn btn-danger btn-block"
+              style={{ marginTop: 10 }}
+              disabled={ending}
+              onClick={() => handleEndAtMeal(active, flaggedMeal)}
+            >
+              End fast at {formatDayStamp(new Date(flaggedMeal.eaten_at), longSpan)}
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="error-text" style={{ marginBottom: 10 }}>
@@ -583,6 +663,11 @@ export default function FastingPage() {
           ) : (
             <>No meals logged — the fast starts from now.</>
           )}
+        </div>
+
+        <div className="muted small" style={{ marginTop: 6 }}>
+          Entries under {FAST_BREAK_KCAL} kcal — black coffee, diet soda, broth — don't
+          count as meals: log them freely without affecting your fast.
         </div>
 
         <div className="muted small" style={{ marginTop: 6 }}>

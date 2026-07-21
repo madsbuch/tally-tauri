@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import {
   achievements,
   captures,
@@ -26,6 +26,7 @@ import type {
   Workout,
 } from "./types";
 import type { ChatMessage } from "./openrouter";
+import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 
 const DB_URL = "sqlite:tally.db";
@@ -157,14 +158,41 @@ export async function listFoodEntriesForDay(day: string): Promise<FoodEntry[]> {
   return listFoodEntriesForRange(day, day);
 }
 
-/** ISO timestamp of the most recently eaten logged meal, or null if none. */
+/**
+ * ISO timestamp of the most recently eaten entry that counts as a meal for
+ * fasting (>= FAST_BREAK_KCAL, or no calorie estimate), or null if none.
+ * Sub-threshold entries — black coffee, broth — never move the anchor.
+ */
 export async function getLastMealAt(): Promise<string | null> {
+  const kcal = sql`json_extract(${foodEntries.nutrients}, '$.calories')`;
   const rows = await db
     .select({ eatenAt: foodEntries.eatenAt })
     .from(foodEntries)
+    .where(sql`(${kcal} IS NULL OR ${kcal} >= ${FAST_BREAK_KCAL})`)
     .orderBy(desc(foodEntries.eatenAt))
     .limit(1);
   return rows[0]?.eatenAt ?? null;
+}
+
+/**
+ * Fast-breaking meals (see FAST_BREAK_KCAL; missing calories counts) eaten
+ * strictly after `sinceIso`, oldest first. Used to warn about meals tracked
+ * inside an active fast's window — strict inequality keeps the anchor meal
+ * the fast started from out of its own warning.
+ */
+export async function listMealsSince(sinceIso: string): Promise<FoodEntry[]> {
+  const kcal = sql`json_extract(${foodEntries.nutrients}, '$.calories')`;
+  const rows = await db
+    .select()
+    .from(foodEntries)
+    .where(
+      and(
+        gt(foodEntries.eatenAt, sinceIso),
+        sql`(${kcal} IS NULL OR ${kcal} >= ${FAST_BREAK_KCAL})`,
+      ),
+    )
+    .orderBy(foodEntries.eatenAt);
+  return rows.map(toFoodEntry);
 }
 
 /** Entries from local day `startDay` through `endDay`, both inclusive. */

@@ -251,9 +251,13 @@ export async function startFast(goalHours: number): Promise<Fast> {
   return fast;
 }
 
-/** End (or cancel) the active fast and clear its notifications. */
-export async function endFast(fast: Fast): Promise<void> {
-  await markFastEnded(fast.id, new Date().toISOString());
+/**
+ * End (or cancel) the active fast and clear its notifications. `endedAt`
+ * lets the caller end the fast at a specific moment — e.g. at the time of a
+ * meal that was tracked mid-fast — rather than "now".
+ */
+export async function endFast(fast: Fast, endedAt = new Date()): Promise<void> {
+  await markFastEnded(fast.id, endedAt.toISOString());
   try {
     await invoke("plugin:fasting|stop_countdown");
   } catch (e) {
