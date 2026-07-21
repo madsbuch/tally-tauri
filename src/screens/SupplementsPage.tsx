@@ -21,6 +21,7 @@ import NutrientTable from "../components/NutrientTable";
 // ---------------------------------------------------------------------------
 
 const COMMON_KEYS: NutrientKey[] = [
+  "creatine_g",
   "sodium_mg",
   "potassium_mg",
   "calcium_mg",
@@ -34,6 +35,7 @@ const COMMON_KEYS: NutrientKey[] = [
   "vitamin_b12_ug",
   "omega3_g",
   "omega6_g",
+  "caffeine_mg",
 ];
 
 const COMMON_SET = new Set<NutrientKey>(COMMON_KEYS);

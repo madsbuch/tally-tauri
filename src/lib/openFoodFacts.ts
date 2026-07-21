@@ -55,13 +55,15 @@ export const FOOD_FACTS_TOOL: ToolDef = {
 /**
  * OFF nutriment id per Tally key. `*_100g` values are normalized to grams
  * (energy to kcal/kJ), so the tally unit alone determines the scale factor.
+ * null = no corresponding OFF field; the key is never filled from labels.
  */
-const OFF_IDS: Record<NutrientKey, string> = {
+const OFF_IDS: Record<NutrientKey, string | null> = {
   calories: "energy-kcal",
   protein_g: "proteins",
   carbs_g: "carbohydrates",
   fat_g: "fat",
   saturated_fat_g: "saturated-fat",
+  trans_fat_g: "trans-fat",
   fiber_g: "fiber",
   sugar_g: "sugars",
   omega3_g: "omega-3-fat",
@@ -70,8 +72,11 @@ const OFF_IDS: Record<NutrientKey, string> = {
   potassium_mg: "potassium",
   calcium_mg: "calcium",
   magnesium_mg: "magnesium",
+  phosphorus_mg: "phosphorus",
   iron_mg: "iron",
   zinc_mg: "zinc",
+  copper_mg: "copper",
+  manganese_mg: "manganese",
   selenium_ug: "selenium",
   iodine_ug: "iodine",
   cholesterol_mg: "cholesterol",
@@ -80,9 +85,17 @@ const OFF_IDS: Record<NutrientKey, string> = {
   vitamin_d_ug: "vitamin-d",
   vitamin_e_mg: "vitamin-e",
   vitamin_k_ug: "vitamin-k",
+  thiamin_mg: "vitamin-b1",
+  riboflavin_mg: "vitamin-b2",
+  niacin_mg: "vitamin-pp",
+  pantothenic_acid_mg: "pantothenic-acid",
   vitamin_b6_mg: "vitamin-b6",
+  biotin_ug: "biotin",
   vitamin_b12_ug: "vitamin-b12",
   folate_ug: "folates",
+  choline_mg: "choline",
+  creatine_g: null,
+  caffeine_mg: "caffeine",
 };
 
 const KJ_PER_KCAL = 4.184;
@@ -104,7 +117,8 @@ export function mapOffNutriments(raw: unknown): Nutrients {
   if (!raw || typeof raw !== "object") return out;
   const n = raw as Record<string, unknown>;
   for (const def of NUTRIENT_DEFS) {
-    let v = num(n[`${OFF_IDS[def.key]}_100g`]);
+    const offId = OFF_IDS[def.key];
+    let v = offId != null ? num(n[`${offId}_100g`]) : null;
     // Fallbacks: kJ-only energy entries, folate under its vitamin-B9 id.
     if (v == null && def.key === "calories") {
       const kj = num(n["energy_100g"]);

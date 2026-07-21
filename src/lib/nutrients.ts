@@ -4,7 +4,8 @@ export interface NutrientDef {
   key: NutrientKey;
   label: string;
   unit: string;
-  group: "macro" | "micro";
+  /** "other" = compounds without a classic macro/micro role (creatine, caffeine). */
+  group: "macro" | "micro" | "other";
   /** Decimal places for display. */
   dp: number;
 }
@@ -16,6 +17,7 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "carbs_g", label: "Carbs", unit: "g", group: "macro", dp: 1 },
   { key: "fat_g", label: "Fat", unit: "g", group: "macro", dp: 1 },
   { key: "saturated_fat_g", label: "Saturated fat", unit: "g", group: "macro", dp: 1 },
+  { key: "trans_fat_g", label: "Trans fat", unit: "g", group: "macro", dp: 1 },
   { key: "fiber_g", label: "Fiber", unit: "g", group: "macro", dp: 1 },
   { key: "sugar_g", label: "Sugar", unit: "g", group: "macro", dp: 1 },
   { key: "omega3_g", label: "Omega-3", unit: "g", group: "macro", dp: 2 },
@@ -24,8 +26,11 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "potassium_mg", label: "Potassium", unit: "mg", group: "micro", dp: 0 },
   { key: "calcium_mg", label: "Calcium", unit: "mg", group: "micro", dp: 0 },
   { key: "magnesium_mg", label: "Magnesium", unit: "mg", group: "micro", dp: 0 },
+  { key: "phosphorus_mg", label: "Phosphorus", unit: "mg", group: "micro", dp: 0 },
   { key: "iron_mg", label: "Iron", unit: "mg", group: "micro", dp: 1 },
   { key: "zinc_mg", label: "Zinc", unit: "mg", group: "micro", dp: 1 },
+  { key: "copper_mg", label: "Copper", unit: "mg", group: "micro", dp: 1 },
+  { key: "manganese_mg", label: "Manganese", unit: "mg", group: "micro", dp: 1 },
   { key: "selenium_ug", label: "Selenium", unit: "µg", group: "micro", dp: 0 },
   { key: "iodine_ug", label: "Iodine", unit: "µg", group: "micro", dp: 0 },
   { key: "cholesterol_mg", label: "Cholesterol", unit: "mg", group: "micro", dp: 0 },
@@ -34,25 +39,37 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "vitamin_d_ug", label: "Vitamin D", unit: "µg", group: "micro", dp: 1 },
   { key: "vitamin_e_mg", label: "Vitamin E", unit: "mg", group: "micro", dp: 1 },
   { key: "vitamin_k_ug", label: "Vitamin K", unit: "µg", group: "micro", dp: 0 },
+  { key: "thiamin_mg", label: "Thiamin (B1)", unit: "mg", group: "micro", dp: 1 },
+  { key: "riboflavin_mg", label: "Riboflavin (B2)", unit: "mg", group: "micro", dp: 1 },
+  { key: "niacin_mg", label: "Niacin (B3)", unit: "mg", group: "micro", dp: 1 },
+  { key: "pantothenic_acid_mg", label: "Pantothenic acid (B5)", unit: "mg", group: "micro", dp: 1 },
   { key: "vitamin_b6_mg", label: "Vitamin B6", unit: "mg", group: "micro", dp: 1 },
+  { key: "biotin_ug", label: "Biotin (B7)", unit: "µg", group: "micro", dp: 0 },
   { key: "vitamin_b12_ug", label: "Vitamin B12", unit: "µg", group: "micro", dp: 1 },
   { key: "folate_ug", label: "Folate", unit: "µg", group: "micro", dp: 0 },
+  { key: "choline_mg", label: "Choline", unit: "mg", group: "micro", dp: 0 },
+  { key: "creatine_g", label: "Creatine", unit: "g", group: "other", dp: 1 },
+  { key: "caffeine_mg", label: "Caffeine", unit: "mg", group: "other", dp: 0 },
 ];
 
 export const NUTRIENT_KEYS: NutrientKey[] = NUTRIENT_DEFS.map((d) => d.key);
 
 /**
  * Approximate adult daily reference intakes. Shared by the Nutrients page
- * and the achievements engine. cholesterol_mg intentionally has no
- * reference — value only.
+ * and the achievements engine (which only counts group "micro" keys —
+ * creatine's target is a supplementation goal, not an RDA).
+ * cholesterol_mg and caffeine_mg intentionally have no reference — value only.
  */
 export const REFERENCE_INTAKES: Partial<Record<NutrientKey, number>> = {
   sodium_mg: 2300,
   potassium_mg: 3400,
   calcium_mg: 1000,
   magnesium_mg: 400,
+  phosphorus_mg: 700,
   iron_mg: 8,
   zinc_mg: 11,
+  copper_mg: 0.9,
+  manganese_mg: 2.3,
   selenium_ug: 55,
   iodine_ug: 150,
   vitamin_a_ug: 900,
@@ -60,9 +77,16 @@ export const REFERENCE_INTAKES: Partial<Record<NutrientKey, number>> = {
   vitamin_d_ug: 20,
   vitamin_e_mg: 15,
   vitamin_k_ug: 120,
+  thiamin_mg: 1.2,
+  riboflavin_mg: 1.3,
+  niacin_mg: 16,
+  pantothenic_acid_mg: 5,
   vitamin_b6_mg: 1.7,
+  biotin_ug: 30,
   vitamin_b12_ug: 2.4,
   folate_ug: 400,
+  choline_mg: 550,
+  creatine_g: 5,
 };
 
 const DEF_BY_KEY = new Map(NUTRIENT_DEFS.map((d) => [d.key, d]));
