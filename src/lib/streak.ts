@@ -22,6 +22,7 @@ import {
   todayStr,
 } from "./db";
 import { SETTING_KEYS } from "./types";
+import { StreakStateSchema, parseJson } from "./schemas";
 
 export const MAX_FREEZES = 3;
 export const FREEZE_EARN_DAYS = 7;
@@ -52,22 +53,11 @@ const DEFAULT_STATE: StreakState = { freezes: 0, frozenDays: [], lastEarnedStrea
 function parseState(raw: string | null): StreakState {
   if (!raw) return { ...DEFAULT_STATE };
   try {
-    const p = JSON.parse(raw) as Partial<StreakState>;
-    return {
-      freezes: clampInt(p.freezes, 0, MAX_FREEZES),
-      frozenDays: Array.isArray(p.frozenDays)
-        ? p.frozenDays.filter((d): d is string => typeof d === "string")
-        : [],
-      lastEarnedStreak: clampInt(p.lastEarnedStreak, 0, Number.MAX_SAFE_INTEGER),
-    };
+    const s = StreakStateSchema.parse(parseJson(raw));
+    return { ...s, freezes: Math.min(MAX_FREEZES, s.freezes) };
   } catch {
     return { ...DEFAULT_STATE };
   }
-}
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = typeof v === "number" && isFinite(v) ? Math.floor(v) : min;
-  return Math.min(max, Math.max(min, n));
 }
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */

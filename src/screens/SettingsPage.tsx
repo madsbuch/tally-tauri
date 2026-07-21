@@ -21,6 +21,7 @@ import {
   SETTING_KEYS,
 } from "../lib/types";
 import type { HealthMetric, ORModel, SleepSession, Workout } from "../lib/types";
+import { parseJson, parseModelList } from "../lib/schemas";
 import {
   disconnectHealthConnect,
   getHealthConnectStatus,
@@ -291,8 +292,7 @@ export default function SettingsPage() {
         let cached: ORModel[] | null = null;
         if (cache) {
           try {
-            const raw = JSON.parse(cache);
-            if (Array.isArray(raw)) cached = raw as ORModel[];
+            cached = parseModelList(parseJson(cache));
           } catch {
             cached = null;
           }
@@ -312,7 +312,6 @@ export default function SettingsPage() {
       if (carbSavedTimer.current != null) window.clearTimeout(carbSavedTimer.current);
       if (calSavedTimer.current != null) window.clearTimeout(calSavedTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function saveKey() {

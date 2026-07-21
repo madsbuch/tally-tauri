@@ -182,25 +182,7 @@ export interface WorkoutAnalysis {
 }
 
 /** OpenRouter model listing entry (subset of the /models response). */
-export interface ORModel {
-  id: string;
-  name: string;
-  description?: string;
-  context_length?: number;
-  created?: number;
-  pricing?: {
-    prompt?: string;
-    completion?: string;
-    image?: string;
-    request?: string;
-  };
-  architecture?: {
-    input_modalities?: string[];
-    output_modalities?: string[];
-    tokenizer?: string;
-  };
-  supported_parameters?: string[];
-}
+export type { ORModel } from "./schemas";
 
 /** Keys used in the `settings` table. */
 export const SETTING_KEYS = {

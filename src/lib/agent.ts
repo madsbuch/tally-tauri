@@ -24,6 +24,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
+import { parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
@@ -413,7 +414,7 @@ async function runCapture(capture: Capture): Promise<void> {
     for (const call of turn.tool_calls) {
       let result: string;
       try {
-        const args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+        const args = parseToolArgs(call.function.arguments);
         result = await executeTool(ctx, call.function.name, args);
       } catch (e) {
         result = `Error: ${e instanceof Error ? e.message : String(e)}`;

@@ -1,6 +1,18 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { FoodAnalysis, Nutrients, ORModel, WorkoutAnalysis } from "./types";
-import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
+import { NUTRIENT_DEFS } from "./nutrients";
+import {
+  FoodAnalysisSchema,
+  PhotoAnalysisSchema,
+  SupplementAnalysisSchema,
+  WorkoutAnalysisSchema,
+  parseChatResponse,
+  parseJson,
+  parseModelsResponse,
+} from "./schemas";
+import type { ChatMessage, ContentPart, ToolCall } from "./schemas";
+
+export type { ChatMessage, ContentPart, ToolCall } from "./schemas";
 
 const BASE = "https://openrouter.ai/api/v1";
 
@@ -28,11 +40,11 @@ export async function fetchModels(): Promise<ORModel[]> {
   if (!res.ok) {
     throw new OpenRouterError(`Model list request failed (HTTP ${res.status})`, res.status);
   }
-  const json = (await res.json()) as { data?: ORModel[] };
-  if (!Array.isArray(json.data)) {
+  const models = parseModelsResponse(await res.json());
+  if (models === null) {
     throw new OpenRouterError("Unexpected /models response shape", res.status);
   }
-  return json.data;
+  return models;
 }
 
 /** True when the model accepts image input. */
@@ -50,23 +62,6 @@ export function promptPricePerMillion(m: ORModel): number | null {
   return perToken * 1_000_000;
 }
 
-export type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-export interface ToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-}
-
-export interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | ContentPart[] | null;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-}
-
 /** OpenAI-style function tool definition (OpenRouter `tools` parameter). */
 export interface ToolDef {
   type: "function";
@@ -80,17 +75,6 @@ export interface ToolDef {
 export interface AssistantTurn {
   content: string | null;
   tool_calls: ToolCall[];
-}
-
-interface ChatChoice {
-  message?: { content?: unknown; tool_calls?: ToolCall[] };
-  finish_reason?: string;
-  error?: { message?: string; code?: number | string };
-}
-
-interface ChatResponse {
-  choices?: ChatChoice[];
-  error?: { message?: string; code?: number | string };
 }
 
 // HTTP statuses worth retrying: timeout, too-early, rate limit, server/gateway.
@@ -161,7 +145,7 @@ async function requestChatTurn(
       } finally {
         clearTimeout(timer);
       }
-      const json = (await res.json().catch(() => ({}))) as ChatResponse;
+      const json = parseChatResponse(await res.json().catch(() => ({})));
       if (!res.ok || json.error) {
         const msg = json.error?.message ?? `HTTP ${res.status}`;
         const err = new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
@@ -243,7 +227,7 @@ export function extractJsonObject(text: string): unknown {
   if (start === -1 || end === -1 || end <= start) {
     throw new Error("No JSON object found in model response");
   }
-  return JSON.parse(text.slice(start, end + 1));
+  return parseJson(text.slice(start, end + 1));
 }
 
 export interface AnalyzeFoodOptions {
@@ -294,26 +278,7 @@ export async function analyzeFood(opts: AnalyzeFoodOptions): Promise<FoodAnalysi
     { role: "user", content: parts },
   ]);
 
-  const raw = extractJsonObject(content) as {
-    title?: unknown;
-    description?: unknown;
-    confidence?: unknown;
-    nutrients?: unknown;
-  };
-
-  const confidence =
-    raw.confidence === "low" || raw.confidence === "medium" || raw.confidence === "high"
-      ? raw.confidence
-      : "low";
-
-  const nutrients: Nutrients = sanitizeNutrients(raw.nutrients);
-
-  return {
-    title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Meal",
-    description: typeof raw.description === "string" ? raw.description.trim() : "",
-    confidence,
-    nutrients,
-  };
+  return FoodAnalysisSchema.parse(extractJsonObject(content));
 }
 
 export type PhotoAnalysis =
@@ -372,54 +337,7 @@ export async function analyzePhoto(opts: AnalyzePhotoOptions): Promise<PhotoAnal
     { role: "user", content: parts },
   ]);
 
-  const raw = extractJsonObject(content) as {
-    kind?: unknown;
-    title?: unknown;
-    description?: unknown;
-    confidence?: unknown;
-    nutrients?: unknown;
-    calories_burned?: unknown;
-    duration_min?: unknown;
-  };
-
-  const title =
-    typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Untitled";
-  const description = typeof raw.description === "string" ? raw.description.trim() : "";
-  const confidence =
-    raw.confidence === "low" || raw.confidence === "medium" || raw.confidence === "high"
-      ? raw.confidence
-      : "low";
-
-  if (raw.kind === "workout") {
-    const cal =
-      typeof raw.calories_burned === "string"
-        ? parseFloat(raw.calories_burned)
-        : raw.calories_burned;
-    const dur =
-      typeof raw.duration_min === "string" ? parseFloat(raw.duration_min) : raw.duration_min;
-    return {
-      kind: "workout",
-      workout: {
-        title: title === "Untitled" ? "Workout" : title,
-        description,
-        confidence,
-        calories_burned:
-          typeof cal === "number" && isFinite(cal) && cal >= 0 ? Math.round(cal) : 0,
-        duration_min:
-          typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null,
-      },
-    };
-  }
-
-  return {
-    kind: "meal",
-    meal: {
-      title: title === "Untitled" ? "Meal" : title,
-      description,
-      confidence,
-      nutrients: sanitizeNutrients(raw.nutrients),
-    },
-  };
+  return PhotoAnalysisSchema.parse(extractJsonObject(content));
 }
 
 export interface AnalyzeWorkoutOptions {
@@ -470,34 +388,7 @@ export async function analyzeWorkout(opts: AnalyzeWorkoutOptions): Promise<Worko
     { role: "user", content: parts },
   ]);
 
-  const raw = extractJsonObject(content) as {
-    title?: unknown;
-    description?: unknown;
-    confidence?: unknown;
-    calories_burned?: unknown;
-    duration_min?: unknown;
-  };
-
-  const cal =
-    typeof raw.calories_burned === "string"
-      ? parseFloat(raw.calories_burned)
-      : raw.calories_burned;
-  const dur =
-    typeof raw.duration_min === "string" ? parseFloat(raw.duration_min) : raw.duration_min;
-
-  return {
-    title:
-      typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Workout",
-    description: typeof raw.description === "string" ? raw.description.trim() : "",
-    confidence:
-      raw.confidence === "low" || raw.confidence === "medium" || raw.confidence === "high"
-        ? raw.confidence
-        : "low",
-    calories_burned:
-      typeof cal === "number" && isFinite(cal) && cal >= 0 ? Math.round(cal) : 0,
-    duration_min:
-      typeof dur === "number" && isFinite(dur) && dur > 0 ? Math.round(dur) : null,
-  };
+  return WorkoutAnalysisSchema.parse(extractJsonObject(content));
 }
 
 /**
@@ -523,9 +414,5 @@ export async function analyzeSupplement(
     { role: "user", content: `Supplement: ${labelText}` },
   ]);
 
-  const raw = extractJsonObject(content) as { nutrients?: unknown; notes?: unknown };
-  return {
-    nutrients: sanitizeNutrients(raw.nutrients),
-    notes: typeof raw.notes === "string" ? raw.notes : "",
-  };
+  return SupplementAnalysisSchema.parse(extractJsonObject(content));
 }

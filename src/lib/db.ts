@@ -28,6 +28,7 @@ import type {
 import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
+import { parseChatTranscript, parseJson } from "./schemas";
 
 const DB_URL = "sqlite:tally.db";
 
@@ -705,10 +706,10 @@ export async function getChatMessages(id: number): Promise<ChatMessage[] | null>
     .from(chats)
     .where(eq(chats.id, id))
     .limit(1);
-  const raw = rows[0]?.messages;
+  const raw: unknown = rows[0]?.messages;
   if (raw === undefined) return null;
-  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-  return Array.isArray(parsed) ? (parsed as ChatMessage[]) : null;
+  const parsed = typeof raw === "string" ? parseJson(raw) : raw;
+  return parseChatTranscript(parsed);
 }
 
 export async function createChat(
