@@ -165,7 +165,8 @@ export const FASTING_STAGES: FastingStage[] = [
 /** Index into FASTING_STAGES for a given number of hours fasted. */
 export function fastingStageIndex(hours: number): number {
   for (let i = FASTING_STAGES.length - 1; i >= 0; i--) {
-    if (hours >= FASTING_STAGES[i].fromH) return i;
+    const stage = FASTING_STAGES[i];
+    if (stage && hours >= stage.fromH) return i;
   }
   return 0;
 }

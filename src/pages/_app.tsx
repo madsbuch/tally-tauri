@@ -1,22 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { JSX } from "react";
-import "./App.css";
-import DiaryPage from "./pages/DiaryPage";
-import NutrientsPage from "./pages/NutrientsPage";
-import FastingPage from "./pages/FastingPage";
-import AssistantPage from "./pages/AssistantPage";
-import SettingsPage from "./pages/SettingsPage";
-import { getDb } from "./lib/db";
-import { resyncFastNotification } from "./lib/fasting";
-import { onDiaryChanged, resumePendingCaptures } from "./lib/agent";
-import { syncHealthConnect } from "./lib/healthConnect";
-import { scanAchievements } from "./lib/achievements";
+import { Outlet, useLocation } from "react-router-dom";
+import { Link } from "../router";
+import type { Path } from "../router";
+import { getDb } from "../lib/db";
+import { resyncFastNotification } from "../lib/fasting";
+import { onDiaryChanged, resumePendingCaptures } from "../lib/agent";
+import { syncHealthConnect } from "../lib/healthConnect";
+import { scanAchievements } from "../lib/achievements";
 
-type TabId = "diary" | "nutrients" | "fasting" | "assistant" | "settings";
-
-const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
+/** Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type error. */
+const TABS: { to: Path; label: string; icon: JSX.Element }[] = [
   {
-    id: "diary",
+    to: "/",
     label: "Diary",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -26,7 +22,7 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: "nutrients",
+    to: "/nutrients",
     label: "Nutrients",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -39,7 +35,7 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: "fasting",
+    to: "/fasting",
     label: "Fasting",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -52,7 +48,7 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: "assistant",
+    to: "/assistant",
     label: "Assistant",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -68,7 +64,7 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: "settings",
+    to: "/settings",
     label: "Settings",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -83,7 +79,7 @@ const TABS: { id: TabId; label: string; icon: JSX.Element }[] = [
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<TabId>("diary");
+  const { pathname } = useLocation();
 
   useEffect(() => {
     // Warm the DB (runs migrations), re-sync the fasting notification, resume
@@ -123,22 +119,18 @@ export default function App() {
   return (
     <div className="app">
       <main className="app-main">
-        {tab === "diary" && <DiaryPage />}
-        {tab === "nutrients" && <NutrientsPage />}
-        {tab === "fasting" && <FastingPage />}
-        {tab === "assistant" && <AssistantPage />}
-        {tab === "settings" && <SettingsPage />}
+        <Outlet />
       </main>
       <nav className="tabbar">
         {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? "tab-active" : ""}`}
-            onClick={() => setTab(t.id)}
+          <Link
+            key={t.to}
+            to={t.to}
+            className={`tab ${pathname === t.to ? "tab-active" : ""}`}
           >
             <span className="tab-icon">{t.icon}</span>
             <span className="tab-label">{t.label}</span>
-          </button>
+          </Link>
         ))}
       </nav>
     </div>

@@ -72,7 +72,7 @@ function dayOf(iso: string): string {
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
@@ -444,7 +444,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       const perWeek = new Map<string, Set<string>>();
       for (const w of await ctx.workouts()) {
         const day = dayOf(w.performed_at);
-        const [y, m, d] = day.split("-").map(Number);
+        const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
         const monOffset = (new Date(y, m - 1, d).getDay() + 6) % 7;
         const week = shiftDay(day, -monOffset);
         const set = perWeek.get(week) ?? new Set<string>();

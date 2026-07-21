@@ -379,6 +379,9 @@ export default function FastingPage() {
     }
   }
 
+  // Hooks must run on every render — keep this above the loading return.
+  const records = useMemo(() => computeRecords(allFasts), [allFasts]);
+
   if (loading) {
     return (
       <div className="page">
@@ -391,8 +394,6 @@ export default function FastingPage() {
       </div>
     );
   }
-
-  const records = useMemo(() => computeRecords(allFasts), [allFasts]);
 
   // New fasts anchor to the last logged meal (when it falls inside the goal
   // window) — mirror resolveFastStart so the card can say what will happen.
@@ -421,9 +422,11 @@ export default function FastingPage() {
             <div className="ring-center-value">{formatDurationDays(prog.elapsedMs, true)}</div>
             <div className="ring-center-label">{goalLabel}</div>
           </ProgressRing>
-          <span className="chip" style={{ marginTop: 12 }}>
-            {stage.emoji} {stage.title}
-          </span>
+          {stage && (
+            <span className="chip" style={{ marginTop: 12 }}>
+              {stage.emoji} {stage.title}
+            </span>
+          )}
           {records.longestMs > 0 && prog.elapsedMs > records.longestMs && (
             <span className="chip chip-accent" style={{ marginTop: 8 }}>
               🏆 Longest fast ever

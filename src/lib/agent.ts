@@ -204,28 +204,29 @@ export function resolveAgentTime(raw: string | undefined, day: string): string {
         t,
       );
     if (zoned) {
+      const [, zDate = "", zHour = "", zMin = "", zOff = ""] = zoned;
       const off =
-        zoned[4].toUpperCase() === "Z"
+        zOff.toUpperCase() === "Z"
           ? "Z"
-          : zoned[4].includes(":")
-            ? zoned[4]
-            : `${zoned[4].slice(0, 3)}:${zoned[4].slice(3)}`;
-      const parsed = new Date(
-        `${zoned[1]}T${zoned[2].padStart(2, "0")}:${zoned[3]}:00${off}`,
-      );
+          : zOff.includes(":")
+            ? zOff
+            : `${zOff.slice(0, 3)}:${zOff.slice(3)}`;
+      const parsed = new Date(`${zDate}T${zHour.padStart(2, "0")}:${zMin}:00${off}`);
       if (!isNaN(parsed.getTime())) d = parsed;
     }
     const full = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/.exec(t);
     const hm = /^(\d{1,2}):(\d{2})(?:\s*(am|pm))?$/i.exec(t);
     if (!d && full) {
-      d = new Date(+full[1], +full[2] - 1, +full[3], +full[4], +full[5]);
+      const [, fy = "", fm = "", fd = "", fh = "", fmin = ""] = full;
+      d = new Date(+fy, +fm - 1, +fd, +fh, +fmin);
     } else if (!d && hm) {
-      let hh = +hm[1];
-      const ap = hm[3]?.toLowerCase();
-      if (ap === "pm" && hh < 12) hh += 12;
-      if (ap === "am" && hh === 12) hh = 0;
-      const [y, m, dd] = day.split("-").map(Number);
-      d = new Date(y, m - 1, dd, hh, +hm[2]);
+      const [, hStr = "", minStr = "", ap] = hm;
+      let hh = +hStr;
+      const meridiem = ap?.toLowerCase();
+      if (meridiem === "pm" && hh < 12) hh += 12;
+      if (meridiem === "am" && hh === 12) hh = 0;
+      const [y = 0, m = 1, dd = 1] = day.split("-").map(Number);
+      d = new Date(y, m - 1, dd, hh, +minStr);
     }
   }
   if (!d || isNaN(d.getTime())) d = now;
@@ -263,18 +264,18 @@ async function executeTool(
     return executeFoodFactsSearch(args);
   }
 
-  const time = resolveAgentTime(str(args.time) ?? undefined, ctx.capture.day);
+  const time = resolveAgentTime(str(args["time"]) ?? undefined, ctx.capture.day);
 
   if (name === "log_meal") {
-    const title = str(args.title) ?? "Meal";
+    const title = str(args["title"]) ?? "Meal";
     const photo = ctx.photoToAttach;
     ctx.photoToAttach = null;
     await addFoodEntry({
       eaten_at: time,
       title,
-      description: str(args.description),
+      description: str(args["description"]),
       photo_path: photo,
-      nutrients: sanitizeNutrients(args.nutrients),
+      nutrients: sanitizeNutrients(args["nutrients"]),
       model_id: ctx.model,
     });
     ctx.logged++;
@@ -288,15 +289,15 @@ async function executeTool(
   }
 
   if (name === "log_workout") {
-    const title = str(args.title) ?? "Workout";
-    const cal = num(args.calories_burned);
-    const dur = num(args.duration_min);
+    const title = str(args["title"]) ?? "Workout";
+    const cal = num(args["calories_burned"]);
+    const dur = num(args["duration_min"]);
     const photo = ctx.photoToAttach;
     ctx.photoToAttach = null;
     await addWorkout({
       performed_at: time,
       title,
-      description: str(args.description),
+      description: str(args["description"]),
       photo_path: photo,
       calories_burned: cal != null && cal >= 0 ? Math.round(cal) : 0,
       duration_min: dur != null && dur > 0 ? Math.round(dur) : null,
@@ -308,9 +309,9 @@ async function executeTool(
   }
 
   if (name === "log_supplement") {
-    const name_ = str(args.name);
+    const name_ = str(args["name"]);
     if (!name_) return "Error: supplement name is required.";
-    const amount = Math.max(0.5, num(args.amount) ?? 1);
+    const amount = Math.max(0.5, num(args["amount"]) ?? 1);
     const catalog = await listSupplements(true);
     let supp = catalog.find((s) => s.name.toLowerCase() === name_.toLowerCase());
     if (!supp) {
@@ -462,8 +463,8 @@ async function processCapture(id: number): Promise<void> {
 
 export interface EnqueueOptions {
   /** Base64 JPEG payload (from compressImage), if a photo was taken. */
-  photoBase64?: string;
-  note?: string;
+  photoBase64?: string | undefined;
+  note?: string | undefined;
   /** Local diary day the user is viewing. */
   day: string;
 }

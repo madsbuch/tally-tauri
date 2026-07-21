@@ -93,6 +93,9 @@ body {
   letter-spacing: 0.02em;
   cursor: pointer;
   padding: 0;
+  /* Tabs are router <a> links — keep them looking like the old buttons. */
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tab-icon svg {

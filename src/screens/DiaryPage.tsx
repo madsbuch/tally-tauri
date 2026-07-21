@@ -84,7 +84,7 @@ function errMsg(err: unknown): string {
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
@@ -92,7 +92,7 @@ function dayTitle(day: string): string {
   const today = todayStr();
   if (day === today) return "Today";
   if (day === shiftDay(today, -1)) return "Yesterday";
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -102,7 +102,7 @@ function dayTitle(day: string): string {
 
 /** "Jul 14", with the year appended only when it isn't the current year. */
 function shortDate(day: string): string {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   if (y !== new Date().getFullYear()) opts.year = "numeric";
   return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
@@ -116,7 +116,7 @@ type TotalsPeriod = "day" | "week" | "month";
 
 /** Monday-to-Sunday week containing `day`, both bounds inclusive. */
 function weekRangeOf(day: string): { start: string; end: string } {
-  const [y, m, d] = day.split("-").map(Number);
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   const monOffset = (new Date(y, m - 1, d).getDay() + 6) % 7; // Mon = 0
   const start = todayStr(new Date(y, m - 1, d - monOffset));
   return { start, end: shiftDay(start, 6) };
@@ -124,7 +124,7 @@ function weekRangeOf(day: string): { start: string; end: string } {
 
 /** Calendar month containing `day`, both bounds inclusive. */
 function monthRangeOf(day: string): { start: string; end: string } {
-  const [y, m] = day.split("-").map(Number);
+  const [y = 0, m = 1] = day.split("-").map(Number);
   return {
     start: todayStr(new Date(y, m - 1, 1)),
     end: todayStr(new Date(y, m, 0)),
@@ -134,14 +134,14 @@ function monthRangeOf(day: string): { start: string; end: string } {
 /** Whole days from `start` through `end`, both inclusive. */
 function daysBetween(start: string, end: string): number {
   const toDate = (s: string) => {
-    const [y, m, d] = s.split("-").map(Number);
+    const [y = 0, m = 1, d = 1] = s.split("-").map(Number);
     return new Date(y, m - 1, d);
   };
   return Math.round((toDate(end).getTime() - toDate(start).getTime()) / 86_400_000) + 1;
 }
 
 function monthTitle(day: string): string {
-  const [y, m] = day.split("-").map(Number);
+  const [y = 0, m = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
     month: "long",
     year: "numeric",
@@ -163,7 +163,7 @@ function nowHhMm(): string {
 
 /** Combine a local "YYYY-MM-DD" day and an "HH:MM" time into a UTC ISO string. */
 function dayTimeToIso(day: string, time: string): string {
-  const [y, mo, d] = day.split("-").map(Number);
+  const [y = 0, mo = 1, d = 1] = day.split("-").map(Number);
   let hh: number;
   let mm: number;
   const parsed = /^(\d{1,2}):(\d{2})/.exec(time);
@@ -1904,7 +1904,8 @@ export default function DiaryPage() {
   useEffect(
     () =>
       onAchievementsUnlocked((keys) => {
-        const def = ACHIEVEMENTS_BY_KEY.get(keys[keys.length - 1]);
+        const lastKey = keys[keys.length - 1];
+        const def = lastKey ? ACHIEVEMENTS_BY_KEY.get(lastKey) : undefined;
         if (!def) return;
         const extra = keys.length > 1 ? ` (+${keys.length - 1} more)` : "";
         setUnlockToast(`${def.emoji} Achievement unlocked: ${def.title}${extra}`);
@@ -1984,7 +1985,7 @@ export default function DiaryPage() {
       setRangeData(null);
       return;
     }
-    const [start, end] = rangeKey.split("..");
+    const [start = "", end = ""] = rangeKey.split("..");
     let alive = true;
     Promise.all([
       listFoodEntriesForRange(start, end),

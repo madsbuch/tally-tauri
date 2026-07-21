@@ -101,6 +101,7 @@ function transcriptToUi(messages: ChatMessage[]): UiItem[] {
   let deliveredSinceUser = false;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
+    if (!m) continue;
     if (m.role === "user" && typeof m.content === "string") {
       items.push({ kind: "user", text: m.content });
       deliveredSinceUser = false;
@@ -129,8 +130,8 @@ function transcriptToUi(messages: ChatMessage[]): UiItem[] {
         // Malformed args — surfaced to the model at runtime; skip in replay.
       }
       if (call.function.name === "send_message") {
-        if (typeof args.text === "string" && args.text.trim()) {
-          items = appendEvent(items, { type: "message", text: args.text.trim() });
+        if (typeof args["text"] === "string" && args["text"].trim()) {
+          items = appendEvent(items, { type: "message", text: args["text"].trim() });
           deliveredSinceUser = true;
         }
       } else if (call.function.name === "send_chart") {

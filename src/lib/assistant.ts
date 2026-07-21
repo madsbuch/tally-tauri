@@ -213,25 +213,27 @@ const MAX_CHART_SERIES = 3;
 
 /** Validate & normalize send_chart args; throws a model-readable error. */
 export function sanitizeChart(args: Record<string, unknown>): ChartSpec {
-  const type = args.type === "line" ? "line" : args.type === "bar" ? "bar" : null;
+  const type = args["type"] === "line" ? "line" : args["type"] === "bar" ? "bar" : null;
   if (!type) throw new Error('type must be "bar" or "line"');
-  const title = typeof args.title === "string" ? args.title.trim() : "";
+  const title = typeof args["title"] === "string" ? args["title"].trim() : "";
   if (!title) throw new Error("title is required");
-  const xRaw = Array.isArray(args.x_labels) ? args.x_labels : null;
+  const xRaw = Array.isArray(args["x_labels"]) ? args["x_labels"] : null;
   if (!xRaw || xRaw.length === 0) throw new Error("x_labels must be a non-empty array");
   if (xRaw.length > MAX_CHART_POINTS) {
     throw new Error(`Too many points (${xRaw.length}) — aggregate to at most ${MAX_CHART_POINTS}`);
   }
   const x_labels = xRaw.map((l) => String(l));
-  const sRaw = Array.isArray(args.series) ? args.series : null;
+  const sRaw = Array.isArray(args["series"]) ? args["series"] : null;
   if (!sRaw || sRaw.length === 0) throw new Error("series must be a non-empty array");
   if (sRaw.length > MAX_CHART_SERIES) {
     throw new Error(`At most ${MAX_CHART_SERIES} series per chart — split into several charts`);
   }
   const series: ChartSeries[] = sRaw.map((s, i) => {
     const o = (s ?? {}) as Record<string, unknown>;
-    const name = typeof o.name === "string" && o.name.trim() ? o.name.trim() : `Series ${i + 1}`;
-    const vRaw = Array.isArray(o.values) ? o.values : [];
+    const rawName = o["name"];
+    const name =
+      typeof rawName === "string" && rawName.trim() ? rawName.trim() : `Series ${i + 1}`;
+    const vRaw = Array.isArray(o["values"]) ? o["values"] : [];
     const values = x_labels.map((_, j) => {
       const v = vRaw[j];
       const n = typeof v === "string" ? parseFloat(v) : v;
@@ -242,8 +244,9 @@ export function sanitizeChart(args: Record<string, unknown>): ChartSpec {
     }
     return { name, values };
   });
-  const unit = typeof args.unit === "string" && args.unit.trim() ? args.unit.trim() : undefined;
-  return { type, title, unit, x_labels, series };
+  const unit =
+    typeof args["unit"] === "string" && args["unit"].trim() ? args["unit"].trim() : null;
+  return { type, title, ...(unit != null ? { unit } : {}), x_labels, series };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +291,8 @@ function capList<T>(items: T[]): { items: T[]; note?: string } {
 
 function dayArgs(args: Record<string, unknown>): { start: string; end: string } {
   const re = /^\d{4}-\d{2}-\d{2}$/;
-  const start = typeof args.start_day === "string" ? args.start_day : "";
-  const end = typeof args.end_day === "string" ? args.end_day : "";
+  const start = typeof args["start_day"] === "string" ? args["start_day"] : "";
+  const end = typeof args["end_day"] === "string" ? args["end_day"] : "";
   if (!re.test(start) || !re.test(end)) {
     throw new Error('start_day and end_day must be "YYYY-MM-DD"');
   }
@@ -424,8 +427,8 @@ export async function executeAssistantTool(
 
   if (name === "query_fasts") {
     const limit =
-      typeof args.limit === "number" && isFinite(args.limit)
-        ? Math.max(1, Math.min(100, Math.round(args.limit)))
+      typeof args["limit"] === "number" && isFinite(args["limit"])
+        ? Math.max(1, Math.min(100, Math.round(args["limit"])))
         : 20;
     const [active, recent] = await Promise.all([getActiveFast(), listRecentFasts(limit)]);
     const hours = (startIso: string, endIso: string) =>
@@ -452,10 +455,10 @@ export async function executeAssistantTool(
   }
 
   if (name === "run_sql") {
-    if (typeof args.sql !== "string" || !args.sql.trim()) {
+    if (typeof args["sql"] !== "string" || !args["sql"].trim()) {
       throw new Error("sql is required");
     }
-    return runSql(args.sql);
+    return runSql(args["sql"]);
   }
 
   if (name === "search_packaged_food") {
@@ -580,7 +583,7 @@ export async function runAssistantTurn(
       try {
         const args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
         if (call.function.name === "send_message") {
-          const text = typeof args.text === "string" ? args.text.trim() : "";
+          const text = typeof args["text"] === "string" ? args["text"].trim() : "";
           if (!text) throw new Error("text is required");
           onEvent({ type: "message", text });
           delivered++;
