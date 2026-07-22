@@ -20,6 +20,8 @@ import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.aggregate.AggregateMetric
+import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -32,6 +34,8 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.Period
 import java.time.ZoneId
 import kotlin.reflect.KClass
 import kotlinx.coroutines.CoroutineScope
@@ -248,6 +252,41 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
             emptyList()
         }
 
+    /**
+     * Aggregates one metric into local-day buckets. Unlike summing raw
+     * records, Health Connect's aggregation drops overlaps between sources
+     * (e.g. phone step counter vs. watch) via the data-origin priority list.
+     * An ungranted permission yields no values, matching readAllOptional.
+     */
+    private suspend fun <T : Any> aggregateByDayOptional(
+        hc: HealthConnectClient,
+        metric: AggregateMetric<T>,
+        startMs: Long,
+        endMs: Long,
+        onValue: (day: String, value: T) -> Unit,
+    ) {
+        val zone = ZoneId.systemDefault()
+        // Group-by-period slices on local time; snap the start to local
+        // midnight so every bucket is a whole calendar day.
+        val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate().atStartOfDay()
+        val end = LocalDateTime.ofInstant(Instant.ofEpochMilli(endMs), zone)
+        try {
+            val buckets = hc.aggregateGroupByPeriod(
+                AggregateGroupByPeriodRequest(
+                    metrics = setOf(metric),
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    timeRangeSlicer = Period.ofDays(1),
+                )
+            )
+            for (bucket in buckets) {
+                val value = bucket.result[metric] ?: continue
+                onValue(bucket.startTime.toLocalDate().toString(), value)
+            }
+        } catch (_: SecurityException) {
+            // Per-type permission not granted — treat as no data.
+        }
+    }
+
     @Command
     fun readSleepSessions(invoke: Invoke) {
         val args = invoke.parseArgs(ReadSessionsArgs::class.java)
@@ -324,13 +363,25 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 val byDay = sortedMapOf<String, DayAgg>()
                 fun agg(day: String): DayAgg = byDay.getOrPut(day) { DayAgg() }
 
-                for (r in readAllOptional(hc, StepsRecord::class, filter)) {
-                    val a = agg(dayOf(r.startTime))
-                    a.steps = (a.steps ?: 0L) + r.count
+                // Steps and calories must go through the aggregate API: when
+                // several apps write the same activity (phone pedometer +
+                // watch), it deduplicates overlapping records by data-origin
+                // priority, whereas summing raw records double counts.
+                aggregateByDayOptional(
+                    hc,
+                    StepsRecord.COUNT_TOTAL,
+                    args.startMs,
+                    args.endMs,
+                ) { day, count ->
+                    agg(day).steps = count
                 }
-                for (r in readAllOptional(hc, TotalCaloriesBurnedRecord::class, filter)) {
-                    val a = agg(dayOf(r.startTime))
-                    a.caloriesTotal = (a.caloriesTotal ?: 0.0) + r.energy.inKilocalories
+                aggregateByDayOptional(
+                    hc,
+                    TotalCaloriesBurnedRecord.ENERGY_TOTAL,
+                    args.startMs,
+                    args.endMs,
+                ) { day, energy ->
+                    agg(day).caloriesTotal = energy.inKilocalories
                 }
                 for (r in readAllOptional(hc, RestingHeartRateRecord::class, filter)) {
                     agg(dayOf(r.time)).restingHr.add(r.beatsPerMinute.toDouble())
