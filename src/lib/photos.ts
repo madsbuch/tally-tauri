@@ -2,6 +2,32 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 /**
+ * Decode an image file to an ImageBitmap.
+ *
+ * The WebView's native decoder (`createImageBitmap`) handles JPEG/PNG/WebP but,
+ * on Android/Chromium and the desktop WebViews, cannot decode HEIC/HEIF — the
+ * default iPhone photo format. When native decoding fails we fall back to a
+ * libheif WASM decoder (loaded lazily so non-HEIC picks pay nothing for it). If
+ * that also fails, the original decode error is surfaced.
+ */
+async function decodeToBitmap(file: Blob): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file);
+  } catch (nativeErr) {
+    let decoded;
+    try {
+      const { default: decode } = await import("heic-decode");
+      decoded = await decode({ buffer: new Uint8Array(await file.arrayBuffer()) });
+    } catch {
+      // Not a HEIC image (or genuinely corrupt): surface the native error.
+      throw nativeErr;
+    }
+    const { width, height, data } = decoded;
+    return await createImageBitmap(new ImageData(data, width, height));
+  }
+}
+
+/**
  * Downscale and re-encode an image file to JPEG.
  * Returns a data URL (for the vision model / preview) and the raw base64
  * payload (for saving to disk via the Rust command).
@@ -11,7 +37,7 @@ export async function compressImage(
   maxDim = 1280,
   quality = 0.85,
 ): Promise<{ dataUrl: string; base64: string }> {
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await decodeToBitmap(file);
   try {
     const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
