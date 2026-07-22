@@ -426,6 +426,7 @@ async function runCapture(capture: Capture): Promise<void> {
 
   let lastText: string | null = null;
   let nudged = false;
+  let dissolved = false;
   for (let round = 0; round < MAX_ROUNDS; round++) {
     // Once something is logged, an empty completion just means "done" — it
     // must not fail the capture (retrying would log the items twice).
@@ -468,6 +469,16 @@ async function runCapture(capture: Capture): Promise<void> {
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
+    // Dissolve the capture into its entries the instant the first item is
+    // recorded — not at the end of the run. If the app is then killed or a
+    // later round's request is dropped (both common when backgrounded on
+    // mobile), there's no half-logged capture left in "pending" for the next
+    // resume to re-run, which would re-log everything already recorded here.
+    if (ctx.logged > 0 && !dissolved) {
+      dissolved = true;
+      await deleteCapture(capture.id);
+      notifyDiaryChanged();
+    }
   }
 
   if (ctx.logged === 0) {
@@ -478,8 +489,7 @@ async function runCapture(capture: Capture): Promise<void> {
   // resolution can only be detected here.
   if (ctx.logged >= 3) void unlockAchievement("combo_capture");
 
-  // Success: the capture dissolves into the entries it produced.
-  await deleteCapture(capture.id);
+  // The capture already dissolved above (ctx.logged > 0 is guaranteed here).
   if (ctx.photoToAttach) {
     // Nothing took the photo (e.g. only a supplement was logged).
     await deletePhoto(ctx.photoToAttach);
