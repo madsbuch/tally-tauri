@@ -74,6 +74,12 @@ const HISTORY_WINDOW_MS = 365 * 24 * 3_600_000;
  * hours after it happened, and edits in Garmin Connect should flow through.
  */
 const SYNC_OVERLAP_MS = 48 * 3_600_000;
+/**
+ * Bump when a sync-logic fix changes what already-synced days should contain
+ * (e.g. the switch from summing raw step records to deduplicated aggregates).
+ * A mismatch forces one full-window resync so stale values get overwritten.
+ */
+const RESYNC_VERSION = "2";
 
 export async function getHealthConnectStatus(): Promise<HealthConnectStatus> {
   try {
@@ -161,9 +167,13 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
   const windowMs = status.historyGranted ? HISTORY_WINDOW_MS : DEFAULT_WINDOW_MS;
   // When history access appears (first grant, or granted later in Health
   // Connect), re-read the whole window once instead of resuming incrementally
-  // — the newly readable past would otherwise stay invisible forever.
+  // — the newly readable past would otherwise stay invisible forever. Same
+  // after a sync-logic fix (RESYNC_VERSION bump): stale day values only heal
+  // if the whole window is recomputed once.
   const historyBackfilled = await getSetting(SETTING_KEYS.healthConnectHistorySynced);
-  const fullResync = status.historyGranted && !historyBackfilled;
+  const resyncedVersion = await getSetting(SETTING_KEYS.healthConnectResyncVersion);
+  const fullResync =
+    (status.historyGranted && !historyBackfilled) || resyncedVersion !== RESYNC_VERSION;
   const startMs = fullResync
     ? now - windowMs
     : Math.max(now - windowMs, isFinite(lastMs) ? lastMs - SYNC_OVERLAP_MS : 0);
@@ -243,6 +253,7 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
   if (status.historyGranted) {
     await setSetting(SETTING_KEYS.healthConnectHistorySynced, "1");
   }
+  await setSetting(SETTING_KEYS.healthConnectResyncVersion, RESYNC_VERSION);
   if (workoutCount > 0) notifyDiaryChanged();
   return { status, workouts: workoutCount, sleep: sleepCount, days: dayCount };
 }
