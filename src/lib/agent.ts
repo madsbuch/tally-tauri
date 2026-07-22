@@ -342,6 +342,53 @@ async function executeTool(
 const MAX_ROUNDS = 10;
 const inFlight = new Set<number>();
 
+// ---------------------------------------------------------------------------
+// Background awareness
+// ---------------------------------------------------------------------------
+//
+// On mobile the OS suspends the WebView when the app is backgrounded: in-flight
+// fetches to OpenRouter are dropped and timers are throttled, so an analysis
+// round can fail with no fault of the model or the network. We must not burn
+// such a capture into a permanent "error" — instead we keep it "pending" and
+// re-run it once the app returns to the foreground.
+
+/** Epoch ms of the last time the app was backgrounded; 0 before any hide. */
+let lastHiddenAt = 0;
+let lifecycleInstalled = false;
+
+function isHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+/**
+ * Wire app foreground/background transitions into capture processing. Call once
+ * on app start. Records when the app is suspended (so a run interrupted by it is
+ * retried rather than marked failed) and re-runs pending captures whenever the
+ * app comes back to the foreground. Returns a cleanup function.
+ */
+export function installCaptureLifecycle(): () => void {
+  if (lifecycleInstalled || typeof document === "undefined") return () => {};
+  lifecycleInstalled = true;
+
+  const onVisibility = () => {
+    if (document.visibilityState === "hidden") {
+      lastHiddenAt = Date.now();
+    } else {
+      // Back in the foreground: pick up anything the OS interrupted.
+      void resumePendingCaptures();
+    }
+  };
+  const onFocus = () => void resumePendingCaptures();
+
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("focus", onFocus);
+  return () => {
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("focus", onFocus);
+    lifecycleInstalled = false;
+  };
+}
+
 async function runCapture(capture: Capture): Promise<void> {
   const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
   if (!apiKey) {
@@ -379,6 +426,7 @@ async function runCapture(capture: Capture): Promise<void> {
 
   let lastText: string | null = null;
   let nudged = false;
+  let dissolved = false;
   for (let round = 0; round < MAX_ROUNDS; round++) {
     // Once something is logged, an empty completion just means "done" — it
     // must not fail the capture (retrying would log the items twice).
@@ -421,6 +469,16 @@ async function runCapture(capture: Capture): Promise<void> {
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
+    // Dissolve the capture into its entries the instant the first item is
+    // recorded — not at the end of the run. If the app is then killed or a
+    // later round's request is dropped (both common when backgrounded on
+    // mobile), there's no half-logged capture left in "pending" for the next
+    // resume to re-run, which would re-log everything already recorded here.
+    if (ctx.logged > 0 && !dissolved) {
+      dissolved = true;
+      await deleteCapture(capture.id);
+      notifyDiaryChanged();
+    }
   }
 
   if (ctx.logged === 0) {
@@ -431,8 +489,7 @@ async function runCapture(capture: Capture): Promise<void> {
   // resolution can only be detected here.
   if (ctx.logged >= 3) void unlockAchievement("combo_capture");
 
-  // Success: the capture dissolves into the entries it produced.
-  await deleteCapture(capture.id);
+  // The capture already dissolved above (ctx.logged > 0 is guaranteed here).
   if (ctx.photoToAttach) {
     // Nothing took the photo (e.g. only a supplement was logged).
     await deletePhoto(ctx.photoToAttach);
@@ -443,6 +500,7 @@ async function runCapture(capture: Capture): Promise<void> {
 async function processCapture(id: number): Promise<void> {
   if (inFlight.has(id)) return;
   inFlight.add(id);
+  const startedAt = Date.now();
   try {
     const capture = await getCapture(id);
     if (!capture) return;
@@ -450,7 +508,16 @@ async function processCapture(id: number): Promise<void> {
       await runCapture(capture);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      await setCaptureStatus(id, "error", msg);
+      // If the app was suspended (backgrounded) at any point during this run,
+      // the failure is almost certainly the OS dropping our in-flight request
+      // rather than a real problem. Keep the capture "pending" so it retries
+      // when the app returns to the foreground, instead of surfacing a bogus
+      // error the user has to dismiss and re-run by hand.
+      if (isHidden() || lastHiddenAt >= startedAt) {
+        await setCaptureStatus(id, "pending", null);
+      } else {
+        await setCaptureStatus(id, "error", msg);
+      }
       notifyDiaryChanged();
     }
   } finally {
