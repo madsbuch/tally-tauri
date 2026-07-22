@@ -5,7 +5,11 @@ import { Link } from "../router";
 import type { Path } from "../router";
 import { getDb } from "../lib/db";
 import { resyncFastNotification } from "../lib/fasting";
-import { onDiaryChanged, resumePendingCaptures } from "../lib/agent";
+import {
+  installCaptureLifecycle,
+  onDiaryChanged,
+  resumePendingCaptures,
+} from "../lib/agent";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 
@@ -98,6 +102,10 @@ export default function App() {
       // After sync: fresh Garmin data may complete achievements.
       .then(() => scanAchievements())
       .catch((e) => console.error("Startup failed", e));
+
+    // Re-run captures interrupted by the OS suspending the app, and keep
+    // resuming them each time it returns to the foreground.
+    return installCaptureLifecycle();
   }, []);
 
   // Re-scan achievements when diary data changes, debounced — agent captures
