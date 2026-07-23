@@ -15,6 +15,7 @@ import {
   addSupplementLog,
   addWorkout,
   deleteCapture,
+  deletePhotoIfUnused,
   getCapture,
   getSetting,
   listPendingCaptures,
@@ -28,7 +29,7 @@ import { parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
-import { deletePhoto, readPhotoDataUrl, savePhoto } from "./photos";
+import { readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
 
@@ -491,8 +492,9 @@ async function runCapture(capture: Capture): Promise<void> {
 
   // The capture already dissolved above (ctx.logged > 0 is guaranteed here).
   if (ctx.photoToAttach) {
-    // Nothing took the photo (e.g. only a supplement was logged).
-    await deletePhoto(ctx.photoToAttach);
+    // Nothing took the photo (e.g. only a supplement was logged). Guard anyway
+    // in case a produced entry happens to share the filename.
+    await deletePhotoIfUnused(ctx.photoToAttach);
   }
   notifyDiaryChanged();
 }
@@ -561,10 +563,15 @@ export async function retryCapture(id: number): Promise<void> {
   void processCapture(id);
 }
 
-/** Delete a capture (and its photo) without logging anything. */
+/**
+ * Delete a capture without logging anything. Its photo is removed only if no
+ * entry produced from this capture (before it was discarded) still references
+ * the file — discarding a capture that already made entries must not take their
+ * shared photo with it.
+ */
 export async function discardCapture(capture: Capture): Promise<void> {
   await deleteCapture(capture.id);
-  if (capture.photo_path) await deletePhoto(capture.photo_path);
+  await deletePhotoIfUnused(capture.photo_path);
   notifyDiaryChanged();
 }
 
