@@ -28,6 +28,7 @@ import type {
 import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
+import { deletePhoto } from "./photos";
 import { parseChatTranscript, parseJson } from "./schemas";
 
 const DB_URL = "sqlite:tally.db";
@@ -548,6 +549,45 @@ export async function setCaptureStatus(
 
 export async function deleteCapture(id: number): Promise<void> {
   await db.delete(captures).where(eq(captures.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Photo files (shared by filename across rows)
+// ---------------------------------------------------------------------------
+//
+// A photo is stored once on disk and referenced by bare filename. When a
+// capture resolves into an entry, that filename is passed THROUGH to the
+// food/workout entry (see agent.ts) — so the same file is pointed at by the
+// capture and the entry it produced, and can outlive either one. Deleting the
+// file whenever a single referrer goes away is what orphaned surviving entries'
+// images (a discarded capture taking its already-logged meal's photo with it).
+
+/**
+ * Does any capture, food entry, or workout still reference this photo file?
+ * Callers delete the owning row FIRST, then ask — so a file shared only with
+ * the just-deleted row reads as unreferenced.
+ */
+export async function isPhotoReferenced(filename: string): Promise<boolean> {
+  const [inFood, inWorkouts, inCaptures] = await Promise.all([
+    db.select({ id: foodEntries.id }).from(foodEntries).where(eq(foodEntries.photoPath, filename)).limit(1),
+    db.select({ id: workouts.id }).from(workouts).where(eq(workouts.photoPath, filename)).limit(1),
+    db.select({ id: captures.id }).from(captures).where(eq(captures.photoPath, filename)).limit(1),
+  ]);
+  return inFood.length > 0 || inWorkouts.length > 0 || inCaptures.length > 0;
+}
+
+/**
+ * Delete a stored photo from disk only when no diary row still points at it.
+ * This is the safe replacement for a bare `deletePhoto` after removing a row:
+ * delete the row first, then call this so a file another entry still uses is
+ * preserved. A no-op for a null/empty filename.
+ */
+export async function deletePhotoIfUnused(
+  filename: string | null | undefined,
+): Promise<void> {
+  if (!filename) return;
+  if (await isPhotoReferenced(filename)) return;
+  await deletePhoto(filename);
 }
 
 // ---------------------------------------------------------------------------

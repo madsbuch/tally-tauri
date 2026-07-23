@@ -20,6 +20,7 @@ import {
   addSupplementLog,
   addWorkout,
   deleteFoodEntry,
+  deletePhotoIfUnused,
   deleteSupplement,
   deleteSupplementLog,
   deleteWorkout,
@@ -46,7 +47,7 @@ import {
   retryCapture,
 } from "../lib/agent";
 import { analyzeSupplement } from "../lib/openrouter";
-import { compressImage, deletePhoto, photoSrc, savePhoto } from "../lib/photos";
+import { compressImage, photoSrc, savePhoto } from "../lib/photos";
 import NutrientTable, { MacroChips } from "../components/NutrientTable";
 import AchievementsSheet from "../components/AchievementsSheet";
 import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements";
@@ -429,7 +430,7 @@ function MealDetailSheet({
     setError(null);
     try {
       await deleteFoodEntry(entry.id);
-      if (entry.photo_path) await deletePhoto(entry.photo_path);
+      await deletePhotoIfUnused(entry.photo_path);
       onChanged();
       onClose();
     } catch (err) {
@@ -617,7 +618,7 @@ function WorkoutDetailSheet({
     setError(null);
     try {
       await deleteWorkout(workout.id);
-      if (workout.photo_path) await deletePhoto(workout.photo_path);
+      await deletePhotoIfUnused(workout.photo_path);
       onChanged();
       onClose();
     } catch (err) {
@@ -984,7 +985,7 @@ function AddSheet({
       }
       onSaved();
     } catch (err) {
-      if (photoPath) await deletePhoto(photoPath);
+      await deletePhotoIfUnused(photoPath);
       setError(errMsg(err));
       setSaving(false);
     }
