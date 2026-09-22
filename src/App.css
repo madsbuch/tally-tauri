@@ -63,6 +63,29 @@ body {
     calc(24px + var(--tabbar-h) + env(safe-area-inset-bottom)) 16px;
 }
 
+/*
+ * The app draws edge to edge (enableEdgeToEdge in MainActivity), so the page
+ * scrolls underneath a transparent status bar and the clock ends up sitting on
+ * top of whatever row happens to be there. Padding alone only fixes the
+ * resting position; this frosts the strip so scrolled content passes behind
+ * it, the same treatment the tab bar gives the navigation bar.
+ *
+ * Height collapses to 0 where there is no inset to cover, which is exactly
+ * what should happen on desktop.
+ */
+.statusbar-scrim {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: color-mix(in srgb, #ffffff 86%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: none;
+  z-index: 50;
+}
+
 .tabbar {
   position: fixed;
   left: 0;

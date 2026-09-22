@@ -150,6 +150,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="statusbar-scrim" aria-hidden="true" />
       <main className="app-main">
         <Outlet />
       </main>
