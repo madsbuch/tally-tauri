@@ -189,6 +189,8 @@ export interface CoachMemory {
   text: string;
   /** Commitments only; null for other kinds. */
   status: "open" | "done" | "dropped" | null;
+  /** Local day to revisit this on; null when there's nothing to come back to. */
+  follow_up_on: string | null;
   created_at: string;
   updated_at: string;
 }

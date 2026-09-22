@@ -309,9 +309,9 @@ function renderStance(s: CoachStance): string {
   return lines.join("\n");
 }
 
-function renderMemory(memory: CoachMemory[]): string {
+function renderMemory(memory: CoachMemory[], today: string): string {
   if (memory.length === 0) {
-    return "You haven't recorded anything about them yet. When something durable comes up — a goal, something they commit to, a preference — write it down with `remember`.";
+    return "You haven't recorded anything about them yet. When something durable comes up — a goal, something they commit to, a preference, something they mention that's worth revisiting — write it down with `remember`.";
   }
   const byKind = (kind: CoachMemory["kind"]) => memory.filter((m) => m.kind === kind);
   const lines: string[] = [];
@@ -319,7 +319,15 @@ function renderMemory(memory: CoachMemory[]): string {
     if (rows.length === 0) return;
     lines.push(`${title}:`);
     for (const r of rows) {
-      lines.push(`  [${r.id}]${withStatus && r.status ? ` (${r.status})` : ""} ${r.text}`);
+      const due =
+        r.follow_up_on == null
+          ? ""
+          : r.follow_up_on <= today
+            ? " — FOLLOW UP NOW"
+            : ` — follow up on ${r.follow_up_on}`;
+      lines.push(
+        `  [${r.id}]${withStatus && r.status ? ` (${r.status})` : ""} ${r.text}${due}`,
+      );
     }
   };
   section("Goals you've recorded", byKind("goal"));
@@ -371,6 +379,7 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     loadCoachStance(),
     listCoachMemory().catch(() => [] as CoachMemory[]),
   ]);
+  const today = todayStr();
 
   return [
     "You are Tally's coach. Tally is a local-first tracker holding this person's food diary, workouts, sleep, daily wellness metrics (synced from their Garmin watch via Health Connect), supplements, and fasting history. You have read access to all of it.",
@@ -380,8 +389,10 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     renderStance(stance),
     "",
     "## What you know about them",
-    renderMemory(memory),
+    renderMemory(memory, today),
     "Keep this current as you go: `remember` something durable the moment it comes up, `update_memory` when a commitment is met or abandoned, `forget` what turned out to be wrong. Never record anything they told you to drop.",
+    "When they mention something worth revisiting — a symptom, a change they're trying, a plan with a horizon — remember it WITH a follow-up. That's what makes you a coach rather than a diary: you come back to it unprompted.",
+    "A reminder fires once and is then cleared. When you follow one up, close it out: `forget` it if it's settled, `update_memory` with a new follow_up_in_days if it still needs watching. If a symptom you're tracking hasn't improved by the second time you ask, say so and suggest they see a doctor rather than keep watching it with them.",
     "",
     "## Rules that don't bend",
     ...GUARDRAILS.map((g) => `- ${g}`),

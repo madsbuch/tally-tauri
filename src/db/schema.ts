@@ -190,6 +190,12 @@ export const coachMemory = sqliteTable(
     text: text("text").notNull(),
     /** Commitments only: "open" | "done" | "dropped". Null for other kinds. */
     status: text("status"),
+    /**
+     * Local day ("YYYY-MM-DD") to come back to this on. A one-shot reminder:
+     * raising it clears the date, and the coach re-arms it if the thing still
+     * needs watching. Null means nothing to follow up.
+     */
+    followUpOn: text("follow_up_on"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

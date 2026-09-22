@@ -451,6 +451,7 @@ export default function CoachSettings() {
                   <div className="row-sub">
                     {MEMORY_LABELS[m.kind]}
                     {m.status ? ` · ${m.status}` : ""}
+                    {m.follow_up_on ? ` · follows up ${m.follow_up_on}` : ""}
                   </div>
                 </div>
                 <button

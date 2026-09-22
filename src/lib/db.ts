@@ -874,6 +874,7 @@ function toCoachMemory(r: CoachMemoryRow): CoachMemory {
     kind,
     text: r.text,
     status,
+    follow_up_on: r.followUpOn,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -889,11 +890,12 @@ export async function addCoachMemory(
   kind: CoachMemory["kind"],
   text: string,
   status: CoachMemory["status"] = null,
+  followUpOn: string | null = null,
 ): Promise<number> {
   const now = new Date().toISOString();
   const rows = await db
     .insert(coachMemory)
-    .values({ kind, text, status, createdAt: now, updatedAt: now })
+    .values({ kind, text, status, followUpOn, createdAt: now, updatedAt: now })
     .returning({ id: coachMemory.id });
   return rows[0]?.id ?? 0;
 }
@@ -901,11 +903,17 @@ export async function addCoachMemory(
 /** Patch one row; absent fields are left alone. Returns false if it's gone. */
 export async function updateCoachMemory(
   id: number,
-  patch: { text?: string; status?: CoachMemory["status"] },
+  patch: {
+    text?: string;
+    status?: CoachMemory["status"];
+    /** null clears the reminder; a day string sets or moves it. */
+    followUpOn?: string | null;
+  },
 ): Promise<boolean> {
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (patch.text !== undefined) set["text"] = patch.text;
   if (patch.status !== undefined) set["status"] = patch.status;
+  if (patch.followUpOn !== undefined) set["followUpOn"] = patch.followUpOn;
   const rows = await db
     .update(coachMemory)
     .set(set)
@@ -916,6 +924,33 @@ export async function updateCoachMemory(
 
 export async function deleteCoachMemory(id: number): Promise<void> {
   await db.delete(coachMemory).where(eq(coachMemory.id, id));
+}
+
+/** Memories whose reminder has come due on or before `day`. */
+export async function listDueFollowUps(day: string): Promise<CoachMemory[]> {
+  const rows = await db
+    .select()
+    .from(coachMemory)
+    .where(and(isNotNull(coachMemory.followUpOn), lte(coachMemory.followUpOn, day)))
+    .orderBy(coachMemory.followUpOn);
+  return rows.map(toCoachMemory);
+}
+
+/**
+ * Take the reminder off these memories. Called the moment a follow-up is
+ * raised: a reminder fires once, and the coach re-arms it if the thing still
+ * needs watching. Without this a follow-up the coach forgot to close would
+ * come back every day and crowd out everything else.
+ */
+export async function clearFollowUps(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  const now = new Date().toISOString();
+  for (const id of ids) {
+    await db
+      .update(coachMemory)
+      .set({ followUpOn: null, updatedAt: now })
+      .where(eq(coachMemory.id, id));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ internal object CoachWorker {
     )
 
     private val TRIGGERS = listOf(
+        Trigger("follow_up_due", "Following up", 50, 1, true, null, null),
         Trigger("target_drift", "Target looks wrong", 40, 7, true, null, 300.0),
         Trigger("sleep_debt", "Sleep debt building", 35, 5, true, null, 7.0),
         Trigger("protein_short", "Protein running low", 30, 5, true, null, 100.0),
@@ -71,7 +72,17 @@ internal object CoachWorker {
         d: CoachDb.Digest,
         hour: Int,
         config: JSONObject?,
+        due: List<CoachDb.DueFollowUp>,
     ): String? = when (t.key) {
+        "follow_up_due" ->
+            if (due.isEmpty()) {
+                null
+            } else {
+                val items = due.joinToString("; ") { "\"${it.text}\" (noted for ${it.followUpOn})" }
+                "You set yourself a reminder to come back to " +
+                    "${if (due.size == 1) "this" else "these"}: $items. " +
+                    "Ask how it's going, specifically — not in general terms."
+            }
         "target_drift" -> {
             val target = d.todayTarget
             val avg = d.avgNet
@@ -149,11 +160,13 @@ internal object CoachWorker {
                 JSONObject()
             }
 
+            val due = CoachDb.dueFollowUps(db, day)
+
             val candidates = ArrayList<Candidate>()
             for (t in TRIGGERS) {
                 val config = configs.optJSONObject(t.key)
                 if (!enabled(config, t)) continue
-                val fact = evaluate(t, digest, hour, config) ?: continue
+                val fact = evaluate(t, digest, hour, config, due) ?: continue
                 candidates.add(Candidate(t, fact))
             }
             if (candidates.isEmpty()) return Result(false, null, null)
@@ -174,6 +187,9 @@ internal object CoachWorker {
             val title = "${winner.trigger.title} · $day"
             val chatId = CoachDb.insertChat(db, title, system, message)
             if (chatId > 0) CoachDb.insertRun(db, winner.trigger.key, day, chatId)
+            if (winner.trigger.key == "follow_up_due") {
+                CoachDb.clearFollowUps(db, due.map { it.id })
+            }
             return Result(true, winner.trigger.title, message)
         } finally {
             try {

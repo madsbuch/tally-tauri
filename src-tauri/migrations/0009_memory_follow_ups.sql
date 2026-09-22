@@ -1,0 +1,1 @@
+ALTER TABLE `coach_memory` ADD `follow_up_on` text;

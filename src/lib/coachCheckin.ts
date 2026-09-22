@@ -11,7 +11,7 @@
  * itself onto that thread would be baffling.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { createChat, getSetting, todayStr } from "./db";
+import { clearFollowUps, createChat, getSetting, listDueFollowUps, todayStr } from "./db";
 import { runAssistantTurn } from "./assistant";
 import { buildCoachDigest, buildCoachSystemPrompt } from "./coach";
 import {
@@ -94,16 +94,22 @@ export async function runCoachCheckin(
 
     lastEvaluatedAt = now;
     const today = todayStr();
-    const [digest, triggers, history] = await Promise.all([
+    const [digest, triggers, history, due] = await Promise.all([
       buildCoachDigest(today),
       loadCoachTriggers(),
       loadTriggerHistory(today),
+      listDueFollowUps(today).catch(() => []),
     ]);
 
     const evaluation = evaluateTriggers({
       digest,
       hour: new Date().getHours(),
       triggers,
+      dueFollowUps: due.map((m) => ({
+        id: m.id,
+        text: m.text,
+        followUpOn: m.follow_up_on ?? today,
+      })),
       // Forcing ignores today's budget but still honours cooldowns, so a
       // manual run can't spam the same condition over and over.
       history: opts.force ? history.filter((h) => h.day !== today) : history,
@@ -135,6 +141,14 @@ export async function runCoachCheckin(
     const chatId = await createChat(title, saved);
 
     await recordTriggerRun(winner.key, today, chatId);
+    // A reminder fires once. The coach re-arms it from inside the turn if the
+    // thing still needs watching; clearing here means one it forgot to close
+    // can't come back tomorrow and crowd out everything else.
+    if (winner.key === "follow_up_due") {
+      await clearFollowUps(due.map((m) => m.id)).catch(() => {
+        /* it will simply be raised again */
+      });
+    }
     await notify(def?.title ?? "Your coach", firstMessage.replace(/[*_`#]/g, ""));
     return { sent: true, reason: "ok", chatId };
   } catch (e) {

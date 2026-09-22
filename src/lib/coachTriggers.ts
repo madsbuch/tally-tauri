@@ -28,11 +28,20 @@ import { SETTING_KEYS } from "./types";
 import type { CoachDigest } from "./coach";
 
 export type TriggerKey =
+  | "follow_up_due"
   | "daily_closeout"
   | "protein_short"
   | "target_drift"
   | "sleep_debt"
   | "streak_risk";
+
+/** A memory whose reminder has come due. */
+export interface DueFollowUp {
+  id: number;
+  text: string;
+  /** The day it was set for; may be in the past if the app wasn't opened. */
+  followUpOn: string;
+}
 
 export interface TriggerConfig {
   enabled: boolean;
@@ -49,6 +58,11 @@ export interface TriggerContext {
   /** Local hour, 0-23. */
   hour: number;
   config: TriggerConfig;
+  /**
+   * Reminders that have come due. Not part of the digest — that's a read of
+   * the diary, and these are the coach's own notes to itself.
+   */
+  dueFollowUps: DueFollowUp[];
 }
 
 export interface TriggerDef {
@@ -79,6 +93,25 @@ export interface TriggerDef {
 const MIN_DAYS_FOR_TREND = 3;
 
 export const TRIGGERS: TriggerDef[] = [
+  {
+    key: "follow_up_due",
+    kind: "occasion",
+    title: "Following up",
+    help: "When something the coach noted down comes due — a symptom you mentioned, a change you were trying. It sets these itself as you talk.",
+    defaults: { enabled: true },
+    // Above every condition: coming back to something you raised yourself is
+    // the most coach-like thing it does, and the least replaceable.
+    salience: 50,
+    cooldownDays: 1,
+    evaluate: ({ dueFollowUps }) => {
+      if (dueFollowUps.length === 0) return null;
+      const items = dueFollowUps.map((f) => `"${f.text}" (noted for ${f.followUpOn})`);
+      return (
+        `You set yourself a reminder to come back to ${items.length === 1 ? "this" : "these"}: ` +
+        `${items.join("; ")}. Ask how it's going, specifically — not in general terms.`
+      );
+    },
+  },
   {
     key: "target_drift",
     kind: "condition",
@@ -301,15 +334,17 @@ export function evaluateTriggers(args: {
   /** Day → trigger keys already fired, for cooldowns and the daily budget. */
   history: { day: string; key: string }[];
   today: string;
+  dueFollowUps?: DueFollowUp[];
 }): Evaluation {
   const { digest, hour, triggers, history, today } = args;
+  const dueFollowUps = args.dueFollowUps ?? [];
 
   const firedToday = history.filter((h) => h.day === today).length;
   const candidates: TriggerCandidate[] = [];
   for (const def of TRIGGERS) {
     const config = triggers[def.key];
     if (!config?.enabled) continue;
-    const fact = def.evaluate({ digest, hour, config });
+    const fact = def.evaluate({ digest, hour, config, dueFollowUps });
     if (fact) candidates.push({ key: def.key, kind: def.kind, salience: def.salience, fact });
   }
   if (candidates.length === 0) return { winner: null, alsoTrue: [], reason: "nothing" };

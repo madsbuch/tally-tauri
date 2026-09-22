@@ -115,6 +115,41 @@ internal object CoachDb {
         return out
     }
 
+    /** A memory whose reminder has come due on or before `day`. */
+    data class DueFollowUp(val id: Long, val text: String, val followUpOn: String)
+
+    fun dueFollowUps(db: SQLiteDatabase, day: String): List<DueFollowUp> {
+        val out = ArrayList<DueFollowUp>()
+        db.rawQuery(
+            "SELECT id, text, follow_up_on FROM coach_memory " +
+                "WHERE follow_up_on IS NOT NULL AND follow_up_on <= ? ORDER BY follow_up_on",
+            arrayOf(day),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(DueFollowUp(c.getLong(0), c.getString(1), c.getString(2)))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Take the reminders off. A follow-up fires once and the coach re-arms it
+     * from inside the turn if the thing still needs watching — otherwise one
+     * it forgot to close would come back every day.
+     */
+    fun clearFollowUps(db: SQLiteDatabase, ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val now = nowIso()
+        for (id in ids) {
+            val stmt = db.compileStatement(
+                "UPDATE coach_memory SET follow_up_on = NULL, updated_at = ? WHERE id = ?",
+            )
+            stmt.bindString(1, now)
+            stmt.bindLong(2, id)
+            stmt.use { it.executeUpdateDelete() }
+        }
+    }
+
     private fun nutrient(json: String?, key: String): Double {
         if (json.isNullOrBlank()) return 0.0
         return try {

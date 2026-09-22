@@ -9,6 +9,7 @@ import {
   deleteCoachMemory,
   getDb,
   getSetting,
+  todayStr,
   updateCoachMemory,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
@@ -152,6 +153,11 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
             description:
               "One sentence, in the third person, specific enough to act on later: \"Wants 150 g protein on lifting days\", not \"cares about protein\".",
           },
+          follow_up_in_days: {
+            type: "number",
+            description:
+              "Come back to this unprompted in this many days. Use it whenever something is worth revisiting — a symptom they mentioned, a change they're trying, a commitment with a horizon. Judge the interval from the thing itself: a few days for something that should settle quickly, a week or two for a habit. Omit when there is nothing to check back on.",
+          },
         },
         required: ["kind", "text"],
         additionalProperties: false,
@@ -173,6 +179,16 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
             type: "string",
             enum: ["open", "done", "dropped"],
             description: "Commitments only: where it stands now.",
+          },
+          follow_up_in_days: {
+            type: "number",
+            description:
+              "Set or move the reminder to this many days from now. After raising a follow-up, use this to come back again if it still needs watching.",
+          },
+          clear_follow_up: {
+            type: "boolean",
+            description:
+              "Drop the reminder while keeping the memory — the thing is settled but still worth knowing.",
           },
         },
         required: ["id"],
@@ -386,6 +402,20 @@ async function runSql(raw: string): Promise<string> {
   });
 }
 
+/**
+ * "in N days" from the model, as a local day. Clamped: a model that asks for
+ * a reminder in 3000 days has made a mistake, and one that asks for a
+ * reminder today would fire it on the same evening.
+ */
+function followUpDay(raw: unknown): string | null {
+  const n = typeof raw === "number" ? raw : NaN;
+  if (!isFinite(n) || n <= 0) return null;
+  const days = Math.min(365, Math.max(1, Math.round(n)));
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return todayStr(d);
+}
+
 export async function executeAssistantTool(
   name: string,
   args: Record<string, unknown>,
@@ -539,21 +569,39 @@ export async function executeAssistantTool(
     if (kind !== "goal" && kind !== "commitment" && kind !== "preference" && kind !== "note") {
       throw new Error('kind must be one of "goal", "commitment", "preference", "note"');
     }
+    const followUpOn = followUpDay(args["follow_up_in_days"]);
     // A fresh commitment is open by definition; the others carry no status.
-    const id = await addCoachMemory(kind, text, kind === "commitment" ? "open" : null);
-    return JSON.stringify({ remembered: { id, kind, text } });
+    const id = await addCoachMemory(
+      kind,
+      text,
+      kind === "commitment" ? "open" : null,
+      followUpOn,
+    );
+    return JSON.stringify(
+      compact({ remembered: { id, kind, text }, follow_up_on: followUpOn }),
+    );
   }
 
   if (name === "update_memory") {
     const id = typeof args["id"] === "number" ? args["id"] : NaN;
     if (!isFinite(id)) throw new Error("id is required");
-    const patch: { text?: string; status?: "open" | "done" | "dropped" } = {};
+    const patch: {
+      text?: string;
+      status?: "open" | "done" | "dropped";
+      followUpOn?: string | null;
+    } = {};
     if (typeof args["text"] === "string" && args["text"].trim()) {
       patch.text = args["text"].trim();
     }
     const status = args["status"];
     if (status === "open" || status === "done" || status === "dropped") {
       patch.status = status;
+    }
+    if (args["clear_follow_up"] === true) {
+      patch.followUpOn = null;
+    } else {
+      const day = followUpDay(args["follow_up_in_days"]);
+      if (day) patch.followUpOn = day;
     }
     if (Object.keys(patch).length === 0) throw new Error("nothing to update");
     const ok = await updateCoachMemory(id, patch);
