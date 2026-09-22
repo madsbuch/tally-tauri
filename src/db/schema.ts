@@ -156,8 +156,8 @@ export const chats = sqliteTable(
 
 /**
  * Per-day corrections to the calorie target: "I overate yesterday, take 200
- * kcal off today". One row per local day; absence means no correction.
- * Separate from the automatic rollover (lib/goals.ts), which is derived.
+ * kcal off today". One row per local day; absence means no correction, and a
+ * correction applies to that day only (see lib/goals.ts).
  */
 export const dayGoalAdjustments = sqliteTable("day_goal_adjustments", {
   /** Local day "YYYY-MM-DD". */

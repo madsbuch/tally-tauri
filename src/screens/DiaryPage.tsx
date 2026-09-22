@@ -65,7 +65,6 @@ import {
 import type { IconKind } from "../lib/icons";
 import {
   MAX_MANUAL_ADJUSTMENT,
-  ROLLOVER_LABELS,
   getDayGoal,
   getPeriodGoal,
   loadGoalSettings,
@@ -495,10 +494,8 @@ function GoalAdjustPanel({
         </div>
       )}
       <p className="faint small" style={{ margin: "8px 0 0" }}>
-        Applies to this day only; week and month budgets count it too.{" "}
-        {goal.mode === "off"
-          ? "Automatic rollover is off — turn it on in Settings to carry yesterday's over- or undershoot forward by itself."
-          : `Automatic rollover: ${ROLLOVER_LABELS[goal.mode]}, at most ${goal.cap} kcal a day (Settings).`}
+        Applies to this day only — no other day changes. Week and month budgets
+        count it too. The daily target in Settings stays as it is.
       </p>
     </div>
   );
@@ -2199,10 +2196,9 @@ export default function DiaryPage() {
     };
   }, [rangeKey, refresh]);
 
-  // Calorie goal for the shown scope. Configured in Settings (base target,
-  // rollover window); pages remount on tab switch, so a change there lands
-  // when coming back here. Recomputed on every diary change because the
-  // rollover reads the days before the shown one.
+  // Calorie goal for the shown scope: the Settings base target plus any
+  // per-day corrections. Pages remount on tab switch, so a target edited in
+  // Settings is picked up when coming back here.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -2327,9 +2323,8 @@ export default function DiaryPage() {
   const elapsedDays =
     range && containsToday ? daysBetween(range.start, today) : daysInPeriod;
   const net = eaten - burned;
-  // Day view: base + this day's corrections. Week/month: base × days plus the
-  // manual corrections inside the period — the rollover only moves budget
-  // between days in the period, so counting it again would double it.
+  // Day view: base + this day's correction. Week/month: base × days plus the
+  // corrections that fall inside the period.
   const goalBase = dayGoal?.base ?? periodGoal?.base ?? null;
   const periodTarget =
     period === "day" ? (dayGoal?.target ?? null) : (periodGoal?.target ?? null);
@@ -2485,29 +2480,16 @@ export default function DiaryPage() {
                       <span className="faint"> / {Math.round(periodTarget)} kcal</span>
                     </span>
                   </div>
-                  {dayGoal && (dayGoal.rollover !== 0 || dayGoal.manual !== 0) && (
+                  {dayGoal && dayGoal.manual !== 0 && (
                     <div className="faint small" style={{ marginTop: 8 }}>
-                      {Math.round(dayGoal.base)} base
-                      {dayGoal.rollover !== 0 && (
-                        <>
-                          {" "}
-                          · {fmtDelta(dayGoal.rollover)} rolled over from the last{" "}
-                          {dayGoal.balanceDays}{" "}
-                          {dayGoal.balanceDays === 1 ? "tracked day" : "tracked days"}
-                          {Math.abs(dayGoal.rawRollover) > dayGoal.cap
-                            ? ` (capped at ${dayGoal.cap})`
-                            : ""}
-                        </>
-                      )}
-                      {dayGoal.manual !== 0 && (
-                        <> · {fmtDelta(dayGoal.manual)} your correction</>
-                      )}
+                      {Math.round(dayGoal.base)} base · {fmtDelta(dayGoal.manual)}{" "}
+                      corrected for this day
                     </div>
                   )}
                   {periodGoal && periodGoal.manual !== 0 && (
                     <div className="faint small" style={{ marginTop: 8 }}>
-                      Includes {fmtDelta(periodGoal.manual)} kcal of your own
-                      corrections on days in this period.
+                      Includes {fmtDelta(periodGoal.manual)} kcal of per-day
+                      corrections inside this period.
                     </div>
                   )}
                   {period !== "day" && containsToday && (
@@ -2523,7 +2505,6 @@ export default function DiaryPage() {
                   >
                     Net kcal (eaten − burned) vs {Math.round(goalBase)} kcal/day
                     {period !== "day" ? ` × ${daysInPeriod} days` : ""}.
-                    {period !== "day" && " Daily rollover evens out inside the period."}
                   </div>
                   {dayGoal && (
                     <>

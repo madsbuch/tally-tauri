@@ -226,10 +226,6 @@ export const SETTING_KEYS = {
   ketoNetCarbLimit: "keto_net_carb_limit_g",
   /** Daily calorie budget (net kcal). Absent = no target set. */
   calorieTarget: "calorie_target_kcal",
-  /** Automatic target rollover window: "off" | "week" | "month". */
-  calorieRollover: "calorie_rollover_mode",
-  /** Max kcal the rollover may move in or out of a single day. */
-  calorieRolloverCap: "calorie_rollover_cap_kcal",
   /** JSON blob of streak-freeze bookkeeping (see lib/streak.ts). */
   streakState: "streak_state",
 } as const;

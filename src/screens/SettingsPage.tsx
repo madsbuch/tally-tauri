@@ -31,14 +31,6 @@ import {
 } from "../lib/healthConnect";
 import type { HealthConnectStatus } from "../lib/healthConnect";
 import { exportDatabase } from "../lib/exportDb";
-import {
-  DEFAULT_ROLLOVER_CAP,
-  DEFAULT_ROLLOVER_MODE,
-  MAX_ROLLOVER_CAP,
-  MIN_ROLLOVER_CAP,
-  ROLLOVER_LABELS,
-} from "../lib/goals";
-import type { RolloverMode } from "../lib/goals";
 
 const MAX_LIST_ROWS = 40;
 
@@ -245,13 +237,6 @@ export default function SettingsPage() {
   const calSavedTimer = useRef<number | null>(null);
   const lastCalTargetRef = useRef("");
 
-  // Automatic target rollover
-  const [rollover, setRollover] = useState<RolloverMode>(DEFAULT_ROLLOVER_MODE);
-  const [rolloverCap, setRolloverCap] = useState(String(DEFAULT_ROLLOVER_CAP));
-  const [rolloverSaved, setRolloverSaved] = useState(false);
-  const rolloverSavedTimer = useRef<number | null>(null);
-  const lastRolloverCapRef = useRef(String(DEFAULT_ROLLOVER_CAP));
-
   const bootedRef = useRef(false);
 
   async function refreshModels(silent: boolean) {
@@ -278,24 +263,16 @@ export default function SettingsPage() {
     bootedRef.current = true;
     (async () => {
       try {
-        const [key, model, cache, at, hours, carbs, kcal, hcAt, roll, rollCap] =
-          await Promise.all([
-            getSetting(SETTING_KEYS.openrouterApiKey),
-            getSetting(SETTING_KEYS.visionModel),
-            getSetting(SETTING_KEYS.modelsCache),
-            getSetting(SETTING_KEYS.modelsCacheAt),
-            getSetting(SETTING_KEYS.fastDefaultHours),
-            getSetting(SETTING_KEYS.ketoNetCarbLimit),
-            getSetting(SETTING_KEYS.calorieTarget),
-            getSetting(SETTING_KEYS.healthConnectLastSyncAt),
-            getSetting(SETTING_KEYS.calorieRollover),
-            getSetting(SETTING_KEYS.calorieRolloverCap),
-          ]);
-        if (roll === "off" || roll === "week" || roll === "month") setRollover(roll);
-        if (rollCap) {
-          setRolloverCap(rollCap);
-          lastRolloverCapRef.current = rollCap;
-        }
+        const [key, model, cache, at, hours, carbs, kcal, hcAt] = await Promise.all([
+          getSetting(SETTING_KEYS.openrouterApiKey),
+          getSetting(SETTING_KEYS.visionModel),
+          getSetting(SETTING_KEYS.modelsCache),
+          getSetting(SETTING_KEYS.modelsCacheAt),
+          getSetting(SETTING_KEYS.fastDefaultHours),
+          getSetting(SETTING_KEYS.ketoNetCarbLimit),
+          getSetting(SETTING_KEYS.calorieTarget),
+          getSetting(SETTING_KEYS.healthConnectLastSyncAt),
+        ]);
         setHcLastSync(hcAt);
         void getHealthConnectStatus().then(setHcStatus);
         setSavedKey(key);
@@ -570,33 +547,6 @@ export default function SettingsPage() {
     if (str === lastCalTargetRef.current) return;
     lastCalTargetRef.current = str;
     void setSetting(SETTING_KEYS.calorieTarget, str).then(flashCalSaved);
-  }
-
-  function flashRolloverSaved() {
-    setRolloverSaved(true);
-    if (rolloverSavedTimer.current != null) {
-      window.clearTimeout(rolloverSavedTimer.current);
-    }
-    rolloverSavedTimer.current = window.setTimeout(() => setRolloverSaved(false), 1500);
-  }
-
-  function commitRollover(mode: RolloverMode) {
-    setRollover(mode);
-    void setSetting(SETTING_KEYS.calorieRollover, mode).then(flashRolloverSaved);
-  }
-
-  function commitRolloverCap() {
-    const n = parseFloat(rolloverCap);
-    if (!isFinite(n)) {
-      setRolloverCap(lastRolloverCapRef.current);
-      return;
-    }
-    const clamped = Math.min(MAX_ROLLOVER_CAP, Math.max(MIN_ROLLOVER_CAP, Math.round(n)));
-    const str = String(clamped);
-    setRolloverCap(str);
-    if (str === lastRolloverCapRef.current) return;
-    lastRolloverCapRef.current = str;
-    void setSetting(SETTING_KEYS.calorieRolloverCap, str).then(flashRolloverSaved);
   }
 
   const visionModels = useMemo(() => {
@@ -1033,69 +983,10 @@ export default function SettingsPage() {
           <p className="muted small" style={{ margin: "8px 2px 0" }}>
             The Diary page tracks your net kcal (eaten − burned) against this
             budget — daily, weekly (target × 7) and monthly (target × days in
-            the month). Leave empty for no target.
+            the month). Leave empty for no target. A single day can be
+            corrected from the Diary without changing this.
           </p>
         </div>
-      </div>
-
-      <div className="card">
-        <h2 className="card-title">Automatic rollover</h2>
-        <p className="muted small" style={{ margin: "0 0 10px" }}>
-          Corrects today's target by itself: eat over your budget and the
-          surplus comes off the days after, eat under (or fast) and it is
-          handed back. Only tracked days count — one you forgot to log neither
-          gives nor takes. You can always override a single day from the Diary.
-        </p>
-        <div className="field">
-          <label className="label">Balance window</label>
-          <div className="seg">
-            {(["off", "week", "month"] as RolloverMode[]).map((m) => (
-              <button
-                key={m}
-                className={`seg-item${rollover === m ? " seg-item-active" : ""}`}
-                onClick={() => commitRollover(m)}
-              >
-                {ROLLOVER_LABELS[m]}
-              </button>
-            ))}
-          </div>
-          <p className="muted small" style={{ margin: "8px 2px 0" }}>
-            How far back the over/undershoot is summed. A longer window settles
-            debt more gently; "Off" keeps every day at the plain target.
-            {calTarget.trim() === "" &&
-              " Nothing happens until a daily target is set above."}
-          </p>
-        </div>
-        {rollover !== "off" && (
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label className="label" htmlFor="rollover-cap">
-              Most it may move a day (kcal)
-            </label>
-            <div className="input-row" style={{ alignItems: "center" }}>
-              <input
-                id="rollover-cap"
-                className="input"
-                type="number"
-                min={MIN_ROLLOVER_CAP}
-                max={MAX_ROLLOVER_CAP}
-                step={50}
-                inputMode="numeric"
-                value={rolloverCap}
-                onChange={(e) => setRolloverCap(e.target.value)}
-                onBlur={commitRolloverCap}
-              />
-              {rolloverSaved && (
-                <span className="chip chip-accent" style={{ flex: "0 0 auto" }}>
-                  Saved
-                </span>
-              )}
-            </div>
-            <p className="muted small" style={{ margin: "8px 2px 0" }}>
-              A ceiling in both directions, so one heavy weekend can't turn
-              Monday into a starvation day.
-            </p>
-          </div>
-        )}
       </div>
 
       <div className="card">
