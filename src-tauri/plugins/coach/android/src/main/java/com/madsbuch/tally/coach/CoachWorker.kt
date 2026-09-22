@@ -214,7 +214,7 @@ internal object CoachWorker {
         val prefix = CoachDb.setting(db, "coach_prompt_prefix")
             // The app caches this after every turn and every settings change.
             // If it has never run, a plain persona still beats saying nothing.
-            ?: "You are Tally's coach. Be concise, specific and kind. Never shame them."
+            ?: "You are Tally's coach. Be concise, specific, and straight about what the data shows."
 
         val sb = StringBuilder(prefix)
         sb.append("\n\n## Where they stand right now\n")
