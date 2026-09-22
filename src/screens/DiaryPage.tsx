@@ -34,6 +34,7 @@ import {
   listSupplements,
   listWorkoutsForDay,
   listWorkoutsForRange,
+  setDayGoalAdjustment,
   todayStr,
   updateFoodEntry,
   updateSupplement,
@@ -53,6 +54,23 @@ import AchievementsSheet from "../components/AchievementsSheet";
 import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
+import {
+  SYNCED_WORKOUT_GLYPH,
+  WORKOUT_FALLBACK_GLYPH,
+  entryGlyph,
+  guessIconKey,
+  iconGlyph,
+  iconsFor,
+} from "../lib/icons";
+import type { IconKind } from "../lib/icons";
+import {
+  MAX_MANUAL_ADJUSTMENT,
+  ROLLOVER_LABELS,
+  getDayGoal,
+  getPeriodGoal,
+  loadGoalSettings,
+} from "../lib/goals";
+import type { DayGoal, PeriodGoal } from "../lib/goals";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -189,6 +207,12 @@ function fmtSignedInt(n: number): string {
   return r < 0 ? `−${-r}` : String(r);
 }
 
+/** "+200" / "−200" — explicit sign, for corrections to a target. */
+function fmtDelta(n: number): string {
+  const r = Math.round(n);
+  return r < 0 ? `−${-r}` : `+${r}`;
+}
+
 /** Accent fill on --bg-elev track; turns warn-colored when over budget. */
 function MeterBar({ pct, warn }: { pct: number; warn?: boolean }) {
   // Cap at 100%; keep a sliver visible for tiny non-zero values.
@@ -313,6 +337,173 @@ function GlyphThumb({ glyph }: { glyph: string }) {
   );
 }
 
+/**
+ * The glyph for a photo-less workout row. Synced sessions fall back to the
+ * watch marker only when their title says nothing useful — "Morning run"
+ * deserves 🏃 whether it came from Garmin or was typed in by hand.
+ */
+function workoutGlyph(w: Workout): string {
+  return (
+    iconGlyph(w.icon) ??
+    iconGlyph(guessIconKey(w.title, "workout")) ??
+    (w.source ? SYNCED_WORKOUT_GLYPH : WORKOUT_FALLBACK_GLYPH)
+  );
+}
+
+/**
+ * Icon chooser for entries without a photo. "Auto" (null) keeps whatever the
+ * title suggests, so renaming an entry keeps its icon sensible.
+ */
+function IconPicker({
+  kind,
+  title,
+  value,
+  onChange,
+}: {
+  kind: IconKind;
+  title: string;
+  value: string | null;
+  onChange: (key: string | null) => void;
+}) {
+  return (
+    <div className="field">
+      <label className="label">Icon</label>
+      <div className="icon-picker">
+        <button
+          type="button"
+          className={`icon-opt${value === null ? " icon-opt-active" : ""}`}
+          onClick={() => onChange(null)}
+          title="Automatic — matched from the title"
+          aria-label="Automatic icon"
+        >
+          <span>{entryGlyph(null, title, kind)}</span>
+          <span className="icon-opt-auto">auto</span>
+        </button>
+        {iconsFor(kind).map((i) => (
+          <button
+            type="button"
+            key={i.key}
+            className={`icon-opt${value === i.key ? " icon-opt-active" : ""}`}
+            onClick={() => onChange(i.key)}
+            title={i.label}
+            aria-label={i.label}
+          >
+            <span>{i.glyph}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Nudges offered for a one-day target correction, in kcal. */
+const QUICK_GOAL_DELTAS = [-500, -300, -200, -100, 100, 200, 300, 500];
+
+/**
+ * Manual correction to a single day's calorie target — "I overate yesterday,
+ * take 200 off today". Writes straight through, so the card above updates as
+ * soon as a button is tapped.
+ */
+function GoalAdjustPanel({
+  goal,
+  onChanged,
+}: {
+  goal: DayGoal;
+  onChanged: () => void;
+}) {
+  const [draft, setDraft] = useState(() => (goal.manual === 0 ? "" : String(goal.manual)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Follow the stored value when it changes underneath (quick buttons, or
+  // moving to another day while the panel stays open).
+  useEffect(() => {
+    setDraft(goal.manual === 0 ? "" : String(goal.manual));
+  }, [goal.day, goal.manual]);
+
+  async function commit(next: number) {
+    const clamped = Math.max(
+      -MAX_MANUAL_ADJUSTMENT,
+      Math.min(MAX_MANUAL_ADJUSTMENT, Math.round(next)),
+    );
+    setBusy(true);
+    setError(null);
+    try {
+      await setDayGoalAdjustment(goal.day, clamped);
+      onChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function commitDraft() {
+    const trimmed = draft.trim();
+    const n = trimmed === "" ? 0 : parseFloat(trimmed);
+    if (!isFinite(n)) {
+      setDraft(goal.manual === 0 ? "" : String(goal.manual));
+      return;
+    }
+    if (Math.round(n) === goal.manual) return;
+    void commit(n);
+  }
+
+  return (
+    <div className="goal-adjust">
+      <div className="label" style={{ marginBottom: 6 }}>
+        Correct this day&apos;s target
+      </div>
+      <div className="chips" style={{ marginBottom: 8 }}>
+        {QUICK_GOAL_DELTAS.map((d) => (
+          <button
+            key={d}
+            className="btn btn-sm"
+            disabled={busy}
+            onClick={() => void commit(goal.manual + d)}
+          >
+            {fmtDelta(d)}
+          </button>
+        ))}
+      </div>
+      <div className="input-row" style={{ alignItems: "center" }}>
+        <input
+          className="input"
+          type="number"
+          step={10}
+          min={-MAX_MANUAL_ADJUSTMENT}
+          max={MAX_MANUAL_ADJUSTMENT}
+          inputMode="numeric"
+          placeholder="0 kcal"
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+        />
+        <button
+          className="btn btn-sm"
+          style={{ flex: "0 0 auto" }}
+          disabled={busy || goal.manual === 0}
+          onClick={() => void commit(0)}
+        >
+          Clear
+        </button>
+      </div>
+      {error && (
+        <div className="error-text" style={{ marginTop: 8 }}>
+          {error}
+        </div>
+      )}
+      <p className="faint small" style={{ margin: "8px 0 0" }}>
+        Applies to this day only; week and month budgets count it too.{" "}
+        {goal.mode === "off"
+          ? "Automatic rollover is off — turn it on in Settings to carry yesterday's over- or undershoot forward by itself."
+          : `Automatic rollover: ${ROLLOVER_LABELS[goal.mode]}, at most ${goal.cap} kcal a day (Settings).`}
+      </p>
+    </div>
+  );
+}
+
 /** − / value × dose / + stepper for supplement amounts (step 0.5, min 0.5). */
 function AmountStepper({
   value,
@@ -372,6 +563,7 @@ function MealDetailSheet({
   const [date, setDate] = useState(() => todayStr(new Date(entry.eaten_at)));
   const [time, setTime] = useState(() => hhmmOf(entry.eaten_at));
   const [description, setDescription] = useState(entry.description ?? "");
+  const [icon, setIcon] = useState<string | null>(entry.icon);
   const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>(() => {
     const vals: Partial<Record<NutrientKey, string>> = {};
     for (const k of NUTRIENT_KEYS) {
@@ -415,6 +607,7 @@ function MealDetailSheet({
         description: description.trim() || null,
         eaten_at: dayTimeToIso(date, time),
         nutrients,
+        icon,
       });
       onChanged();
       onClose();
@@ -457,6 +650,9 @@ function MealDetailSheet({
             placeholder="Meal title"
           />
         </div>
+        {!entry.photo_path && (
+          <IconPicker kind="meal" title={title} value={icon} onChange={setIcon} />
+        )}
         <div className="input-row" style={{ marginBottom: 12 }}>
           <div>
             <label className="label">Date</label>
@@ -571,6 +767,7 @@ function WorkoutDetailSheet({
   const [durStr, setDurStr] = useState(
     workout.duration_min != null ? numToInput(workout.duration_min) : "",
   );
+  const [icon, setIcon] = useState<string | null>(workout.icon);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -603,6 +800,7 @@ function WorkoutDetailSheet({
         performed_at: dayTimeToIso(date, time),
         calories_burned: Math.round(cal),
         duration_min: dur,
+        icon,
       });
       onChanged();
       onClose();
@@ -649,6 +847,7 @@ function WorkoutDetailSheet({
             placeholder="Workout title"
           />
         </div>
+        <IconPicker kind="workout" title={title} value={icon} onChange={setIcon} />
         <div className="input-row" style={{ marginBottom: 12 }}>
           <div>
             <label className="label">Date</label>
@@ -866,6 +1065,7 @@ function AddSheet({
   const [kind, setKind] = useState<EntryKind>("meal");
   const [title, setTitle] = useState("");
   const [time, setTime] = useState(() => nowHhMm());
+  const [icon, setIcon] = useState<string | null>(null);
 
   // Meal-specific state.
   const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>({});
@@ -920,6 +1120,7 @@ function AddSheet({
   function switchKind(k: EntryKind) {
     if (k === kind) return;
     setKind(k);
+    setIcon(null); // meal and workout icons come from different sets
     setError(null);
   }
 
@@ -971,6 +1172,7 @@ function AddSheet({
           photo_path: photoPath,
           nutrients,
           model_id: null,
+          icon,
         });
       } else {
         await addWorkout({
@@ -981,6 +1183,7 @@ function AddSheet({
           calories_burned: cal,
           duration_min: dur,
           model_id: null,
+          icon,
         });
       }
       onSaved();
@@ -1088,6 +1291,9 @@ function AddSheet({
                 autoFocus
               />
             </div>
+            {!photo && (
+              <IconPicker kind={kind} title={title} value={icon} onChange={setIcon} />
+            )}
             <div className="field">
               <label className="label">{kind === "meal" ? "Eaten at" : "Performed at"}</label>
               <input
@@ -1847,7 +2053,12 @@ export default function DiaryPage() {
     workouts: Workout[];
     suppLogs: SupplementLogWithSupplement[];
   } | null>(null);
-  const [calTarget, setCalTarget] = useState<number | null>(null);
+  // Calorie goal for the shown scope: the day breakdown (base + corrections)
+  // for the day view, a plain sum for week/month.
+  const [dayGoal, setDayGoal] = useState<DayGoal | null>(null);
+  const [periodGoal, setPeriodGoal] = useState<PeriodGoal | null>(null);
+  const [hasTarget, setHasTarget] = useState<boolean | null>(null);
+  const [showAdjust, setShowAdjust] = useState(false);
   const [detail, setDetail] = useState<TimelineItem | null>(null);
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -1954,24 +2165,6 @@ export default function DiaryPage() {
     };
   }, [day, refresh]);
 
-  // Calorie target (configured in Settings). Pages remount on tab switch, so
-  // a target edited in Settings is picked up when coming back here.
-  useEffect(() => {
-    let alive = true;
-    getSetting(SETTING_KEYS.calorieTarget)
-      .then((raw) => {
-        if (!alive) return;
-        const n = raw != null ? parseFloat(raw) : NaN;
-        setCalTarget(isFinite(n) && n > 0 ? n : null);
-      })
-      .catch(() => {
-        /* no target — hide the card */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   // Week/month totals need entries beyond the shown day — fetch the range.
   const range =
     period === "week"
@@ -2005,6 +2198,36 @@ export default function DiaryPage() {
       alive = false;
     };
   }, [rangeKey, refresh]);
+
+  // Calorie goal for the shown scope. Configured in Settings (base target,
+  // rollover window); pages remount on tab switch, so a change there lands
+  // when coming back here. Recomputed on every diary change because the
+  // rollover reads the days before the shown one.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const settings = await loadGoalSettings();
+      if (!alive) return;
+      setHasTarget(settings.base != null);
+      if (rangeKey) {
+        const [start = "", end = ""] = rangeKey.split("..");
+        const g = await getPeriodGoal(start, end, settings);
+        if (!alive) return;
+        setPeriodGoal(g);
+        setDayGoal(null);
+      } else {
+        const g = await getDayGoal(day, settings);
+        if (!alive) return;
+        setDayGoal(g);
+        setPeriodGoal(null);
+      }
+    })().catch(() => {
+      /* no target / unreadable settings — the card just stays hidden */
+    });
+    return () => {
+      alive = false;
+    };
+  }, [day, rangeKey, refresh]);
 
   // Steps for the shown day/period, synced from Health Connect. Null when no
   // day in the scope has step data (nothing synced) — the line is hidden then.
@@ -2076,12 +2299,16 @@ export default function DiaryPage() {
   const bump = () => setRefresh((n) => n + 1);
 
   // Days in the shown week/month with no entries at all. Only elapsed days
-  // count — today isn't "untracked" while it's still in progress.
+  // count — today isn't "untracked" while it's still in progress. Watch-synced
+  // workouts don't make a day tracked: nothing was logged here, so the day's
+  // totals are still missing whatever was eaten.
   const untrackedDays = useMemo(() => {
     if (period === "day" || !range || scopeEntries === null) return 0;
     const tracked = new Set<string>();
     for (const e of scopeEntries ?? []) tracked.add(todayStr(new Date(e.eaten_at)));
-    for (const w of scopeWorkouts ?? []) tracked.add(todayStr(new Date(w.performed_at)));
+    for (const w of scopeWorkouts ?? []) {
+      if (w.source == null) tracked.add(todayStr(new Date(w.performed_at)));
+    }
     for (const l of scopeSuppLogs ?? []) tracked.add(todayStr(new Date(l.taken_at)));
     const today = todayStr();
     const last = range.end < today ? range.end : shiftDay(today, -1);
@@ -2100,7 +2327,12 @@ export default function DiaryPage() {
   const elapsedDays =
     range && containsToday ? daysBetween(range.start, today) : daysInPeriod;
   const net = eaten - burned;
-  const periodTarget = calTarget != null ? calTarget * daysInPeriod : null;
+  // Day view: base + this day's corrections. Week/month: base × days plus the
+  // manual corrections inside the period — the rollover only moves budget
+  // between days in the period, so counting it again would double it.
+  const goalBase = dayGoal?.base ?? periodGoal?.base ?? null;
+  const periodTarget =
+    period === "day" ? (dayGoal?.target ?? null) : (periodGoal?.target ?? null);
   const overTarget = periodTarget != null && net > periodTarget;
   const totalsTitle =
     period === "day"
@@ -2220,7 +2452,7 @@ export default function DiaryPage() {
                   totals{containsToday ? " and pace" : ""} are incomplete.
                 </div>
               )}
-              {calTarget != null && periodTarget != null && (
+              {goalBase != null && periodTarget != null && (
                 <div className="card" style={{ marginTop: 0, marginBottom: 0 }}>
                   <div
                     style={{
@@ -2253,23 +2485,64 @@ export default function DiaryPage() {
                       <span className="faint"> / {Math.round(periodTarget)} kcal</span>
                     </span>
                   </div>
+                  {dayGoal && (dayGoal.rollover !== 0 || dayGoal.manual !== 0) && (
+                    <div className="faint small" style={{ marginTop: 8 }}>
+                      {Math.round(dayGoal.base)} base
+                      {dayGoal.rollover !== 0 && (
+                        <>
+                          {" "}
+                          · {fmtDelta(dayGoal.rollover)} rolled over from the last{" "}
+                          {dayGoal.balanceDays}{" "}
+                          {dayGoal.balanceDays === 1 ? "tracked day" : "tracked days"}
+                          {Math.abs(dayGoal.rawRollover) > dayGoal.cap
+                            ? ` (capped at ${dayGoal.cap})`
+                            : ""}
+                        </>
+                      )}
+                      {dayGoal.manual !== 0 && (
+                        <> · {fmtDelta(dayGoal.manual)} your correction</>
+                      )}
+                    </div>
+                  )}
+                  {periodGoal && periodGoal.manual !== 0 && (
+                    <div className="faint small" style={{ marginTop: 8 }}>
+                      Includes {fmtDelta(periodGoal.manual)} kcal of your own
+                      corrections on days in this period.
+                    </div>
+                  )}
                   {period !== "day" && containsToday && (
                     <div className="faint small" style={{ marginTop: 8 }}>
-                      Budget through today: {Math.round(calTarget * elapsedDays)} kcal
-                      — you're {Math.abs(Math.round(calTarget * elapsedDays - net))}{" "}
-                      kcal {calTarget * elapsedDays - net >= 0 ? "under" : "over"} pace.
+                      Budget through today: {Math.round(goalBase * elapsedDays)} kcal
+                      — you're {Math.abs(Math.round(goalBase * elapsedDays - net))}{" "}
+                      kcal {goalBase * elapsedDays - net >= 0 ? "under" : "over"} pace.
                     </div>
                   )}
                   <div
                     className="faint small"
                     style={{ marginTop: period !== "day" && containsToday ? 4 : 8 }}
                   >
-                    Net kcal (eaten − burned) vs {Math.round(calTarget)} kcal/day
+                    Net kcal (eaten − burned) vs {Math.round(goalBase)} kcal/day
                     {period !== "day" ? ` × ${daysInPeriod} days` : ""}.
+                    {period !== "day" && " Daily rollover evens out inside the period."}
                   </div>
+                  {dayGoal && (
+                    <>
+                      <button
+                        className="btn btn-sm"
+                        style={{ marginTop: 10 }}
+                        onClick={() => setShowAdjust((v) => !v)}
+                        aria-expanded={showAdjust}
+                      >
+                        {showAdjust ? "Done" : "Adjust target"}
+                      </button>
+                      {showAdjust && (
+                        <GoalAdjustPanel goal={dayGoal} onChanged={() => bump()} />
+                      )}
+                    </>
+                  )}
                 </div>
               )}
-              {calTarget == null && (
+              {hasTarget === false && (
                 <div className="faint small" style={{ margin: "8px 2px 0" }}>
                   Set a daily calorie target in Settings to track your budget here.
                 </div>
@@ -2318,7 +2591,7 @@ export default function DiaryPage() {
                           alt={e.title}
                         />
                       ) : (
-                        <GlyphThumb glyph="🍽" />
+                        <GlyphThumb glyph={entryGlyph(e.icon, e.title, "meal")} />
                       )}
                       <div className="row-main">
                         <div className="row-title">{e.title}</div>
@@ -2347,7 +2620,7 @@ export default function DiaryPage() {
                         if (ev.key === "Enter") setDetail(item);
                       }}
                     >
-                      <GlyphThumb glyph={w.source ? "⌚" : "🏃"} />
+                      <GlyphThumb glyph={workoutGlyph(w)} />
                       <div className="row-main">
                         <div className="row-title">{w.title}</div>
                         <div className="row-sub">

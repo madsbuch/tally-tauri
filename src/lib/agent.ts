@@ -29,6 +29,7 @@ import { parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
+import { iconKeys, isIconKey } from "./icons";
 import { readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
@@ -58,6 +59,23 @@ const TIME_DESC =
   '("at 8am" → "08:00"); NEVER convert between timezones or to UTC, and never append "Z" or an offset. ' +
   "Resolve relative phrases yourself using the current local time given in the system prompt " +
   '("earlier today", "this morning" ≈ 08:00, "after lunch" ≈ 13:00). Never a future time.';
+
+/**
+ * The `icon` parameter: entries without a photo show this glyph in the
+ * timeline, so a logged espresso gets ☕ instead of the generic 🍽. Kept as a
+ * closed enum — an unknown value is dropped and the title-keyword guess in
+ * lib/icons.ts takes over.
+ */
+function iconSchema(kind: "meal" | "workout"): Record<string, unknown> {
+  return {
+    type: "string",
+    enum: iconKeys(kind),
+    description:
+      `Icon shown for this entry when it has no photo. Pick the most specific ` +
+      `match for what was actually ${kind === "meal" ? "eaten or drunk" : "done"} ` +
+      `(e.g. a cup of coffee → "coffee"); omit only if nothing fits.`,
+  };
+}
 
 function nutrientsSchema(): Record<string, unknown> {
   const props: Record<string, unknown> = {};
@@ -90,6 +108,7 @@ const DIARY_TOOLS: ToolDef[] = [
           },
           time: { type: "string", description: TIME_DESC },
           confidence: { type: "string", enum: ["low", "medium", "high"] },
+          icon: iconSchema("meal"),
           nutrients: nutrientsSchema(),
         },
         required: ["title", "time"],
@@ -113,6 +132,7 @@ const DIARY_TOOLS: ToolDef[] = [
           },
           time: { type: "string", description: TIME_DESC },
           confidence: { type: "string", enum: ["low", "medium", "high"] },
+          icon: iconSchema("workout"),
           calories_burned: {
             type: "number",
             description: "kcal; read exactly when shown, estimate from activity + duration otherwise",
@@ -184,6 +204,7 @@ function buildSystemPrompt(capture: Capture, catalog: Supplement[]): string {
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
+    "- Always pass `icon` on log_meal/log_workout: it is what the user sees in the timeline when there is no photo. Pick the most specific match (a cappuccino is \"coffee\", not \"meal\").",
     "- After your final tool call, reply with one short plain-text sentence of confirmation.",
     "- If there is nothing usable to record, call no tools and explain why in one plain-text sentence.",
   ].join("\n");
@@ -257,6 +278,12 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/** An icon key the model picked, or null when it made one up / skipped it. */
+function icon(v: unknown): string | null {
+  const key = str(v);
+  return isIconKey(key) ? key : null;
+}
+
 async function executeTool(
   ctx: ToolContext,
   name: string,
@@ -279,6 +306,7 @@ async function executeTool(
       photo_path: photo,
       nutrients: sanitizeNutrients(args["nutrients"]),
       model_id: ctx.model,
+      icon: icon(args["icon"]),
     });
     ctx.logged++;
     // Event-only achievement: eaten-time within 10 min of the capture being
@@ -304,6 +332,7 @@ async function executeTool(
       calories_burned: cal != null && cal >= 0 ? Math.round(cal) : 0,
       duration_min: dur != null && dur > 0 ? Math.round(dur) : null,
       model_id: ctx.model,
+      icon: icon(args["icon"]),
     });
     ctx.logged++;
     notifyDiaryChanged();

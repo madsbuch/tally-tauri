@@ -5,6 +5,7 @@ import {
   achievements,
   captures,
   chats,
+  dayGoalAdjustments,
   fasts,
   foodEntries,
   healthMetrics,
@@ -17,6 +18,7 @@ import {
 import type {
   Capture,
   ChatSummary,
+  DayGoalAdjustment,
   Fast,
   FoodEntry,
   HealthMetric,
@@ -120,6 +122,7 @@ function toFoodEntry(r: FoodEntryRow): FoodEntry {
     photo_path: r.photoPath,
     nutrients: sanitizeNutrients(r.nutrients),
     model_id: r.modelId,
+    icon: r.icon,
   };
 }
 
@@ -133,6 +136,7 @@ export async function addFoodEntry(entry: Omit<FoodEntry, "id">): Promise<number
       photoPath: entry.photo_path,
       nutrients: entry.nutrients,
       modelId: entry.model_id,
+      icon: entry.icon,
     })
     .returning({ id: foodEntries.id });
   return rows[0]?.id ?? 0;
@@ -148,6 +152,7 @@ export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
       photoPath: entry.photo_path,
       nutrients: entry.nutrients,
       modelId: entry.model_id,
+      icon: entry.icon,
     })
     .where(eq(foodEntries.id, entry.id));
 }
@@ -228,6 +233,7 @@ function toWorkout(r: WorkoutRow): Workout {
     calories_burned: r.caloriesBurned,
     duration_min: r.durationMin,
     model_id: r.modelId,
+    icon: r.icon,
     source: r.source,
     external_id: r.externalId,
   };
@@ -248,6 +254,7 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       modelId: w.model_id,
+      icon: w.icon,
       source: w.source ?? null,
       externalId: w.external_id ?? null,
     })
@@ -273,6 +280,7 @@ export async function upsertExternalWorkout(
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       modelId: w.model_id,
+      icon: w.icon,
       source: w.source,
       externalId: w.external_id,
     })
@@ -300,6 +308,7 @@ export async function updateWorkout(w: Workout): Promise<void> {
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       modelId: w.model_id,
+      icon: w.icon,
     })
     .where(eq(workouts.id, w.id));
 }
@@ -839,6 +848,65 @@ export async function deleteFast(id: number): Promise<void> {
 export async function listAllFasts(): Promise<Fast[]> {
   const rows = await db.select().from(fasts).orderBy(fasts.startedAt);
   return rows.map(toFast);
+}
+
+// ---------------------------------------------------------------------------
+// Day goal adjustments (manual calorie-target corrections)
+// ---------------------------------------------------------------------------
+
+type DayGoalAdjustmentRow = typeof dayGoalAdjustments.$inferSelect;
+
+function toDayGoalAdjustment(r: DayGoalAdjustmentRow): DayGoalAdjustment {
+  return {
+    day: r.day,
+    delta_kcal: r.deltaKcal,
+    note: r.note,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Manual target corrections for local days `startDay`..`endDay`, inclusive. */
+export async function listDayGoalAdjustments(
+  startDay: string,
+  endDay: string,
+): Promise<DayGoalAdjustment[]> {
+  const rows = await db
+    .select()
+    .from(dayGoalAdjustments)
+    .where(
+      and(gte(dayGoalAdjustments.day, startDay), lte(dayGoalAdjustments.day, endDay)),
+    )
+    .orderBy(dayGoalAdjustments.day);
+  return rows.map(toDayGoalAdjustment);
+}
+
+/** Set (or replace) a day's manual correction. A delta of 0 clears the row. */
+export async function setDayGoalAdjustment(
+  day: string,
+  deltaKcal: number,
+  note: string | null = null,
+): Promise<void> {
+  if (!isFinite(deltaKcal) || Math.round(deltaKcal) === 0) {
+    await clearDayGoalAdjustment(day);
+    return;
+  }
+  const value = {
+    day,
+    deltaKcal: Math.round(deltaKcal),
+    note,
+    updatedAt: new Date().toISOString(),
+  };
+  await db
+    .insert(dayGoalAdjustments)
+    .values(value)
+    .onConflictDoUpdate({
+      target: dayGoalAdjustments.day,
+      set: { deltaKcal: value.deltaKcal, note, updatedAt: value.updatedAt },
+    });
+}
+
+export async function clearDayGoalAdjustment(day: string): Promise<void> {
+  await db.delete(dayGoalAdjustments).where(eq(dayGoalAdjustments.day, day));
 }
 
 // ---------------------------------------------------------------------------

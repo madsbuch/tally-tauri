@@ -56,6 +56,8 @@ export interface FoodEntry {
   nutrients: Nutrients;
   /** OpenRouter model id that produced the estimate, if any. */
   model_id: string | null;
+  /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
+  icon: string | null;
 }
 
 export interface Supplement {
@@ -125,6 +127,8 @@ export interface Workout {
   calories_burned: number;
   duration_min: number | null;
   model_id: string | null;
+  /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
+  icon: string | null;
   /** Where the workout came from, e.g. "Garmin" — null = manual/agent entry. */
   source: string | null;
   /** Stable id in the external system (Health Connect record UID) for dedup. */
@@ -165,6 +169,16 @@ export interface HealthMetric {
   vo2_max: number | null;
   /** Total energy burned that day (kcal). */
   calories_total: number | null;
+  updated_at: string;
+}
+
+/** A manual correction to one day's calorie target. */
+export interface DayGoalAdjustment {
+  /** Local day "YYYY-MM-DD". */
+  day: string;
+  /** Signed kcal added to the day's target (negative = a smaller budget). */
+  delta_kcal: number;
+  note: string | null;
   updated_at: string;
 }
 
@@ -212,6 +226,10 @@ export const SETTING_KEYS = {
   ketoNetCarbLimit: "keto_net_carb_limit_g",
   /** Daily calorie budget (net kcal). Absent = no target set. */
   calorieTarget: "calorie_target_kcal",
+  /** Automatic target rollover window: "off" | "week" | "month". */
+  calorieRollover: "calorie_rollover_mode",
+  /** Max kcal the rollover may move in or out of a single day. */
+  calorieRolloverCap: "calorie_rollover_cap_kcal",
   /** JSON blob of streak-freeze bookkeeping (see lib/streak.ts). */
   streakState: "streak_state",
 } as const;

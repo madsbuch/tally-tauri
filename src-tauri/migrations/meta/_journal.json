@@ -43,6 +43,13 @@
       "when": 1784585906998,
       "tag": "0005_achievements",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790056226103,
+      "tag": "0006_entry_icons_and_goal_adjustments",
+      "breakpoints": true
     }
   ]
 }

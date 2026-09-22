@@ -45,6 +45,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0005_achievements.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "entry_icons_and_goal_adjustments",
+            sql: include_str!("../migrations/0006_entry_icons_and_goal_adjustments.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

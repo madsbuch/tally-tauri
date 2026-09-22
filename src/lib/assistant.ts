@@ -481,6 +481,7 @@ const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like 
 - supplements(id, name, dose_amount, dose_unit, nutrients /* JSON per dose */, notes, archived)
 - supplement_logs(id, supplement_id, taken_at, amount /* dose multiplier */)
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */)
+- day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON. Local day of a UTC timestamp: the user's timezone offset is given above.`;
 
 function tzOffsetLabel(d: Date): string {

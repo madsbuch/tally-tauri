@@ -1,10 +1,13 @@
 /**
  * Logging-streak engine with freeze tokens.
  *
- * A day counts as "logged" when it has at least one diary item — a meal,
- * workout (Garmin included), supplement, pending capture — or is covered by
- * a fast, so multi-day fasts never break the streak. Today gets grace: an
- * empty today doesn't end the streak until the day is over.
+ * A day counts as "logged" when the user did something IN the app that day:
+ * a meal, a manually/agent-logged workout, a supplement, a pending capture —
+ * or it is covered by a fast, so multi-day fasts never break the streak.
+ * Workouts synced from Health Connect (Garmin & co.) deliberately do NOT
+ * count: a streak should reward keeping the diary, not wearing a watch.
+ * Today gets grace: an empty today doesn't end the streak until the day is
+ * over.
  *
  * Freezes: every 7 consecutive days earns one freeze token (max 3 banked).
  * A missed day automatically consumes a token and the streak survives.
@@ -70,7 +73,11 @@ function localDayOf(iso: string): string {
   return todayStr(new Date(iso));
 }
 
-/** The set of local days that have at least one diary item or fast cover. */
+/**
+ * The set of local days the user logged something on. Only in-app activity
+ * counts — synced workouts (`source != null`) are skipped, so a watch that
+ * keeps syncing while the app goes untouched can't hold a streak alive.
+ */
 export async function collectLoggedDays(): Promise<Set<string>> {
   const [entries, workouts, suppLogs, captures, fasts] = await Promise.all([
     listAllFoodEntries(),
@@ -81,7 +88,10 @@ export async function collectLoggedDays(): Promise<Set<string>> {
   ]);
   const days = new Set<string>();
   for (const e of entries) days.add(localDayOf(e.eaten_at));
-  for (const w of workouts) days.add(localDayOf(w.performed_at));
+  for (const w of workouts) {
+    if (w.source != null) continue; // synced from a watch, not logged here
+    days.add(localDayOf(w.performed_at));
+  }
   for (const l of suppLogs) days.add(localDayOf(l.taken_at));
   for (const c of captures) days.add(c.day);
   const today = todayStr();

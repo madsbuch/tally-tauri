@@ -194,6 +194,9 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
       calories_burned: Math.round(s.calories ?? 0),
       duration_min: durationMin > 0 ? durationMin : null,
       model_id: null,
+      // Left unset: the timeline derives an icon from the activity title, and
+      // a re-sync must not overwrite one the user picked by hand.
+      icon: null,
       source: sourceLabel(s.sourcePackage),
       external_id: s.id,
     });

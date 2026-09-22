@@ -24,6 +24,8 @@ export const foodEntries = sqliteTable(
     photoPath: text("photo_path"),
     nutrients: text("nutrients", { mode: "json" }).$type<Nutrients>().notNull().default({}),
     modelId: text("model_id"),
+    /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
+    icon: text("icon"),
   },
   (t) => [index("idx_food_entries_eaten_at").on(t.eatenAt)],
 );
@@ -39,6 +41,8 @@ export const workouts = sqliteTable(
     caloriesBurned: real("calories_burned").notNull().default(0),
     durationMin: real("duration_min"),
     modelId: text("model_id"),
+    /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
+    icon: text("icon"),
     /** Where the workout came from, e.g. "Garmin" — null = manual/agent entry. */
     source: text("source"),
     /** Stable id in the external system (Health Connect record UID) for dedup. */
@@ -149,6 +153,20 @@ export const chats = sqliteTable(
   },
   (t) => [index("idx_chats_updated_at").on(t.updatedAt)],
 );
+
+/**
+ * Per-day corrections to the calorie target: "I overate yesterday, take 200
+ * kcal off today". One row per local day; absence means no correction.
+ * Separate from the automatic rollover (lib/goals.ts), which is derived.
+ */
+export const dayGoalAdjustments = sqliteTable("day_goal_adjustments", {
+  /** Local day "YYYY-MM-DD". */
+  day: text("day").primaryKey(),
+  /** Signed kcal added to that day's target (negative = a smaller budget). */
+  deltaKcal: real("delta_kcal").notNull(),
+  note: text("note"),
+  updatedAt: text("updated_at").notNull(),
+});
 
 export const fasts = sqliteTable("fasts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
