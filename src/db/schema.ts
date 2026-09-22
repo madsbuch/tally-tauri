@@ -175,6 +175,27 @@ export const fasts = sqliteTable("fasts", {
   endedAt: text("ended_at"),
 });
 
+/**
+ * What the coach knows about you, kept beside the chats rather than inside
+ * them: goals you set, commitments you made, preferences you expressed, and
+ * notes it took. A chat can end, be deleted, or scroll out of context — this
+ * survives, so the next conversation starts informed instead of cold.
+ */
+export const coachMemory = sqliteTable(
+  "coach_memory",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** "goal" | "commitment" | "preference" | "note" (see lib/coach.ts). */
+    kind: text("kind").notNull(),
+    text: text("text").notNull(),
+    /** Commitments only: "open" | "done" | "dropped". Null for other kinds. */
+    status: text("status"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [index("idx_coach_memory_kind").on(t.kind)],
+);
+
 /** Unlocked gamification achievements — a row's presence means unlocked. */
 export const achievements = sqliteTable("achievements", {
   key: text("key").primaryKey(),

@@ -5,6 +5,7 @@ import {
   achievements,
   captures,
   chats,
+  coachMemory,
   dayGoalAdjustments,
   fasts,
   foodEntries,
@@ -18,6 +19,7 @@ import {
 import type {
   Capture,
   ChatSummary,
+  CoachMemory,
   DayGoalAdjustment,
   Fast,
   FoodEntry,
@@ -848,6 +850,70 @@ export async function deleteFast(id: number): Promise<void> {
 export async function listAllFasts(): Promise<Fast[]> {
   const rows = await db.select().from(fasts).orderBy(fasts.startedAt);
   return rows.map(toFast);
+}
+
+// ---------------------------------------------------------------------------
+// Coach memory
+// ---------------------------------------------------------------------------
+
+type CoachMemoryRow = typeof coachMemory.$inferSelect;
+
+function toCoachMemory(r: CoachMemoryRow): CoachMemory {
+  const kind =
+    r.kind === "goal" || r.kind === "commitment" || r.kind === "preference"
+      ? r.kind
+      : "note";
+  const status =
+    r.status === "open" || r.status === "done" || r.status === "dropped"
+      ? r.status
+      : null;
+  return {
+    id: r.id,
+    kind,
+    text: r.text,
+    status,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Everything the coach knows, oldest first so goals read before later notes. */
+export async function listCoachMemory(): Promise<CoachMemory[]> {
+  const rows = await db.select().from(coachMemory).orderBy(coachMemory.id);
+  return rows.map(toCoachMemory);
+}
+
+export async function addCoachMemory(
+  kind: CoachMemory["kind"],
+  text: string,
+  status: CoachMemory["status"] = null,
+): Promise<number> {
+  const now = new Date().toISOString();
+  const rows = await db
+    .insert(coachMemory)
+    .values({ kind, text, status, createdAt: now, updatedAt: now })
+    .returning({ id: coachMemory.id });
+  return rows[0]?.id ?? 0;
+}
+
+/** Patch one row; absent fields are left alone. Returns false if it's gone. */
+export async function updateCoachMemory(
+  id: number,
+  patch: { text?: string; status?: CoachMemory["status"] },
+): Promise<boolean> {
+  const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (patch.text !== undefined) set["text"] = patch.text;
+  if (patch.status !== undefined) set["status"] = patch.status;
+  const rows = await db
+    .update(coachMemory)
+    .set(set)
+    .where(eq(coachMemory.id, id))
+    .returning({ id: coachMemory.id });
+  return rows.length > 0;
+}
+
+export async function deleteCoachMemory(id: number): Promise<void> {
+  await db.delete(coachMemory).where(eq(coachMemory.id, id));
 }
 
 // ---------------------------------------------------------------------------

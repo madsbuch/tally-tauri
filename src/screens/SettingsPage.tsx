@@ -31,6 +31,7 @@ import {
 } from "../lib/healthConnect";
 import type { HealthConnectStatus } from "../lib/healthConnect";
 import { exportDatabase } from "../lib/exportDb";
+import CoachSettings from "../components/CoachSettings";
 
 const MAX_LIST_ROWS = 40;
 
@@ -951,6 +952,9 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* Coach -------------------------------------------------------------- */}
+      <CoachSettings />
 
       {/* Goals ------------------------------------------------------------- */}
       <div className="section-title">Goals</div>

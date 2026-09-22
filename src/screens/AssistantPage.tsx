@@ -16,10 +16,10 @@ import type { UiItem } from "../lib/assistantRunner";
 import AssistantChart from "../components/AssistantChart";
 
 const SUGGESTIONS = [
-  "Chart my sleep for the last two weeks",
-  "Calories in vs calories out this week",
-  "How is my resting heart rate trending this month?",
+  "How is my week going?",
+  "What should I focus on tomorrow?",
   "Am I eating enough protein on training days?",
+  "Chart my sleep for the last two weeks",
 ];
 
 function relativeTime(iso: string): string {
@@ -96,7 +96,7 @@ export default function AssistantPage() {
   return (
     <div className="page chat-page">
       <header className="page-header">
-        <h1 className="page-title">Assistant</h1>
+        <h1 className="page-title">Coach</h1>
         {chatOpen && (
           <button
             className="btn btn-ghost btn-sm"
@@ -112,7 +112,7 @@ export default function AssistantPage() {
         <div className="card">
           <h2 className="card-title">Set up first</h2>
           <p className="muted small" style={{ margin: 0 }}>
-            The assistant needs an OpenRouter API key — add one under Settings →
+            The coach needs an OpenRouter API key — add one under Settings →
             OpenRouter, then come back.
           </p>
         </div>
@@ -121,9 +121,10 @@ export default function AssistantPage() {
       {!chatOpen && hasKey !== false && (
         <>
           <p className="muted small" style={{ margin: "0 2px 12px" }}>
-            Ask anything about your data — meals, workouts, sleep, heart rate,
-            steps, weight, supplements, fasting. The assistant reads your local
-            database and can answer with messages and charts.
+            Your coach reads the whole diary — meals, workouts, sleep, heart
+            rate, steps, weight, supplements, fasting — and remembers what you
+            agree on between chats. Set what it should push you toward under
+            Settings → Coach.
           </p>
           <div className="list">
             {SUGGESTIONS.map((s) => (

@@ -5,8 +5,11 @@
  * common cases; a guarded SELECT-only SQL tool handles everything else.
  */
 import {
+  addCoachMemory,
+  deleteCoachMemory,
   getDb,
   getSetting,
+  updateCoachMemory,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
   listRecentFasts,
@@ -15,7 +18,6 @@ import {
   listSupplements,
   listWorkoutsForRange,
   getActiveFast,
-  todayStr,
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ToolDef } from "./openrouter";
@@ -130,6 +132,70 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     },
   },
   FOOD_FACTS_TOOL,
+  {
+    type: "function",
+    function: {
+      name: "remember",
+      description:
+        "Record something durable about this person so future conversations start knowing it. Use it the moment a goal, a commitment, or a preference comes up — memory is what makes you a coach rather than a stranger each time. Don't record passing facts the diary already holds (what they ate, a single workout); record what shapes how you coach them.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["goal", "commitment", "preference", "note"],
+            description:
+              "goal = an outcome they want; commitment = something they said they'd do, which you will hold them to; preference = how they want to be coached or what they like; note = anything else worth carrying forward.",
+          },
+          text: {
+            type: "string",
+            description:
+              "One sentence, in the third person, specific enough to act on later: \"Wants 150 g protein on lifting days\", not \"cares about protein\".",
+          },
+        },
+        required: ["kind", "text"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_memory",
+      description:
+        "Revise something you remembered, or close out a commitment once it's been met or abandoned. Ids are shown beside each item in your memory.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The id shown in square brackets." },
+          text: { type: "string", description: "Replacement text; omit to keep it." },
+          status: {
+            type: "string",
+            enum: ["open", "done", "dropped"],
+            description: "Commitments only: where it stands now.",
+          },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget",
+      description:
+        "Delete something from your memory: it was wrong, it's stale, or they asked you to drop it. Always use this when they ask you to forget something.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The id shown in square brackets." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -466,6 +532,41 @@ export async function executeAssistantTool(
     return executeFoodFactsSearch(args);
   }
 
+  if (name === "remember") {
+    const kind = args["kind"];
+    const text = typeof args["text"] === "string" ? args["text"].trim() : "";
+    if (!text) throw new Error("text is required");
+    if (kind !== "goal" && kind !== "commitment" && kind !== "preference" && kind !== "note") {
+      throw new Error('kind must be one of "goal", "commitment", "preference", "note"');
+    }
+    // A fresh commitment is open by definition; the others carry no status.
+    const id = await addCoachMemory(kind, text, kind === "commitment" ? "open" : null);
+    return JSON.stringify({ remembered: { id, kind, text } });
+  }
+
+  if (name === "update_memory") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const patch: { text?: string; status?: "open" | "done" | "dropped" } = {};
+    if (typeof args["text"] === "string" && args["text"].trim()) {
+      patch.text = args["text"].trim();
+    }
+    const status = args["status"];
+    if (status === "open" || status === "done" || status === "dropped") {
+      patch.status = status;
+    }
+    if (Object.keys(patch).length === 0) throw new Error("nothing to update");
+    const ok = await updateCoachMemory(id, patch);
+    return JSON.stringify(ok ? { updated: id, ...patch } : { error: `No memory with id ${id}.` });
+  }
+
+  if (name === "forget") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    await deleteCoachMemory(id);
+    return JSON.stringify({ forgot: id });
+  }
+
   throw new Error(`Unknown tool "${name}"`);
 }
 
@@ -473,7 +574,7 @@ export async function executeAssistantTool(
 // System prompt
 // ---------------------------------------------------------------------------
 
-const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like "2026-07-20T06:30:00.000Z"):
+export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like "2026-07-20T06:30:00.000Z"):
 - food_entries(id, eaten_at, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */)
 - workouts(id, performed_at, title, description, calories_burned, duration_min, source /* "Garmin", "Health Connect" or NULL = manual */, external_id)
 - sleep_sessions(id, started_at, ended_at, duration_min, deep_min, rem_min, light_min, awake_min, source)
@@ -483,39 +584,6 @@ const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like 
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON. Local day of a UTC timestamp: the user's timezone offset is given above.`;
-
-function tzOffsetLabel(d: Date): string {
-  const mins = -d.getTimezoneOffset();
-  const sign = mins >= 0 ? "+" : "-";
-  const abs = Math.abs(mins);
-  return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
-}
-
-export function buildAssistantSystemPrompt(): string {
-  const now = new Date();
-  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
-  const local = `${todayStr(now)} ${String(now.getHours()).padStart(2, "0")}:${String(
-    now.getMinutes(),
-  ).padStart(2, "0")}`;
-  return [
-    "You are Tally's health assistant. Tally is a local-first tracker holding the user's food diary, workouts, sleep, daily wellness metrics (synced from their Garmin watch via Health Connect), supplements, and fasting history.",
-    `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
-    "",
-    "COMMUNICATION: the user ONLY sees what you deliver through send_message and send_chart. Plain assistant text is a private reasoning scratchpad — use it to plan, then deliver. Every turn MUST end with at least one send_message.",
-    "Use send_chart whenever numbers form a trend or comparison (sleep over a week, calories in vs out, resting HR over a month). Charts are rendered natively — never draw a chart with text, blocks, or ASCII in a message. Keep one unit per chart; send two charts for two units.",
-    "",
-    "Ground every answer in the data — call query tools first, then deliver. Never guess numbers.",
-    "The structured query_* tools cover most questions; use run_sql for aggregates, joins, or longer trends.",
-    "search_packaged_food looks up branded products in the public Open Food Facts database (label nutrition, ingredients, Nutri-Score) — use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
-    'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself: "this week" = Monday through today, "last month" = the previous calendar month, and so on.',
-    "Missing data is normal (rest days, unsynced watch, features unused) — say so rather than inventing values, and pass null for missing chart points.",
-    "Watch data (workouts, sleep, health metrics) only reaches back to when the user connected Health Connect, so older days are simply absent — if the user wants more history, point them to Settings → Watch sync (“Allow history access” + Sync now).",
-    "",
-    DB_SCHEMA_DOC,
-    "",
-    "Message style: concise markdown in a narrow mobile chat bubble. Lead with the answer in a short sentence, bold the key figures, always include units, skip headers. A short bullet list is fine; put the numbers a chart already shows in the chart, not the text.",
-  ].join("\n");
-}
 
 // ---------------------------------------------------------------------------
 // The conversation loop

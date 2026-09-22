@@ -21,7 +21,8 @@ import {
   getChatMessages,
   updateChatMessages,
 } from "./db";
-import { buildAssistantSystemPrompt, runAssistantTurn, sanitizeChart } from "./assistant";
+import { runAssistantTurn, sanitizeChart } from "./assistant";
+import { buildCoachSystemPrompt } from "./coach";
 import type { AssistantEvent, ChartSpec } from "./assistant";
 import type { ChatMessage } from "./openrouter";
 import { parseToolArgs } from "./schemas";
@@ -303,6 +304,9 @@ function run(): void {
   autoResumable = false;
   inFlight = (async () => {
     try {
+      // Rebuilt every turn: it carries the clock, the coach's memory, and a
+      // fresh digest of the diary, all of which move between turns.
+      await refreshSystemPrompt();
       // Held open so switching away mid-answer no longer drops the request.
       await withBackgroundTask("Answering your question", () =>
         runAssistantTurn(
@@ -356,15 +360,21 @@ function rewindToLastUserTurn(): void {
   }
 }
 
+/**
+ * Put the current coach prompt at the head of the transcript, replacing any
+ * earlier one. Built fresh because memory and the digest change under it.
+ */
+async function refreshSystemPrompt(): Promise<void> {
+  const system: ChatMessage = { role: "system", content: await buildCoachSystemPrompt() };
+  if (transcript[0]?.role === "system") transcript[0] = system;
+  else transcript.unshift(system);
+}
+
 /** Send a message and run the turn. Never throws — failures land in state. */
 export function sendAssistantMessage(text: string): void {
   const trimmed = text.trim();
   if (!trimmed || status === "running") return;
 
-  // The system prompt carries the current time — refresh it every turn.
-  const system: ChatMessage = { role: "system", content: buildAssistantSystemPrompt() };
-  if (transcript.length === 0) transcript.push(system);
-  else transcript[0] = system;
   transcript.push({ role: "user", content: trimmed });
   items = [...items, { kind: "user", text: trimmed }];
   run();
@@ -374,9 +384,6 @@ export function sendAssistantMessage(text: string): void {
 export function retryAssistant(): void {
   if (status === "running" || !hasUserTurn()) return;
   rewindToLastUserTurn();
-  if (transcript[0]?.role === "system") {
-    transcript[0] = { role: "system", content: buildAssistantSystemPrompt() };
-  }
   run();
 }
 

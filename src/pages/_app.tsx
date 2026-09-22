@@ -60,7 +60,7 @@ const TABS: { to: Path; label: string; icon: JSX.Element }[] = [
   },
   {
     to: "/assistant",
-    label: "Assistant",
+    label: "Coach",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
         <path

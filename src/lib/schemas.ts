@@ -251,6 +251,36 @@ const nonNegInt = z
     typeof v === "number" && isFinite(v) && v > 0 ? Math.floor(v) : 0,
   );
 
+/**
+ * The coach's stance: what it pushes for and how it talks. Ours to keep, so
+ * strict-ish — but every field defaults, because a half-written stance should
+ * still produce a usable coach rather than none at all.
+ */
+const looseStringList = (max: number) =>
+  z
+    .array(z.unknown())
+    .catch([])
+    .transform((a) =>
+      a
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+        .slice(0, max),
+    );
+
+export const CoachStanceSchema = z.object({
+  /** Ranked; the first is the primary focus. */
+  imperatives: looseStringList(5),
+  tone: z.enum(["gentle", "straight", "tough"]).catch("straight"),
+  length: z.enum(["brief", "normal", "thorough"]).catch("normal"),
+  /** Subjects the coach must never raise. */
+  avoid: looseStringList(10),
+  /** Anything else, in the user's own words. */
+  notes: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim() : "")),
+  /** Language to answer in; empty = follow whatever the user writes. */
+  language: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim() : "")),
+});
+
 /** Streak-freeze bookkeeping (see lib/streak.ts). Tolerant: junk fields reset. */
 export const StreakStateSchema = z.object({
   freezes: nonNegInt,

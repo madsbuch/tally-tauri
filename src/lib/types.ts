@@ -182,6 +182,17 @@ export interface DayGoalAdjustment {
   updated_at: string;
 }
 
+/** One thing the coach knows about you (see lib/coach.ts). */
+export interface CoachMemory {
+  id: number;
+  kind: "goal" | "commitment" | "preference" | "note";
+  text: string;
+  /** Commitments only; null for other kinds. */
+  status: "open" | "done" | "dropped" | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A saved assistant conversation (without its transcript). */
 export interface ChatSummary {
   id: number;
@@ -228,6 +239,8 @@ export const SETTING_KEYS = {
   calorieTarget: "calorie_target_kcal",
   /** JSON blob of streak-freeze bookkeeping (see lib/streak.ts). */
   streakState: "streak_state",
+  /** JSON blob: what the coach is pushing for and how (see lib/coach.ts). */
+  coachStance: "coach_stance",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

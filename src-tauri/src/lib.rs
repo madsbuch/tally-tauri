@@ -51,6 +51,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0006_entry_icons_and_goal_adjustments.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "coach_memory",
+            sql: include_str!("../migrations/0007_coach_memory.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
