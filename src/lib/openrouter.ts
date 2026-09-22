@@ -399,8 +399,8 @@ export async function analyzeWorkout(opts: AnalyzeWorkoutOptions): Promise<Worko
 export interface AnalyzeDocumentOptions {
   apiKey: string;
   model: string;
-  /** JPEG data URL of the photographed document. */
-  imageDataUrl: string;
+  /** JPEG data URLs, one per page, in order. */
+  imageDataUrls: string[];
   /** Whatever the user typed when adding it. */
   note?: string | undefined;
   /** Today, so the model can resolve a partial date on the page. */
@@ -408,8 +408,13 @@ export interface AnalyzeDocumentOptions {
 }
 
 /**
- * Read a photographed document — a blood panel, a scan report, a letter —
- * into something the coach can use without looking at the picture again.
+ * Read a document — a blood panel, a scan report, a letter — into something
+ * the coach can use without looking at the picture again.
+ *
+ * Several images are several pages of ONE document (a PDF is rendered a page
+ * per image), so the result is one title, one date and one list of values
+ * spanning them all — a four-page panel filed as four documents would be four
+ * entries in the library for one blood draw.
  *
  * The date matters as much as the numbers: a result is filed by the day it
  * was taken, not the day it was photographed, so the model is asked to find
@@ -419,10 +424,14 @@ export interface AnalyzeDocumentOptions {
 export async function analyzeDocument(
   opts: AnalyzeDocumentOptions,
 ): Promise<DocumentAnalysis> {
-  const { apiKey, model, imageDataUrl, note, today } = opts;
+  const { apiKey, model, imageDataUrls, note, today } = opts;
+  if (imageDataUrls.length === 0) throw new Error("No pages to read");
 
   const system = [
-    "You read a photographed health document and return it as structured data.",
+    "You read a health document and return it as structured data.",
+    imageDataUrls.length > 1
+      ? `The ${imageDataUrls.length} images are consecutive pages of a SINGLE document, in order. Return one combined result covering all of them: one title, one date, and every measurement from every page in one values array.`
+      : "",
     "Respond with a SINGLE JSON object and nothing else - no markdown, no code fences.",
     "Schema:",
     `{"title": string (short, what this document is, e.g. "Blood panel - full count"),`,
@@ -430,20 +439,26 @@ export async function analyzeDocument(
     `"document_date": string | null ("YYYY-MM-DD"),`,
     `"summary": string (2-4 sentences: what was measured, and specifically what is outside its reference range),`,
     `"values": [{"name": string, "value": string, "unit": string, "reference": string, "flag": "low" | "high" | "normal" | "unknown"}]}`,
-    `document_date is the date printed on the document - when the sample was taken, or failing that when the report was issued. Today is ${today}, which is when it was PHOTOGRAPHED; do not use it as the document date. If no date is legible, return null rather than guessing.`,
+    `document_date is the date printed on the document - when the sample was taken, or failing that when the report was issued. Today is ${today}, which is when it was FILED; do not use it as the document date. If no date is legible, return null rather than guessing.`,
     "Transcribe values exactly as printed, including non-numeric ones like \"negative\" or \"<5\". Keep the reference range as written. Set flag from the range when one is given, and \"unknown\" when it isn't.",
     "Include every measurement you can read. If the document has no measurements (a letter, a note), return an empty values array and describe it in the summary.",
     "Transcribe, don't interpret: no diagnosis, no advice. Report what the page says.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
+  const intro =
+    imageDataUrls.length > 1
+      ? `Read this document (${imageDataUrls.length} pages, in order).`
+      : "Read this document.";
   const parts: ContentPart[] = [
     {
       type: "text",
-      text: note?.trim()
-        ? `Read this document. Note from the user: ${note.trim()}`
-        : "Read this document.",
+      text: note?.trim() ? `${intro} Note from the user: ${note.trim()}` : intro,
     },
-    { type: "image_url", image_url: { url: imageDataUrl } },
+    ...imageDataUrls.map(
+      (url): ContentPart => ({ type: "image_url", image_url: { url } }),
+    ),
   ];
 
   const content = await chat(apiKey, model, [

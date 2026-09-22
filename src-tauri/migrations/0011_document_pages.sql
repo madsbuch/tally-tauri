@@ -1,0 +1,1 @@
+ALTER TABLE `documents` ADD `page_paths` text DEFAULT '[]' NOT NULL;

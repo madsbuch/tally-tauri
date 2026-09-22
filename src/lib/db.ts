@@ -37,7 +37,12 @@ import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { deletePhoto } from "./photos";
-import { parseChatTranscript, parseDocumentValues, parseJson } from "./schemas";
+import {
+  parseChatTranscript,
+  parseDocumentPages,
+  parseDocumentValues,
+  parseJson,
+} from "./schemas";
 
 const DB_URL = "sqlite:tally.db";
 
@@ -882,6 +887,7 @@ function toDocument(r: DocumentRow): LibraryDocument {
     title: r.title,
     kind,
     photo_path: r.photoPath,
+    page_paths: parseDocumentPages(r.pagePaths),
     note: r.note,
     summary: r.summary,
     extracted: parseDocumentValues(r.extracted),
@@ -928,7 +934,8 @@ export async function getDocument(id: number): Promise<LibraryDocument | null> {
 export async function addDocument(d: {
   title: string;
   note: string | null;
-  photo_path: string | null;
+  /** Pages in order; the first doubles as the document's `photo_path`. */
+  page_paths: string[];
 }): Promise<number> {
   const rows = await db
     .insert(documents)
@@ -936,7 +943,8 @@ export async function addDocument(d: {
       createdAt: new Date().toISOString(),
       title: d.title,
       note: d.note,
-      photoPath: d.photo_path,
+      photoPath: d.page_paths[0] ?? null,
+      pagePaths: d.page_paths,
     })
     .returning({ id: documents.id });
   return rows[0]?.id ?? 0;

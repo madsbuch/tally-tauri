@@ -31,6 +31,18 @@ import type { LibraryDocument } from "./types";
 
 export const LIBRARY_CHANGED_EVENT = "tally:library-changed";
 
+/**
+ * A document's pages, in order.
+ *
+ * `page_paths` is the full list, but documents filed before PDFs were
+ * supported have only `photo_path` — so that's the fallback rather than a
+ * migration that would have to guess.
+ */
+export function documentPages(doc: LibraryDocument): string[] {
+  if (doc.page_paths.length > 0) return doc.page_paths;
+  return doc.photo_path ? [doc.photo_path] : [];
+}
+
 export function notifyLibraryChanged(): void {
   window.dispatchEvent(new CustomEvent(LIBRARY_CHANGED_EVENT));
 }
@@ -45,15 +57,21 @@ const inFlight = new Set<number>();
 async function readDocument(doc: LibraryDocument): Promise<void> {
   const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
   if (!apiKey) throw new Error("Add your OpenRouter API key in Settings first");
-  if (!doc.photo_path) throw new Error("This document has no image to read");
+  const pages = documentPages(doc);
+  if (pages.length === 0) throw new Error("This document has no image to read");
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
 
   // Read through Rust: fetching the asset URL is CSP-blocked on Android.
-  const imageDataUrl = await readPhotoDataUrl(doc.photo_path);
+  // Sequentially, because a multi-page PDF is several megabytes of base64 and
+  // holding all of it plus the parallel copies at once is what runs a phone
+  // out of memory.
+  const imageDataUrls: string[] = [];
+  for (const page of pages) imageDataUrls.push(await readPhotoDataUrl(page));
+
   const analysis = await analyzeDocument({
     apiKey,
     model,
-    imageDataUrl,
+    imageDataUrls,
     note: doc.note ?? undefined,
     today: todayStr(),
   });
@@ -102,8 +120,8 @@ async function processDocument(id: number): Promise<void> {
 }
 
 export interface AddDocumentOptions {
-  /** Base64 JPEG payload from compressImage. */
-  photoBase64: string;
+  /** Base64 JPEG payloads, one per page, in order (compressImage / pdf.ts). */
+  pagesBase64: string[];
   /** Optional context the user typed — often the only clue to what it is. */
   note?: string | undefined;
 }
@@ -113,12 +131,14 @@ export interface AddDocumentOptions {
  * the library shows it immediately.
  */
 export async function addLibraryDocument(opts: AddDocumentOptions): Promise<number> {
-  const photoPath = await savePhoto(opts.photoBase64);
+  if (opts.pagesBase64.length === 0) throw new Error("Nothing to file");
+  const pagePaths: string[] = [];
+  for (const page of opts.pagesBase64) pagePaths.push(await savePhoto(page));
   const id = await addDocument({
     // Replaced by the model's title once it's been read.
     title: opts.note?.trim() || "Untitled document",
     note: opts.note?.trim() || null,
-    photo_path: photoPath,
+    page_paths: pagePaths,
   });
   notifyLibraryChanged();
   void processDocument(id);
@@ -132,10 +152,10 @@ export async function retryDocument(id: number): Promise<void> {
   void processDocument(id);
 }
 
-/** Remove a document and its image. */
+/** Remove a document and every page of it. */
 export async function removeDocument(doc: LibraryDocument): Promise<void> {
   await deleteDocument(doc.id);
-  await deletePhotoIfUnused(doc.photo_path);
+  for (const page of documentPages(doc)) await deletePhotoIfUnused(page);
   notifyLibraryChanged();
   void cacheCoachPromptPrefix();
 }

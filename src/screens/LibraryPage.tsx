@@ -1,6 +1,10 @@
 /**
  * The document library.
  *
+ * A document is a stack of page images: a photograph is one page, a PDF is one
+ * per page (see lib/pdf.ts), and the model reads them together so a four-page
+ * blood panel becomes one entry rather than four.
+ *
  * Filed by the date on the document rather than the day it was photographed,
  * so a result from March reads as March. The model pulls that date off the
  * page; when there isn't one it falls back to the day it was added, and the
@@ -12,12 +16,14 @@ import { listDocuments } from "../lib/db";
 import type { DocumentValue, LibraryDocument } from "../lib/types";
 import {
   addLibraryDocument,
+  documentPages,
   onLibraryChanged,
   removeDocument,
   retryDocument,
 } from "../lib/documents";
 import { updateDocument } from "../lib/db";
 import { compressImage, photoSrc } from "../lib/photos";
+import { MAX_PDF_PAGES, isPdf, pdfToImages } from "../lib/pdf";
 
 const KIND_LABELS: Record<LibraryDocument["kind"], string> = {
   lab: "Lab result",
@@ -65,6 +71,40 @@ function PhotoImg({ filename, className }: { filename: string; className?: strin
   return <img src={src} className={className} alt="Document" />;
 }
 
+/**
+ * A document's pages, whole rather than cropped.
+ *
+ * Only the first is shown until asked: a four-page PDF is two thousand pixels
+ * of scrolling between the sheet's handle and the measurements, which are what
+ * the sheet is actually for.
+ */
+function PageStack({ pages }: { pages: { key: string; node: React.ReactNode }[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? pages : pages.slice(0, 1);
+  return (
+    <div className="doc-pages">
+      {shown.map((p, i) => (
+        <div key={p.key}>
+          {pages.length > 1 && (
+            <div className="faint small doc-page-label">
+              Page {i + 1} of {pages.length}
+            </div>
+          )}
+          {p.node}
+        </div>
+      ))}
+      {pages.length > 1 && (
+        <button
+          className="btn btn-sm doc-pages-toggle"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? "Show first page only" : `Show all ${pages.length} pages`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ValueRow({ v }: { v: DocumentValue }) {
   const off = v.flag === "low" || v.flag === "high";
   return (
@@ -97,6 +137,7 @@ function DocumentSheet({
 
   const flagged = doc.extracted.filter((v) => v.flag === "low" || v.flag === "high");
   const shown = showAll || flagged.length === 0 ? doc.extracted : flagged;
+  const pages = documentPages(doc);
 
   async function save() {
     const t = title.trim();
@@ -137,9 +178,14 @@ function DocumentSheet({
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        {doc.photo_path && (
+        {pages.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <PhotoImg filename={doc.photo_path} className="photo-full" />
+            <PageStack
+              pages={pages.map((f) => ({
+                key: f,
+                node: <PhotoImg filename={f} className="doc-page" />,
+              }))}
+            />
           </div>
         )}
 
@@ -232,9 +278,12 @@ function DocumentSheet({
 }
 
 function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [photo, setPhoto] = useState<{ dataUrl: string; base64: string } | null>(null);
+  const [pages, setPages] = useState<{ dataUrl: string; base64: string }[]>([]);
+  /** Pages a long PDF had beyond the cap, so the sheet can say they're gone. */
+  const [dropped, setDropped] = useState(0);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -244,24 +293,39 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
     e.target.value = "";
     if (!file) return;
     setError(null);
+    setReading(true);
     try {
-      // Documents are read for small print, so they keep more detail than a
-      // meal photo needs.
-      setPhoto(await compressImage(file, 2000, 0.9));
+      if (isPdf(file)) {
+        // A PDF becomes page images like any other document: the same viewer,
+        // the same vision model, no second path through the app.
+        const { pages: rendered, totalPages } = await pdfToImages(file);
+        if (rendered.length === 0) throw new Error("It has no pages.");
+        setPages(rendered);
+        setDropped(totalPages - rendered.length);
+      } else {
+        // Documents are read for small print, so they keep more detail than a
+        // meal photo needs.
+        setPages([await compressImage(file, 2000, 0.9)]);
+        setDropped(0);
+      }
     } catch (err) {
+      setPages([]);
+      setDropped(0);
       setError(`Could not read that file: ${errMsg(err)}`);
+    } finally {
+      setReading(false);
     }
   }
 
   async function add() {
-    if (!photo) {
-      setError("Take a photo or pick one first.");
+    if (pages.length === 0) {
+      setError("Take a photo or pick a file first.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await addLibraryDocument({ photoBase64: photo.base64, note });
+      await addLibraryDocument({ pagesBase64: pages.map((p) => p.base64), note });
       onSaved();
     } catch (err) {
       setError(errMsg(err));
@@ -275,9 +339,35 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
         <div className="sheet-handle" />
         <h2 className="sheet-title">Add to library</h2>
 
-        {photo && (
+        {reading && (
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}
+          >
+            <span className="spinner" />
+            <span className="muted small">Rendering the pages…</span>
+          </div>
+        )}
+
+        {pages.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <img src={photo.dataUrl} className="photo-full" alt="Document preview" />
+            <PageStack
+              pages={pages.map((p, i) => ({
+                key: `${i}`,
+                node: (
+                  <img
+                    src={p.dataUrl}
+                    className="doc-page"
+                    alt={`Page ${i + 1} preview`}
+                  />
+                ),
+              }))}
+            />
+            {dropped > 0 && (
+              <p className="faint small" style={{ margin: "8px 2px 0" }}>
+                Only the first {MAX_PDF_PAGES} pages are kept — {dropped} more
+                weren&apos;t.
+              </p>
+            )}
           </div>
         )}
 
@@ -292,17 +382,25 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
         <input
           ref={galleryRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf"
           style={{ display: "none" }}
           onChange={(e) => void onPick(e)}
         />
 
         <div className="btn-row" style={{ marginBottom: 12 }}>
-          <button className="btn" onClick={() => cameraRef.current?.click()}>
+          <button
+            className="btn"
+            onClick={() => cameraRef.current?.click()}
+            disabled={reading}
+          >
             📷 Photograph
           </button>
-          <button className="btn" onClick={() => galleryRef.current?.click()}>
-            🖼 Choose file
+          <button
+            className="btn"
+            onClick={() => galleryRef.current?.click()}
+            disabled={reading}
+          >
+            📄 Image or PDF
           </button>
         </div>
 
@@ -318,9 +416,9 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
         </div>
 
         <p className="faint small" style={{ margin: "0 2px 12px" }}>
-          It gets read in the background — the date, what was measured, and
-          which values sit outside their range. You can correct any of it
-          afterwards.
+          A PDF comes in as one image per page. It gets read in the background —
+          the date, what was measured, and which values sit outside their range.
+          You can correct any of it afterwards.
         </p>
 
         {error && <div className="error-text">{error}</div>}
@@ -332,7 +430,7 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
           <button
             className="btn btn-primary"
             onClick={() => void add()}
-            disabled={busy || !photo}
+            disabled={busy || reading || pages.length === 0}
           >
             {busy ? <span className="spinner" /> : "Add"}
           </button>
@@ -420,6 +518,9 @@ export default function LibraryPage() {
                 <div className="row-title">{d.title}</div>
                 <div className="row-sub">
                   {shortDate(d.document_date)} · {KIND_LABELS[d.kind]}
+                  {documentPages(d).length > 1
+                    ? ` · ${documentPages(d).length} pages`
+                    : ""}
                 </div>
                 {d.status === "pending" && (
                   <div

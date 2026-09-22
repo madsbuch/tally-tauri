@@ -193,8 +193,14 @@ export interface LibraryDocument {
   document_date: string | null;
   title: string;
   kind: "lab" | "imaging" | "report" | "note" | "other";
-  /** Filename inside the app data `photos/` dir. */
+  /** Filename inside the app data `photos/` dir; the first page. */
   photo_path: string | null;
+  /**
+   * Every page, in order. A PDF yields one image per page; a photograph one.
+   * Empty on documents filed before multi-page support — use `documentPages`
+   * (lib/documents.ts) rather than reading this directly.
+   */
+  page_paths: string[];
   note: string | null;
   summary: string | null;
   extracted: DocumentValue[];

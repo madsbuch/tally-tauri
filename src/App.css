@@ -527,6 +527,32 @@ textarea.input {
   background: var(--bg-elev);
 }
 
+/* Library document pages.
+   `contain`, not `cover`: a lab result cropped to its middle band is useless,
+   and a rendered PDF page is a full sheet of A4. */
+.doc-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.doc-page {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.doc-page-label {
+  margin: 0 2px 4px;
+}
+
+.doc-pages-toggle {
+  align-self: flex-start;
+}
+
 /* Floating diary actions --------------------------------------------------- */
 
 /* Fixed above the tabbar so the primary action sits in the thumb zone. */

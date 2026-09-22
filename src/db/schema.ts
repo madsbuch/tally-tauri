@@ -212,6 +212,15 @@ export const documents = sqliteTable(
     status: text("status").notNull().default("pending"),
     error: text("error"),
     modelId: text("model_id"),
+    /**
+     * Every page of the document, in order, as filenames in `photos/`. A PDF
+     * arrives as several; a photograph as one. Empty on rows written before
+     * multi-page documents existed, where `photoPath` is the only page.
+     */
+    pagePaths: text("page_paths", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
   },
   (t) => [index("idx_documents_document_date").on(t.documentDate)],
 );

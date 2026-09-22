@@ -232,6 +232,18 @@ export function parseDocumentValues(raw: unknown): DocumentValue[] {
   });
 }
 
+/**
+ * A stored `documents.page_paths` column: filenames in `photos/`, in order.
+ *
+ * Our own data, so anything that isn't a list of non-empty strings is dropped
+ * rather than repaired: an unreadable list leaves the document on its
+ * `photo_path`, which beats pointing the viewer at a file that isn't there.
+ */
+export function parseDocumentPages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string" && v.length > 0);
+}
+
 /** Local day "YYYY-MM-DD", or null when the model couldn't find a date. */
 const looseDay = z
   .unknown()
