@@ -134,6 +134,7 @@ pub fn run() {
                 .add_migrations(DB_URL, migrations())
                 .build(),
         )
+        .plugin(tauri_plugin_background::init())
         .plugin(tauri_plugin_fasting::init())
         .plugin(tauri_plugin_health_connect::init())
         .plugin(tauri_plugin_share::init())

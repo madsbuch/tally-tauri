@@ -26,6 +26,7 @@ import type { AssistantEvent, ChartSpec } from "./assistant";
 import type { ChatMessage } from "./openrouter";
 import { parseToolArgs } from "./schemas";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
+import { withBackgroundTask } from "./background";
 
 // ---------------------------------------------------------------------------
 // The visible thread
@@ -302,15 +303,18 @@ function run(): void {
   autoResumable = false;
   inFlight = (async () => {
     try {
-      await runAssistantTurn(
-        transcript,
-        (e) => {
-          if (e.type === "tool") activeTool = toolLabel(e.name);
-          else if (e.type === "message" || e.type === "chart") activeTool = null;
-          items = appendEvent(items, e);
-          emit();
-        },
-        { onRound: () => void persist() },
+      // Held open so switching away mid-answer no longer drops the request.
+      await withBackgroundTask("Answering your question", () =>
+        runAssistantTurn(
+          transcript,
+          (e) => {
+            if (e.type === "tool") activeTool = toolLabel(e.name);
+            else if (e.type === "message" || e.type === "chart") activeTool = null;
+            items = appendEvent(items, e);
+            emit();
+          },
+          { onRound: () => void persist() },
+        ),
       );
       status = "idle";
       error = null;

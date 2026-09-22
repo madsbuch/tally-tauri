@@ -28,6 +28,7 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-http = "2.5.9"
 base64 = "0.22.1"
+tauri-plugin-background = { path = "plugins/background" }
 tauri-plugin-fasting = { path = "plugins/fasting" }
 tauri-plugin-health-connect = { path = "plugins/health-connect" }
 tauri-plugin-share = { path = "plugins/share" }

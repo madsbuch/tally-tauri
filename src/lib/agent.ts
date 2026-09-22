@@ -31,6 +31,7 @@ import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
+import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
@@ -503,7 +504,9 @@ async function processCapture(id: number): Promise<void> {
     const capture = await getCapture(id);
     if (!capture) return;
     try {
-      await runCapture(capture);
+      // Held open so the analysis finishes even if the user locks the phone
+      // the moment after snapping the photo.
+      await withBackgroundTask("Analyzing your capture", () => runCapture(capture));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // If the app was suspended (backgrounded) at any point during this run,

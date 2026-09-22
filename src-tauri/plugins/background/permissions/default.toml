@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows holding the app awake while AI work is running"
+permissions = ["allow-begin-task", "allow-end-task"]

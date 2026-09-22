@@ -11,6 +11,7 @@
     "sql:allow-load",
     "sql:allow-execute",
     "sql:allow-select",
+    "background:default",
     "fasting:default",
     "health-connect:default",
     "share:default",
