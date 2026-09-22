@@ -279,6 +279,18 @@ internal object CoachDb {
             }
         }
 
+        // Only the newest document, and only its title: the prompt prefix the
+        // frontend caches already carries the full library index, so this is
+        // just so a check-in can mention a result that landed since.
+        var latestDocument: String? = null
+        db.rawQuery(
+            "SELECT document_date, title FROM documents WHERE status = 'ready' " +
+                "AND document_date IS NOT NULL ORDER BY document_date DESC LIMIT 1",
+            null,
+        ).use { c ->
+            if (c.moveToFirst()) latestDocument = "${c.getString(0)}: ${c.getString(1)}"
+        }
+
         val latest = weights.lastOrNull()
         val base7 = weights.firstOrNull { it.first >= weekStart }?.second
         val base30 = weights.firstOrNull { it.first >= monthStart }?.second
@@ -304,6 +316,7 @@ internal object CoachDb {
             todayLogged = todayItems > 0,
             fastHours = fastHours,
             fastGoalHours = fastGoal,
+            latestDocument = latestDocument,
         )
     }
 
@@ -395,6 +408,7 @@ internal object CoachDb {
         val todayLogged: Boolean,
         val fastHours: Double?,
         val fastGoalHours: Double?,
+        val latestDocument: String?,
     ) {
         private fun num(v: Double?): String =
             if (v == null) "no data" else if (v == Math.floor(v)) v.toLong().toString() else v.toString()
@@ -424,6 +438,9 @@ internal object CoachDb {
             )
             if (fastHours != null && fastGoalHours != null) {
                 lines.add("Fasting right now: ${num(fastHours)} h of a ${num(fastGoalHours)} h goal.")
+            }
+            if (latestDocument != null) {
+                lines.add("Most recent document in their library — $latestDocument.")
             }
             return lines.joinToString("\n")
         }

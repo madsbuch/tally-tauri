@@ -7,6 +7,7 @@ export type Path =
   | `/`
   | `/assistant`
   | `/fasting`
+  | `/library`
   | `/nutrients`
   | `/settings`
 

@@ -199,6 +199,60 @@ export const PhotoAnalysisSchema = z
   );
 
 // ---------------------------------------------------------------------------
+// Document library (photographed lab results and reports)
+// ---------------------------------------------------------------------------
+
+/**
+ * One measurement read off a document.
+ *
+ * `value` and `reference` stay strings on purpose: lab results say "negative",
+ * "<5", "trace" and "30 - 400" as readily as they say numbers, and coercing
+ * that to a float loses more than it gains. The coach reads them as text.
+ */
+export const DocumentValueSchema = z.object({
+  name: z.unknown().transform((v) => (typeof v === "string" ? v.trim() : "")),
+  value: z.unknown().transform((v) =>
+    typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "",
+  ),
+  unit: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim() : "")),
+  reference: z
+    .unknown()
+    .optional()
+    .transform((v) => (typeof v === "string" ? v.trim() : "")),
+  flag: z.enum(["low", "high", "normal", "unknown"]).catch("unknown"),
+});
+export type DocumentValue = z.infer<typeof DocumentValueSchema>;
+
+/** A stored `documents.extracted` column; anything unreadable becomes []. */
+export function parseDocumentValues(raw: unknown): DocumentValue[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((v) => {
+    const r = DocumentValueSchema.safeParse(v);
+    return r.success && r.data.name ? [r.data] : [];
+  });
+}
+
+/** Local day "YYYY-MM-DD", or null when the model couldn't find a date. */
+const looseDay = z
+  .unknown()
+  .optional()
+  .transform((v) =>
+    typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null,
+  );
+
+/** What the vision model returns for a photographed document. */
+export const DocumentAnalysisSchema = z.object({
+  title: looseTitle("Document"),
+  kind: z.enum(["lab", "imaging", "report", "note", "other"]).catch("other"),
+  document_date: looseDay,
+  summary: looseDescription,
+  values: z
+    .unknown()
+    .optional()
+    .transform((v) => parseDocumentValues(v)),
+});
+
+// ---------------------------------------------------------------------------
 // Open Food Facts API
 // ---------------------------------------------------------------------------
 

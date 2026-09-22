@@ -7,7 +7,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type { Nutrients } from "../lib/types";
-import type { ChatMessage } from "../lib/schemas";
+import type { ChatMessage, DocumentValue } from "../lib/schemas";
 
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
@@ -174,6 +174,47 @@ export const fasts = sqliteTable("fasts", {
   goalHours: real("goal_hours").notNull(),
   endedAt: text("ended_at"),
 });
+
+/**
+ * The document library: photographed blood results, reports, letters.
+ *
+ * Filed by `documentDate` — the date printed ON the document — rather than
+ * when it was uploaded, so a result from March sits at March however long it
+ * took to get photographed. That's what makes the library readable as a
+ * history rather than a pile.
+ *
+ * The image is kept, but what the coach actually reads is the extracted text:
+ * a summary and the individual measurements. Extracting once at upload keeps
+ * every later conversation cheap, searchable, and usable by the scheduled
+ * check-in, which has no vision call available to it.
+ */
+export const documents = sqliteTable(
+  "documents",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    createdAt: text("created_at").notNull(),
+    /** Local day the document refers to; null until it's been read. */
+    documentDate: text("document_date"),
+    title: text("title").notNull(),
+    /** "lab" | "imaging" | "report" | "note" | "other". */
+    kind: text("kind").notNull().default("other"),
+    /** Filename inside the app data `photos/` dir. */
+    photoPath: text("photo_path"),
+    /** Whatever the user typed when adding it. */
+    note: text("note"),
+    summary: text("summary"),
+    /** Measurements read off the document (see lib/schemas.ts). */
+    extracted: text("extracted", { mode: "json" })
+      .$type<DocumentValue[]>()
+      .notNull()
+      .default([]),
+    /** "pending" | "ready" | "error". */
+    status: text("status").notNull().default("pending"),
+    error: text("error"),
+    modelId: text("model_id"),
+  },
+  (t) => [index("idx_documents_document_date").on(t.documentDate)],
+);
 
 /**
  * What the coach knows about you, kept beside the chats rather than inside

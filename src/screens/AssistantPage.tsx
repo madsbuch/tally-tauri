@@ -14,6 +14,7 @@ import {
 } from "../lib/assistantRunner";
 import type { UiItem } from "../lib/assistantRunner";
 import AssistantChart from "../components/AssistantChart";
+import { Link } from "../router";
 
 const SUGGESTIONS = [
   "How is my week going?",
@@ -150,6 +151,15 @@ export default function AssistantPage() {
             agree on between chats. Set what it should push you toward under
             Settings → Coach.
           </p>
+          <Link to="/library" className="list-row" style={{ marginBottom: 12 }}>
+            <div className="row-main">
+              <div className="row-title">🗄 Library</div>
+              <div className="row-sub">
+                Blood results and reports the coach can read
+              </div>
+            </div>
+            <div className="row-end">›</div>
+          </Link>
           <div className="list">
             {SUGGESTIONS.map((s) => (
               <button

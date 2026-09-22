@@ -19,6 +19,7 @@ import {
   getActiveFast,
   getSetting,
   listCoachMemory,
+  listDocuments,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
   listSleepForRange,
@@ -31,7 +32,7 @@ import { getDayGoal } from "./goals";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
 import { SETTING_KEYS } from "./types";
-import type { CoachMemory } from "./types";
+import type { CoachMemory, LibraryDocument } from "./types";
 import type { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -337,6 +338,31 @@ function renderMemory(memory: CoachMemory[], today: string): string {
   return lines.join("\n");
 }
 
+/**
+ * An index of the library, not its contents: enough for the coach to know
+ * what exists and reach for `query_documents`, without pouring every lab
+ * value it has ever seen into the prompt.
+ */
+function renderLibrary(documents: LibraryDocument[]): string {
+  const ready = documents.filter((d) => d.status === "ready");
+  if (ready.length === 0) {
+    return "Empty. They can photograph blood results, scan reports or letters into it from the Library, and you can then read the measurements off them.";
+  }
+  const lines = [
+    `${ready.length} document${ready.length === 1 ? "" : "s"}, most recent first. Use \`query_documents\` to read the measurements — these are just the titles:`,
+  ];
+  for (const d of ready.slice(0, 12)) {
+    const flagged = d.extracted.filter((v) => v.flag === "low" || v.flag === "high");
+    const outOfRange =
+      flagged.length > 0
+        ? ` — ${flagged.length} value${flagged.length === 1 ? "" : "s"} outside range`
+        : "";
+    lines.push(`  ${d.document_date ?? "undated"}: ${d.title} (${d.kind})${outOfRange}`);
+  }
+  if (ready.length > 12) lines.push(`  …and ${ready.length - 12} older.`);
+  return lines.join("\n");
+}
+
 function tzOffsetLabel(d: Date): string {
   const mins = -d.getTimezoneOffset();
   const sign = mins >= 0 ? "+" : "-";
@@ -375,9 +401,10 @@ export interface CoachPromptOptions {
  * occasion.
  */
 export async function buildCoachPromptPrefix(): Promise<string> {
-  const [stance, memory] = await Promise.all([
+  const [stance, memory, documents] = await Promise.all([
     loadCoachStance(),
     listCoachMemory().catch(() => [] as CoachMemory[]),
+    listDocuments().catch(() => []),
   ]);
   const today = todayStr();
 
@@ -393,6 +420,9 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "Keep this current as you go: `remember` something durable the moment it comes up, `update_memory` when a commitment is met or abandoned, `forget` what turned out to be wrong. Never record anything they told you to drop.",
     "When they mention something worth revisiting — a symptom, a change they're trying, a plan with a horizon — remember it WITH a follow-up. That's what makes you a coach rather than a diary: you come back to it unprompted.",
     "A reminder fires once and is then cleared. When you follow one up, close it out: `forget` it if it's settled, `update_memory` with a new follow_up_in_days if it still needs watching.",
+    "",
+    "## Their document library",
+    renderLibrary(documents),
     "",
     "## Being straight with them",
     ...CANDOUR.map((g) => `- ${g}`),

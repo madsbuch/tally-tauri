@@ -42,6 +42,8 @@ export type NutrientKey =
   | "creatine_g"
   | "caffeine_mg";
 
+import type { DocumentValue } from "./schemas";
+
 /** Sparse map of nutrient amounts. Missing key = unknown / not estimated. */
 export type Nutrients = Partial<Record<NutrientKey, number>>;
 
@@ -182,6 +184,25 @@ export interface DayGoalAdjustment {
   updated_at: string;
 }
 
+/** A photographed document in the library (see lib/documents.ts). */
+export interface LibraryDocument {
+  id: number;
+  /** ISO 8601 UTC timestamp of when it was added. */
+  created_at: string;
+  /** Local day the document itself refers to; null until it's been read. */
+  document_date: string | null;
+  title: string;
+  kind: "lab" | "imaging" | "report" | "note" | "other";
+  /** Filename inside the app data `photos/` dir. */
+  photo_path: string | null;
+  note: string | null;
+  summary: string | null;
+  extracted: DocumentValue[];
+  status: "pending" | "ready" | "error";
+  error: string | null;
+  model_id: string | null;
+}
+
 /** One thing the coach knows about you (see lib/coach.ts). */
 export interface CoachMemory {
   id: number;
@@ -233,6 +254,9 @@ export interface WorkoutAnalysis {
 
 /** OpenRouter model listing entry (subset of the /models response). */
 export type { ORModel } from "./schemas";
+
+/** One measurement read off a document. */
+export type { DocumentValue } from "./schemas";
 
 /** Keys used in the `settings` table. */
 export const SETTING_KEYS = {

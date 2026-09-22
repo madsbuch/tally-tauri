@@ -11,6 +11,7 @@ import {
   getSetting,
   todayStr,
   updateCoachMemory,
+  listDocumentsForRange,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
   listRecentFasts,
@@ -128,6 +129,28 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           },
         },
         required: ["sql"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_documents",
+      description:
+        "Documents the user has photographed into their library — blood panels, scan reports, letters — with the measurements read off them. Filed by the date printed on the document, not when it was added. Use this whenever a question touches lab values, a diagnosis, or anything a clinician wrote down.",
+      parameters: {
+        type: "object",
+        properties: {
+          start_day: {
+            type: "string",
+            description: 'Earliest document date, "YYYY-MM-DD". Omit for no lower bound.',
+          },
+          end_day: {
+            type: "string",
+            description: 'Latest document date, "YYYY-MM-DD". Omit for no upper bound.',
+          },
+        },
         additionalProperties: false,
       },
     },
@@ -558,6 +581,43 @@ export async function executeAssistantTool(
     return runSql(args["sql"]);
   }
 
+  if (name === "query_documents") {
+    const start = typeof args["start_day"] === "string" ? args["start_day"] : "0000-01-01";
+    const end = typeof args["end_day"] === "string" ? args["end_day"] : "9999-12-31";
+    const docs = await listDocumentsForRange(start, end);
+    const { items, note } = capList(
+      docs.map((d) =>
+        compact({
+          id: d.id,
+          document_date: d.document_date,
+          title: d.title,
+          kind: d.kind,
+          summary: d.summary,
+          // Out-of-range results first: on a full panel they're the handful
+          // that matter, and the list gets capped.
+          values: [...d.extracted]
+            .sort(
+              (a, b) =>
+                Number(b.flag === "low" || b.flag === "high") -
+                Number(a.flag === "low" || a.flag === "high"),
+            )
+            .slice(0, 40)
+            .map((v) =>
+              compact({
+                name: v.name,
+                value: v.value,
+                unit: v.unit,
+                reference: v.reference,
+                flag: v.flag === "unknown" ? null : v.flag,
+              }),
+            ),
+          status: d.status === "ready" ? null : d.status,
+        }),
+      ),
+    );
+    return JSON.stringify(compact({ documents: items, note }));
+  }
+
   if (name === "search_packaged_food") {
     return executeFoodFactsSearch(args);
   }
@@ -631,6 +691,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - supplement_logs(id, supplement_id, taken_at, amount /* dose multiplier */)
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
+- documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON. Local day of a UTC timestamp: the user's timezone offset is given above.`;
 
 // ---------------------------------------------------------------------------

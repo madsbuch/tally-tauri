@@ -2,6 +2,7 @@ import { fetch } from "@tauri-apps/plugin-http";
 import type { FoodAnalysis, Nutrients, ORModel, WorkoutAnalysis } from "./types";
 import { NUTRIENT_DEFS } from "./nutrients";
 import {
+  DocumentAnalysisSchema,
   FoodAnalysisSchema,
   PhotoAnalysisSchema,
   SupplementAnalysisSchema,
@@ -11,6 +12,10 @@ import {
   parseModelsResponse,
 } from "./schemas";
 import type { ChatMessage, ContentPart, ToolCall } from "./schemas";
+import type { z } from "zod";
+
+/** What the vision model reads off a photographed document. */
+export type DocumentAnalysis = z.infer<typeof DocumentAnalysisSchema>;
 
 export type { ChatMessage, ContentPart, ToolCall } from "./schemas";
 
@@ -389,6 +394,64 @@ export async function analyzeWorkout(opts: AnalyzeWorkoutOptions): Promise<Worko
   ]);
 
   return WorkoutAnalysisSchema.parse(extractJsonObject(content));
+}
+
+export interface AnalyzeDocumentOptions {
+  apiKey: string;
+  model: string;
+  /** JPEG data URL of the photographed document. */
+  imageDataUrl: string;
+  /** Whatever the user typed when adding it. */
+  note?: string | undefined;
+  /** Today, so the model can resolve a partial date on the page. */
+  today: string;
+}
+
+/**
+ * Read a photographed document — a blood panel, a scan report, a letter —
+ * into something the coach can use without looking at the picture again.
+ *
+ * The date matters as much as the numbers: a result is filed by the day it
+ * was taken, not the day it was photographed, so the model is asked to find
+ * the date printed on the page and to say so plainly when there isn't one
+ * rather than inventing a plausible one.
+ */
+export async function analyzeDocument(
+  opts: AnalyzeDocumentOptions,
+): Promise<DocumentAnalysis> {
+  const { apiKey, model, imageDataUrl, note, today } = opts;
+
+  const system = [
+    "You read a photographed health document and return it as structured data.",
+    "Respond with a SINGLE JSON object and nothing else - no markdown, no code fences.",
+    "Schema:",
+    `{"title": string (short, what this document is, e.g. "Blood panel - full count"),`,
+    `"kind": "lab" | "imaging" | "report" | "note" | "other",`,
+    `"document_date": string | null ("YYYY-MM-DD"),`,
+    `"summary": string (2-4 sentences: what was measured, and specifically what is outside its reference range),`,
+    `"values": [{"name": string, "value": string, "unit": string, "reference": string, "flag": "low" | "high" | "normal" | "unknown"}]}`,
+    `document_date is the date printed on the document - when the sample was taken, or failing that when the report was issued. Today is ${today}, which is when it was PHOTOGRAPHED; do not use it as the document date. If no date is legible, return null rather than guessing.`,
+    "Transcribe values exactly as printed, including non-numeric ones like \"negative\" or \"<5\". Keep the reference range as written. Set flag from the range when one is given, and \"unknown\" when it isn't.",
+    "Include every measurement you can read. If the document has no measurements (a letter, a note), return an empty values array and describe it in the summary.",
+    "Transcribe, don't interpret: no diagnosis, no advice. Report what the page says.",
+  ].join("\n");
+
+  const parts: ContentPart[] = [
+    {
+      type: "text",
+      text: note?.trim()
+        ? `Read this document. Note from the user: ${note.trim()}`
+        : "Read this document.",
+    },
+    { type: "image_url", image_url: { url: imageDataUrl } },
+  ];
+
+  const content = await chat(apiKey, model, [
+    { role: "system", content: system },
+    { role: "user", content: parts },
+  ]);
+
+  return DocumentAnalysisSchema.parse(extractJsonObject(content));
 }
 
 /**

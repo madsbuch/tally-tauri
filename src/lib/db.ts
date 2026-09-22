@@ -8,6 +8,7 @@ import {
   coachMemory,
   coachRuns,
   dayGoalAdjustments,
+  documents,
   fasts,
   foodEntries,
   healthMetrics,
@@ -23,6 +24,7 @@ import type {
   CoachMemory,
   CoachRun,
   DayGoalAdjustment,
+  LibraryDocument,
   Fast,
   FoodEntry,
   HealthMetric,
@@ -35,7 +37,7 @@ import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { deletePhoto } from "./photos";
-import { parseChatTranscript, parseJson } from "./schemas";
+import { parseChatTranscript, parseDocumentValues, parseJson } from "./schemas";
 
 const DB_URL = "sqlite:tally.db";
 
@@ -581,12 +583,18 @@ export async function deleteCapture(id: number): Promise<void> {
  * the just-deleted row reads as unreferenced.
  */
 export async function isPhotoReferenced(filename: string): Promise<boolean> {
-  const [inFood, inWorkouts, inCaptures] = await Promise.all([
+  const [inFood, inWorkouts, inCaptures, inDocuments] = await Promise.all([
     db.select({ id: foodEntries.id }).from(foodEntries).where(eq(foodEntries.photoPath, filename)).limit(1),
     db.select({ id: workouts.id }).from(workouts).where(eq(workouts.photoPath, filename)).limit(1),
     db.select({ id: captures.id }).from(captures).where(eq(captures.photoPath, filename)).limit(1),
+    db.select({ id: documents.id }).from(documents).where(eq(documents.photoPath, filename)).limit(1),
   ]);
-  return inFood.length > 0 || inWorkouts.length > 0 || inCaptures.length > 0;
+  return (
+    inFood.length > 0 ||
+    inWorkouts.length > 0 ||
+    inCaptures.length > 0 ||
+    inDocuments.length > 0
+  );
 }
 
 /**
@@ -852,6 +860,132 @@ export async function deleteFast(id: number): Promise<void> {
 export async function listAllFasts(): Promise<Fast[]> {
   const rows = await db.select().from(fasts).orderBy(fasts.startedAt);
   return rows.map(toFast);
+}
+
+// ---------------------------------------------------------------------------
+// Document library
+// ---------------------------------------------------------------------------
+
+type DocumentRow = typeof documents.$inferSelect;
+
+function toDocument(r: DocumentRow): LibraryDocument {
+  const kinds = ["lab", "imaging", "report", "note", "other"] as const;
+  const kind = (kinds as readonly string[]).includes(r.kind)
+    ? (r.kind as LibraryDocument["kind"])
+    : "other";
+  const status =
+    r.status === "pending" || r.status === "error" ? r.status : "ready";
+  return {
+    id: r.id,
+    created_at: r.createdAt,
+    document_date: r.documentDate,
+    title: r.title,
+    kind,
+    photo_path: r.photoPath,
+    note: r.note,
+    summary: r.summary,
+    extracted: parseDocumentValues(r.extracted),
+    status,
+    error: r.error,
+    model_id: r.modelId,
+  };
+}
+
+/**
+ * The library, newest first by the date the document refers to. Ones still
+ * being read have no date yet, so they're ordered by arrival and sort to the
+ * top — which is where a just-added document belongs anyway.
+ */
+export async function listDocuments(): Promise<LibraryDocument[]> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .orderBy(desc(documents.documentDate), desc(documents.createdAt));
+  return rows.map(toDocument);
+}
+
+/** Documents referring to local days `startDay`..`endDay`, inclusive. */
+export async function listDocumentsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<LibraryDocument[]> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(
+      and(gte(documents.documentDate, startDay), lte(documents.documentDate, endDay)),
+    )
+    .orderBy(desc(documents.documentDate));
+  return rows.map(toDocument);
+}
+
+export async function getDocument(id: number): Promise<LibraryDocument | null> {
+  const rows = await db.select().from(documents).where(eq(documents.id, id));
+  const row = rows[0];
+  return row ? toDocument(row) : null;
+}
+
+export async function addDocument(d: {
+  title: string;
+  note: string | null;
+  photo_path: string | null;
+}): Promise<number> {
+  const rows = await db
+    .insert(documents)
+    .values({
+      createdAt: new Date().toISOString(),
+      title: d.title,
+      note: d.note,
+      photoPath: d.photo_path,
+    })
+    .returning({ id: documents.id });
+  return rows[0]?.id ?? 0;
+}
+
+/** Patch a document; absent fields are left alone. */
+export async function updateDocument(
+  id: number,
+  patch: Partial<
+    Pick<
+      LibraryDocument,
+      | "title"
+      | "kind"
+      | "document_date"
+      | "summary"
+      | "extracted"
+      | "status"
+      | "error"
+      | "model_id"
+      | "note"
+    >
+  >,
+): Promise<void> {
+  const set: Record<string, unknown> = {};
+  if (patch.title !== undefined) set["title"] = patch.title;
+  if (patch.kind !== undefined) set["kind"] = patch.kind;
+  if (patch.document_date !== undefined) set["documentDate"] = patch.document_date;
+  if (patch.summary !== undefined) set["summary"] = patch.summary;
+  if (patch.extracted !== undefined) set["extracted"] = patch.extracted;
+  if (patch.status !== undefined) set["status"] = patch.status;
+  if (patch.error !== undefined) set["error"] = patch.error;
+  if (patch.model_id !== undefined) set["modelId"] = patch.model_id;
+  if (patch.note !== undefined) set["note"] = patch.note;
+  if (Object.keys(set).length === 0) return;
+  await db.update(documents).set(set).where(eq(documents.id, id));
+}
+
+export async function deleteDocument(id: number): Promise<void> {
+  await db.delete(documents).where(eq(documents.id, id));
+}
+
+/** Documents whose reading was interrupted, so it can be picked up again. */
+export async function listPendingDocuments(): Promise<LibraryDocument[]> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.status, "pending"))
+    .orderBy(documents.createdAt);
+  return rows.map(toDocument);
 }
 
 // ---------------------------------------------------------------------------

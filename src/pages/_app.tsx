@@ -10,9 +10,9 @@ import {
   onDiaryChanged,
   resumePendingCaptures,
 } from "../lib/agent";
-import { installAppLifecycle } from "../lib/appLifecycle";
+import { installAppLifecycle, onAppResume } from "../lib/appLifecycle";
 import { clearStaleBackgroundTask } from "../lib/background";
-import { onAppResume } from "../lib/appLifecycle";
+import { installDocumentLifecycle, resumePendingDocuments } from "../lib/documents";
 import { runCoachCheckin } from "../lib/coachCheckin";
 import { syncCoachSchedule } from "../lib/coachTriggers";
 import { cacheCoachPromptPrefix } from "../lib/coach";
@@ -113,6 +113,7 @@ export default function App() {
         Promise.all([
           resyncFastNotification(),
           resumePendingCaptures(),
+          resumePendingDocuments(),
           syncHealthConnect().catch((e) =>
             console.warn("Health Connect sync failed", e),
           ),
@@ -135,9 +136,11 @@ export default function App() {
     const offLifecycle = installAppLifecycle();
     const offCaptures = installCaptureLifecycle();
     const offAssistant = installAssistantLifecycle();
+    const offDocuments = installDocumentLifecycle();
     const offCoach = onAppResume(() => void runCoachCheckin());
     return () => {
       offCoach();
+      offDocuments();
       offAssistant();
       offCaptures();
       offLifecycle();
