@@ -984,7 +984,7 @@ export default function SettingsPage() {
             The Diary page tracks your net kcal (eaten − burned) against this
             budget — daily, weekly (target × 7) and monthly (target × days in
             the month). Leave empty for no target. A single day can be
-            corrected from the Diary without changing this.
+            corrected from the Diary; that shifts the day, not the week.
           </p>
         </div>
       </div>

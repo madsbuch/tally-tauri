@@ -10,8 +10,13 @@
  * Nothing is derived or carried between days: a correction applies to exactly
  * the day it was made on and nowhere else.
  *
- * Multi-day periods (the Diary's week/month totals) are base × days plus the
- * corrections that fall inside the period.
+ * Multi-day periods (the Diary's week/month totals) are base × days, and a
+ * correction does NOT change them. That is the whole point of correcting a
+ * day: eat 1000 over on Monday, take 500 off Tuesday and 500 off Wednesday,
+ * and the week comes out level. Shrinking the week's budget too would count
+ * Monday's overshoot twice — once in what was eaten, once in a smaller
+ * target — and leave the week showing 1000 over after it had been paid back.
+ * A correction moves room between days inside the period, nothing more.
  */
 import { getSetting, listDayGoalAdjustments, todayStr } from "./db";
 import { SETTING_KEYS } from "./types";
@@ -42,8 +47,9 @@ export interface DayGoal {
 export interface PeriodGoal {
   base: number;
   days: number;
-  /** Sum of the corrections inside the period. */
+  /** Sum of the corrections inside the period — shown, never charged. */
   manual: number;
+  /** base × days. Corrections redistribute inside it; they don't shrink it. */
   target: number;
 }
 
@@ -78,7 +84,10 @@ export async function getDayGoal(
   };
 }
 
-/** The budget for a multi-day period: base × days plus the corrections in it. */
+/**
+ * The budget for a multi-day period: base × days. The corrections inside it
+ * are reported but not charged — see the note at the top of this file.
+ */
 export async function getPeriodGoal(
   startDay: string,
   endDay: string,
@@ -90,5 +99,5 @@ export async function getPeriodGoal(
   const manual = adjustments.reduce((acc, a) => acc + a.delta_kcal, 0);
   let days = 0;
   for (let d = startDay; d <= endDay; d = shiftDay(d, 1)) days++;
-  return { base: s.base, days, manual, target: s.base * days + manual };
+  return { base: s.base, days, manual, target: s.base * days };
 }

@@ -494,8 +494,9 @@ function GoalAdjustPanel({
         </div>
       )}
       <p className="faint small" style={{ margin: "8px 0 0" }}>
-        Applies to this day only — no other day changes. Week and month budgets
-        count it too. The daily target in Settings stays as it is.
+        Applies to this day only. Your week and month budgets don&apos;t change —
+        the room comes off this day and stays on the others, so paying back an
+        overshoot leaves the period level. The Settings target stays as it is.
       </p>
     </div>
   );
@@ -2488,8 +2489,8 @@ export default function DiaryPage() {
                   )}
                   {periodGoal && periodGoal.manual !== 0 && (
                     <div className="faint small" style={{ marginTop: 8 }}>
-                      Includes {fmtDelta(periodGoal.manual)} kcal of per-day
-                      corrections inside this period.
+                      {fmtDelta(periodGoal.manual)} kcal corrected on single days
+                      in this period — that shifts those days, not this budget.
                     </div>
                   )}
                   {period !== "day" && containsToday && (
