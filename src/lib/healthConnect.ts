@@ -40,6 +40,8 @@ interface HCExerciseSession {
   distanceMeters?: number | null;
   avgHeartRate?: number | null;
   sourcePackage?: string | null;
+  /** Minutes east of UTC where it was done, when the record carries it. */
+  startOffsetMin?: number | null;
 }
 
 interface HCSleepSession {
@@ -52,6 +54,8 @@ interface HCSleepSession {
   lightMin?: number | null;
   awakeMin?: number | null;
   sourcePackage?: string | null;
+  /** Minutes east of UTC where the night was slept, when recorded. */
+  endOffsetMin?: number | null;
 }
 
 interface HCDailyMetric {
@@ -199,6 +203,9 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
       icon: null,
       source: sourceLabel(s.sourcePackage),
       external_id: s.id,
+      // The watch knows where you were; without that the day would be read in
+      // whatever zone the phone is in when the sync happens to run.
+      tz_offset_min: num(s.startOffsetMin),
     });
     workoutCount++;
   }
@@ -224,6 +231,7 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
       light_min: num(s.lightMin),
       awake_min: num(s.awakeMin),
       source: sourceLabel(s.sourcePackage),
+      tz_offset_min: num(s.endOffsetMin),
     });
     sleepCount++;
   }

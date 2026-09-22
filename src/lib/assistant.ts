@@ -450,6 +450,7 @@ export async function executeAssistantTool(
       meals.map((m) =>
         compact({
           id: m.id,
+          day: m.day,
           eaten_at: m.eaten_at,
           title: m.title,
           description: m.description,
@@ -467,6 +468,7 @@ export async function executeAssistantTool(
       workouts.map((w) =>
         compact({
           id: w.id,
+          day: w.day,
           performed_at: w.performed_at,
           title: w.title,
           description: w.description,
@@ -485,6 +487,7 @@ export async function executeAssistantTool(
     const { items, note } = capList(
       sessions.map((s) =>
         compact({
+          day: s.day,
           started_at: s.started_at,
           ended_at: s.ended_at,
           duration_min: round(s.duration_min, 0),
@@ -539,7 +542,7 @@ export async function executeAssistantTool(
       ),
       logs: capList(
         logs.map((l) =>
-          compact({ taken_at: l.taken_at, name: l.name, doses: round(l.amount) }),
+          compact({ day: l.day, taken_at: l.taken_at, name: l.name, doses: round(l.amount) }),
         ),
       ).items,
     });
@@ -683,16 +686,17 @@ export async function executeAssistantTool(
 // ---------------------------------------------------------------------------
 
 export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like "2026-07-20T06:30:00.000Z"):
-- food_entries(id, eaten_at, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */)
-- workouts(id, performed_at, title, description, calories_burned, duration_min, source /* "Garmin", "Health Connect" or NULL = manual */, external_id)
-- sleep_sessions(id, started_at, ended_at, duration_min, deep_min, rem_min, light_min, awake_min, source)
+- food_entries(id, eaten_at, day /* local "YYYY-MM-DD" */, tz_offset_min /* minutes east of UTC where it was logged */, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */)
+- workouts(id, performed_at, day, tz_offset_min, title, description, calories_burned, duration_min, source /* "Garmin", "Health Connect" or NULL = manual */, external_id)
+- sleep_sessions(id, started_at, ended_at, day /* the morning it ended on */, tz_offset_min, duration_min, deep_min, rem_min, light_min, awake_min, source)
 - health_metrics(day /* local "YYYY-MM-DD" */, steps, resting_hr, hrv_ms, spo2_pct, weight_kg, vo2_max, calories_total, updated_at)
 - supplements(id, name, dose_amount, dose_unit, nutrients /* JSON per dose */, notes, archived)
-- supplement_logs(id, supplement_id, taken_at, amount /* dose multiplier */)
-- fasts(id, started_at, goal_hours, ended_at /* NULL = active */)
+- supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */)
+- fasts(id, started_at, goal_hours, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
-Use json_extract(nutrients, '$.protein_g') for nutrient JSON. Local day of a UTC timestamp: the user's timezone offset is given above.`;
+Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
+ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;
 
 // ---------------------------------------------------------------------------
 // The conversation loop

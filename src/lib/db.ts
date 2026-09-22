@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { and, desc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   achievements,
   captures,
@@ -36,6 +36,7 @@ import type {
 import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
+import { dayOf, stampOf } from "./daystamp";
 import { deletePhoto } from "./photos";
 import {
   parseChatTranscript,
@@ -75,17 +76,6 @@ export const db = drizzle(async (query, params, method) => {
   const values = rows.map((r) => Object.values(r));
   return { rows: method === "get" ? (values[0] ?? []) : values };
 });
-
-/**
- * Local-day boundaries as UTC ISO strings, for querying timestamp columns.
- * `day` is "YYYY-MM-DD" in the user's local timezone.
- */
-export function dayRange(day: string): { start: string; end: string } {
-  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
-  const start = new Date(y, m - 1, d);
-  const end = new Date(y, m - 1, d + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
 
 /** Today's local date as "YYYY-MM-DD". */
 export function todayStr(date = new Date()): string {
@@ -134,10 +124,20 @@ function toFoodEntry(r: FoodEntryRow): FoodEntry {
     nutrients: sanitizeNutrients(r.nutrients),
     model_id: r.modelId,
     icon: r.icon,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
   };
 }
 
-export async function addFoodEntry(entry: Omit<FoodEntry, "id">): Promise<number> {
+/**
+ * The day and offset are stamped here rather than passed in: they are a fact
+ * about the moment being logged, and every caller would otherwise have to
+ * remember to derive them the same way (see lib/daystamp.ts).
+ */
+export async function addFoodEntry(
+  entry: Omit<FoodEntry, "id" | "day" | "tz_offset_min">,
+): Promise<number> {
+  const stamp = stampOf(entry.eaten_at);
   const rows = await db
     .insert(foodEntries)
     .values({
@@ -148,12 +148,17 @@ export async function addFoodEntry(entry: Omit<FoodEntry, "id">): Promise<number
       nutrients: entry.nutrients,
       modelId: entry.model_id,
       icon: entry.icon,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
     })
     .returning({ id: foodEntries.id });
   return rows[0]?.id ?? 0;
 }
 
 export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
+  // Re-stamped from the (possibly edited) time, in the offset the entry
+  // already carries — retiming a Danish dinner from the US keeps it Danish.
+  const tzOffsetMin = entry.tz_offset_min;
   await db
     .update(foodEntries)
     .set({
@@ -164,6 +169,8 @@ export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
       nutrients: entry.nutrients,
       modelId: entry.model_id,
       icon: entry.icon,
+      day: dayOf(entry.eaten_at, tzOffsetMin),
+      tzOffsetMin: tzOffsetMin ?? stampOf(entry.eaten_at).tz_offset_min,
     })
     .where(eq(foodEntries.id, entry.id));
 }
@@ -218,12 +225,10 @@ export async function listFoodEntriesForRange(
   startDay: string,
   endDay: string,
 ): Promise<FoodEntry[]> {
-  const start = dayRange(startDay).start;
-  const end = dayRange(endDay).end;
   const rows = await db
     .select()
     .from(foodEntries)
-    .where(and(gte(foodEntries.eatenAt, start), lt(foodEntries.eatenAt, end)))
+    .where(and(gte(foodEntries.day, startDay), lte(foodEntries.day, endDay)))
     .orderBy(desc(foodEntries.eatenAt));
   return rows.map(toFoodEntry);
 }
@@ -247,17 +252,25 @@ function toWorkout(r: WorkoutRow): Workout {
     icon: r.icon,
     source: r.source,
     external_id: r.externalId,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
   };
 }
 
 /** Manual/agent entries omit `source`/`external_id` — they default to null. */
-export type NewWorkout = Omit<Workout, "id" | "source" | "external_id"> &
+export type NewWorkout = Omit<
+  Workout,
+  "id" | "source" | "external_id" | "day" | "tz_offset_min"
+> &
   Partial<Pick<Workout, "source" | "external_id">>;
 
 export async function addWorkout(w: NewWorkout): Promise<number> {
+  const stamp = stampOf(w.performed_at);
   const rows = await db
     .insert(workouts)
     .values({
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
       performedAt: w.performed_at,
       title: w.title,
       description: w.description,
@@ -279,11 +292,21 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
  * upstream edits (e.g. corrected calories in Garmin) flow through.
  */
 export async function upsertExternalWorkout(
-  w: Omit<Workout, "id"> & { external_id: string },
+  w: Omit<Workout, "id" | "day" | "tz_offset_min"> & {
+    external_id: string;
+    /** Offset the source recorded it in; falls back to here. */
+    tz_offset_min?: number | null;
+  },
 ): Promise<void> {
+  // Health Connect carries the offset the session was recorded in, so a run
+  // synced a week later from another continent keeps the day it was run on.
+  const tzOffsetMin = w.tz_offset_min ?? stampOf(w.performed_at).tz_offset_min;
+  const day = dayOf(w.performed_at, tzOffsetMin);
   await db
     .insert(workouts)
     .values({
+      day,
+      tzOffsetMin,
       performedAt: w.performed_at,
       title: w.title,
       description: w.description,
@@ -298,6 +321,9 @@ export async function upsertExternalWorkout(
     .onConflictDoUpdate({
       target: workouts.externalId,
       set: {
+        // Only re-stamp when the source itself carries the zone: otherwise a
+        // re-sync run abroad would drag an old session onto a foreign day.
+        ...(w.tz_offset_min != null ? { day, tzOffsetMin } : {}),
         performedAt: w.performed_at,
         title: w.title,
         description: w.description,
@@ -347,12 +373,10 @@ export async function listWorkoutsForRange(
   startDay: string,
   endDay: string,
 ): Promise<Workout[]> {
-  const start = dayRange(startDay).start;
-  const end = dayRange(endDay).end;
   const rows = await db
     .select()
     .from(workouts)
-    .where(and(gte(workouts.performedAt, start), lt(workouts.performedAt, end)))
+    .where(and(gte(workouts.day, startDay), lte(workouts.day, endDay)))
     .orderBy(desc(workouts.performedAt));
   return rows.map(toWorkout);
 }
@@ -375,14 +399,23 @@ function toSleepSession(r: SleepRow): SleepSession {
     light_min: r.lightMin,
     awake_min: r.awakeMin,
     source: r.source,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
   };
 }
 
 /** Insert-or-update a sleep session, keyed on its Health Connect UID. */
 export async function upsertSleepSession(
-  s: Omit<SleepSession, "id">,
+  s: Omit<SleepSession, "id" | "day" | "tz_offset_min"> & {
+    /** Offset the night was slept in; falls back to here. */
+    tz_offset_min?: number | null;
+  },
 ): Promise<void> {
+  // Filed under the morning it ended, in the zone it was slept in.
+  const tzOffsetMin = s.tz_offset_min ?? stampOf(s.ended_at).tz_offset_min;
+  const stamp = { day: dayOf(s.ended_at, tzOffsetMin), tzOffsetMin };
   const values = {
+    ...stamp,
     externalId: s.external_id,
     startedAt: s.started_at,
     endedAt: s.ended_at,
@@ -393,10 +426,16 @@ export async function upsertSleepSession(
     awakeMin: s.awake_min,
     source: s.source,
   };
+  // As above: a night keeps the day it was slept on unless the source tells us
+  // which zone that was, so a re-sync run abroad can't move it.
+  const { day: _day, tzOffsetMin: _tz, ...withoutStamp } = values;
   await db
     .insert(sleepSessions)
     .values(values)
-    .onConflictDoUpdate({ target: sleepSessions.externalId, set: values });
+    .onConflictDoUpdate({
+      target: sleepSessions.externalId,
+      set: s.tz_offset_min != null ? values : withoutStamp,
+    });
 }
 
 /** Every sleep session ever synced, newest first. */
@@ -416,12 +455,10 @@ export async function listSleepForRange(
   startDay: string,
   endDay: string,
 ): Promise<SleepSession[]> {
-  const start = dayRange(startDay).start;
-  const end = dayRange(endDay).end;
   const rows = await db
     .select()
     .from(sleepSessions)
-    .where(and(gte(sleepSessions.endedAt, start), lt(sleepSessions.endedAt, end)))
+    .where(and(gte(sleepSessions.day, startDay), lte(sleepSessions.day, endDay)))
     .orderBy(desc(sleepSessions.startedAt));
   return rows.map(toSleepSession);
 }
@@ -687,9 +724,16 @@ export async function addSupplementLog(
   amount: number,
   takenAt: string,
 ): Promise<number> {
+  const stamp = stampOf(takenAt);
   const rows = await db
     .insert(supplementLogs)
-    .values({ supplementId, takenAt, amount })
+    .values({
+      supplementId,
+      takenAt,
+      amount,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+    })
     .returning({ id: supplementLogs.id });
   return rows[0]?.id ?? 0;
 }
@@ -698,10 +742,16 @@ export async function updateSupplementLog(
   id: number,
   amount: number,
   takenAt: string,
+  tzOffsetMin?: number | null,
 ): Promise<void> {
   await db
     .update(supplementLogs)
-    .set({ amount, takenAt })
+    .set({
+      amount,
+      takenAt,
+      day: dayOf(takenAt, tzOffsetMin),
+      tzOffsetMin: tzOffsetMin ?? stampOf(takenAt).tz_offset_min,
+    })
     .where(eq(supplementLogs.id, id));
 }
 
@@ -720,8 +770,6 @@ export async function listSupplementLogsForRange(
   startDay: string,
   endDay: string,
 ): Promise<SupplementLogWithSupplement[]> {
-  const start = dayRange(startDay).start;
-  const end = dayRange(endDay).end;
   // Field names are unique across the two tables — required, since the
   // proxy's positional mapping collapses duplicate column names.
   const rows = await db
@@ -730,6 +778,8 @@ export async function listSupplementLogsForRange(
       supplement_id: supplementLogs.supplementId,
       taken_at: supplementLogs.takenAt,
       amount: supplementLogs.amount,
+      day: supplementLogs.day,
+      tz_offset_min: supplementLogs.tzOffsetMin,
       name: supplements.name,
       dose_amount: supplements.doseAmount,
       dose_unit: supplements.doseUnit,
@@ -737,7 +787,7 @@ export async function listSupplementLogsForRange(
     })
     .from(supplementLogs)
     .innerJoin(supplements, eq(supplements.id, supplementLogs.supplementId))
-    .where(and(gte(supplementLogs.takenAt, start), lt(supplementLogs.takenAt, end)))
+    .where(and(gte(supplementLogs.day, startDay), lte(supplementLogs.day, endDay)))
     .orderBy(desc(supplementLogs.takenAt));
   return rows.map((r) => ({ ...r, nutrients: sanitizeNutrients(r.nutrients) }));
 }
@@ -816,6 +866,9 @@ function toFast(r: FastRow): Fast {
     started_at: r.startedAt,
     goal_hours: r.goalHours,
     ended_at: r.endedAt,
+    start_day: r.startDay,
+    end_day: r.endDay,
+    tz_offset_min: r.tzOffsetMin,
   };
 }
 
@@ -831,20 +884,34 @@ export async function getActiveFast(): Promise<Fast | null> {
 }
 
 export async function insertFast(goalHours: number, startedAt: string): Promise<Fast> {
+  const stamp = stampOf(startedAt);
   const rows = await db
     .insert(fasts)
-    .values({ startedAt, goalHours, endedAt: null })
+    .values({
+      startedAt,
+      goalHours,
+      endedAt: null,
+      startDay: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+    })
     .returning({ id: fasts.id });
   return {
     id: rows[0]?.id ?? 0,
     started_at: startedAt,
     goal_hours: goalHours,
     ended_at: null,
+    start_day: stamp.day,
+    end_day: null,
+    tz_offset_min: stamp.tz_offset_min,
   };
 }
 
+/** A fast is stamped at both ends: it can be broken in another timezone. */
 export async function markFastEnded(id: number, endedAt: string): Promise<void> {
-  await db.update(fasts).set({ endedAt }).where(eq(fasts.id, id));
+  await db
+    .update(fasts)
+    .set({ endedAt, endDay: stampOf(endedAt).day })
+    .where(eq(fasts.id, id));
 }
 
 export async function listRecentFasts(limit = 20): Promise<Fast[]> {
@@ -1217,6 +1284,8 @@ export async function listAllSupplementLogs(): Promise<SupplementLogWithSuppleme
       supplement_id: supplementLogs.supplementId,
       taken_at: supplementLogs.takenAt,
       amount: supplementLogs.amount,
+      day: supplementLogs.day,
+      tz_offset_min: supplementLogs.tzOffsetMin,
       name: supplements.name,
       dose_amount: supplements.doseAmount,
       dose_unit: supplements.doseUnit,

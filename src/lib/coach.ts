@@ -28,6 +28,7 @@ import {
   todayStr,
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
+import { dayOf, offsetLabel, offsetMinOf } from "./daystamp";
 import { getDayGoal } from "./goals";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
@@ -130,8 +131,12 @@ function shiftDay(day: string, delta: number): string {
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
-function localDayOf(iso: string): string {
-  return todayStr(new Date(iso));
+/** The day a row was stamped with when written (see lib/daystamp.ts). */
+function dayOfRow(
+  row: { day: string | null; tz_offset_min: number | null },
+  iso: string,
+): string {
+  return row.day ?? dayOf(iso, row.tz_offset_min);
 }
 
 const round = (n: number, dp = 0): number => {
@@ -161,8 +166,8 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
     getDayGoal(day).catch(() => null),
   ]);
 
-  const todayEntries = entries.filter((e) => localDayOf(e.eaten_at) === day);
-  const todayWorkouts = workouts.filter((w) => localDayOf(w.performed_at) === day);
+  const todayEntries = entries.filter((e) => dayOfRow(e, e.eaten_at) === day);
+  const todayWorkouts = workouts.filter((w) => dayOfRow(w, w.performed_at) === day);
   const kcalIn = todayEntries.reduce((a, e) => a + (e.nutrients.calories ?? 0), 0);
   const kcalOut = todayWorkouts.reduce((a, w) => a + w.calories_burned, 0);
   const proteinG = todayEntries.reduce((a, e) => a + (e.nutrients.protein_g ?? 0), 0);
@@ -172,13 +177,13 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const inByDay = new Map<string, number>();
   const proteinByDay = new Map<string, number>();
   for (const e of entries) {
-    const d = localDayOf(e.eaten_at);
+    const d = dayOfRow(e, e.eaten_at);
     inByDay.set(d, (inByDay.get(d) ?? 0) + (e.nutrients.calories ?? 0));
     proteinByDay.set(d, (proteinByDay.get(d) ?? 0) + (e.nutrients.protein_g ?? 0));
   }
   const outByDay = new Map<string, number>();
   for (const w of workouts) {
-    const d = localDayOf(w.performed_at);
+    const d = dayOfRow(w, w.performed_at);
     outByDay.set(d, (outByDay.get(d) ?? 0) + w.calories_burned);
   }
   const loggedDays = [...inByDay.keys()];
@@ -188,7 +193,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   // A night belongs to the morning it ended; several sessions add up.
   const sleepByDay = new Map<string, number>();
   for (const s of sleep) {
-    const d = localDayOf(s.ended_at);
+    const d = dayOfRow(s, s.ended_at);
     sleepByDay.set(d, (sleepByDay.get(d) ?? 0) + s.duration_min);
   }
   const stepDays = metrics
@@ -363,13 +368,6 @@ function renderLibrary(documents: LibraryDocument[]): string {
   return lines.join("\n");
 }
 
-function tzOffsetLabel(d: Date): string {
-  const mins = -d.getTimezoneOffset();
-  const sign = mins >= 0 ? "+" : "-";
-  const abs = Math.abs(mins);
-  return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
-}
-
 /**
  * How straight to be. This is a personal tool with one user, who asked for it
  * transparent — so the coach reports what it actually reads in the data and
@@ -463,7 +461,8 @@ export async function buildCoachSystemPrompt(
   return [
     prefix,
     "",
-    `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
+    `Current local date & time: ${weekday} ${local} (${offsetLabel(offsetMinOf(now))}).`,
+    "Entries carry the day and timezone they were logged in, so a day's numbers stay put when they travel. Group by the `day` column rather than by a timestamp.",
     "",
     "## Where they stand right now",
     renderCoachDigest(digest),

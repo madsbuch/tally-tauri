@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { NutrientKey, Nutrients, Supplement, SupplementLogWithSupplement } from "../lib/types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
 import { NUTRIENT_DEFS, formatAmount, omegaRatio, scaleNutrients, sumNutrients } from "../lib/nutrients";
+import { formatTimeHere } from "../lib/daystamp";
 import {
   addSupplement,
   addSupplementLog,
@@ -576,10 +577,7 @@ export default function SupplementsPage() {
                     <div className="row-main">
                       <div className="row-title">{log.name}</div>
                       <div className="row-sub">
-                        {new Date(log.taken_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatTimeHere(log.taken_at, log.tz_offset_min)}
                         {" · "}
                         {logDoseText(log)}
                       </div>

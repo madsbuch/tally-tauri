@@ -22,6 +22,7 @@ import {
   listUnlockedAchievements,
   todayStr,
 } from "./db";
+import { dayOf as stampedDayOf } from "./daystamp";
 import { REFERENCE_INTAKES, nutrientDef, scaleNutrients, sumNutrients } from "./nutrients";
 import { getStreakInfo } from "./streak";
 import type { StreakInfo } from "./streak";
@@ -67,8 +68,16 @@ export interface AchievementDef {
 
 const HOUR_MS = 3_600_000;
 
-function dayOf(iso: string): string {
-  return todayStr(new Date(iso));
+/**
+ * The day a row was stamped with when it was written — not a fresh reading of
+ * its instant, which would move the day a badge was earned on every time the
+ * user changed timezone (see lib/daystamp.ts).
+ */
+function dayOf(
+  row: { day: string | null; tz_offset_min: number | null },
+  iso: string,
+): string {
+  return row.day ?? stampedDayOf(iso, row.tz_offset_min);
 }
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
@@ -147,8 +156,8 @@ class ScanContext {
         if (list) list.push(n);
         else byDay.set(day, [n]);
       };
-      for (const e of entries) push(dayOf(e.eaten_at), e.nutrients);
-      for (const l of supps) push(dayOf(l.taken_at), scaleNutrients(l.nutrients, l.amount));
+      for (const e of entries) push(dayOf(e, e.eaten_at), e.nutrients);
+      for (const l of supps) push(dayOf(l, l.taken_at), scaleNutrients(l.nutrients, l.amount));
       const out = new Map<string, Nutrients>();
       for (const [day, list] of byDay) out.set(day, sumNutrients(list));
       return out;
@@ -265,11 +274,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
         ctx.suppLogs(),
         ctx.sleep(),
       ]);
-      const mealDays = new Set(entries.map((e) => dayOf(e.eaten_at)));
-      const workoutDays = new Set(workouts.map((w) => dayOf(w.performed_at)));
-      const suppDays = new Set(supps.map((l) => dayOf(l.taken_at)));
+      const mealDays = new Set(entries.map((e) => dayOf(e, e.eaten_at)));
+      const workoutDays = new Set(workouts.map((w) => dayOf(w, w.performed_at)));
+      const suppDays = new Set(supps.map((l) => dayOf(l, l.taken_at)));
       return sleep.some((s) => {
-        const d = dayOf(s.ended_at);
+        const d = dayOf(s, s.ended_at);
         return mealDays.has(d) && workoutDays.has(d) && suppDays.has(d);
       });
     },
@@ -396,7 +405,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       const logs = await ctx.suppLogs();
       const perDay = new Map<string, Set<number>>();
       for (const l of logs) {
-        const d = dayOf(l.taken_at);
+        const d = dayOf(l, l.taken_at);
         const set = perDay.get(d) ?? new Set<number>();
         set.add(l.supplement_id);
         perDay.set(d, set);
@@ -431,7 +440,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     check: async (ctx) => {
       const perDay = new Map<string, number>();
       for (const w of await ctx.workouts()) {
-        const d = dayOf(w.performed_at);
+        const d = dayOf(w, w.performed_at);
         perDay.set(d, (perDay.get(d) ?? 0) + w.calories_burned);
       }
       return [...perDay.values()].some((kcal) => kcal >= 1000);
@@ -447,7 +456,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       // Key each workout day by the Monday of its week.
       const perWeek = new Map<string, Set<string>>();
       for (const w of await ctx.workouts()) {
-        const day = dayOf(w.performed_at);
+        const day = dayOf(w, w.performed_at);
         const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
         const monOffset = (new Date(y, m - 1, d).getDay() + 6) % 7;
         const week = shiftDay(day, -monOffset);
@@ -496,7 +505,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       // A night belongs to the morning it ended; multiple sessions add up.
       const perDay = new Map<string, number>();
       for (const s of await ctx.sleep()) {
-        const d = dayOf(s.ended_at);
+        const d = dayOf(s, s.ended_at);
         perDay.set(d, (perDay.get(d) ?? 0) + s.duration_min);
       }
       const good = new Set<string>();

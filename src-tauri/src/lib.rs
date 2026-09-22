@@ -81,6 +81,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0011_document_pages.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 13,
+            description: "day_stamps",
+            sql: include_str!("../migrations/0012_day_stamps.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

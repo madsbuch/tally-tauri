@@ -85,6 +85,13 @@
       "when": 1790069097561,
       "tag": "0011_document_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790077221205,
+      "tag": "0012_day_stamps",
+      "breakpoints": true
     }
   ]
 }

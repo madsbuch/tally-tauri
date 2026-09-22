@@ -24,6 +24,7 @@ import {
   setSetting,
   todayStr,
 } from "./db";
+import { dayOf } from "./daystamp";
 import { SETTING_KEYS } from "./types";
 import { StreakStateSchema, parseJson } from "./schemas";
 
@@ -76,8 +77,16 @@ function shiftDay(day: string, delta: number): string {
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
-function localDayOf(iso: string): string {
-  return todayStr(new Date(iso));
+/**
+ * The day a row was stamped with when it was written. The fallback reads the
+ * instant here, and only matters for a row somehow left unstamped — see
+ * lib/daystamp.ts for why the stamp is what counts.
+ */
+function dayOfRow(
+  row: { day: string | null; tz_offset_min: number | null },
+  iso: string,
+): string {
+  return row.day ?? dayOf(iso, row.tz_offset_min);
 }
 
 /**
@@ -94,18 +103,20 @@ export async function collectLoggedDays(): Promise<Set<string>> {
     listAllFasts(),
   ]);
   const days = new Set<string>();
-  for (const e of entries) days.add(localDayOf(e.eaten_at));
+  for (const e of entries) days.add(dayOfRow(e, e.eaten_at));
   for (const w of workouts) {
     if (w.source != null) continue; // synced from a watch, not logged here
-    days.add(localDayOf(w.performed_at));
+    days.add(dayOfRow(w, w.performed_at));
   }
-  for (const l of suppLogs) days.add(localDayOf(l.taken_at));
+  for (const l of suppLogs) days.add(dayOfRow(l, l.taken_at));
   for (const c of captures) days.add(c.day);
   const today = todayStr();
   for (const f of fasts) {
     // Every day the fast spans counts — deliberately not eating IS the log.
-    let d = localDayOf(f.started_at);
-    const end = f.ended_at ? localDayOf(f.ended_at) : today;
+    let d = f.start_day ?? dayOf(f.started_at, f.tz_offset_min);
+    const end = f.ended_at
+      ? (f.end_day ?? dayOf(f.ended_at, f.tz_offset_min))
+      : today;
     for (; d <= end; d = shiftDay(d, 1)) days.add(d);
   }
   return days;

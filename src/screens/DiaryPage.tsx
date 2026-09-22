@@ -15,6 +15,12 @@ import {
   scaleNutrients,
 } from "../lib/nutrients";
 import {
+  dayOf,
+  formatTimeHere,
+  isoFromLocal,
+  timeOf as localHhMm,
+} from "../lib/daystamp";
+import {
   addFoodEntry,
   addSupplement,
   addSupplementLog,
@@ -166,34 +172,31 @@ function monthTitle(day: string): string {
   });
 }
 
-function timeOf(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+/**
+ * An entry's time as its own clock showed it — in the timezone it was logged
+ * in, not the one the phone is in now (see lib/daystamp.ts).
+ */
+function timeOf(iso: string, offsetMin: number | null = null): string {
+  return formatTimeHere(iso, offsetMin);
 }
 
-function hhmmOf(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+function hhmmOf(iso: string, offsetMin?: number | null): string {
+  return localHhMm(iso, offsetMin);
 }
 
 function nowHhMm(): string {
   return hhmmOf(new Date().toISOString());
 }
 
-/** Combine a local "YYYY-MM-DD" day and an "HH:MM" time into a UTC ISO string. */
-function dayTimeToIso(day: string, time: string): string {
-  const [y = 0, mo = 1, d = 1] = day.split("-").map(Number);
-  let hh: number;
-  let mm: number;
+/**
+ * Combine a local "YYYY-MM-DD" day and an "HH:MM" time into a UTC ISO string,
+ * read in `offsetMin` — so retiming a meal eaten in Denmark from a US hotel
+ * keeps it at the Danish hour rather than dragging it six hours.
+ */
+function dayTimeToIso(day: string, time: string, offsetMin?: number | null): string {
   const parsed = /^(\d{1,2}):(\d{2})/.exec(time);
-  if (parsed) {
-    hh = Number(parsed[1]);
-    mm = Number(parsed[2]);
-  } else {
-    const n = new Date();
-    hh = n.getHours();
-    mm = n.getMinutes();
-  }
-  return new Date(y, mo - 1, d, hh, mm).toISOString();
+  const hhmm = parsed ? `${parsed[1]}:${parsed[2]}` : nowHhMm();
+  return isoFromLocal(day, hhmm, offsetMin);
 }
 
 function numToInput(v: number): string {
@@ -558,8 +561,10 @@ function MealDetailSheet({
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState(entry.title);
-  const [date, setDate] = useState(() => todayStr(new Date(entry.eaten_at)));
-  const [time, setTime] = useState(() => hhmmOf(entry.eaten_at));
+  const [date, setDate] = useState(
+    () => entry.day ?? dayOf(entry.eaten_at, entry.tz_offset_min),
+  );
+  const [time, setTime] = useState(() => hhmmOf(entry.eaten_at, entry.tz_offset_min));
   const [description, setDescription] = useState(entry.description ?? "");
   const [icon, setIcon] = useState<string | null>(entry.icon);
   const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>(() => {
@@ -603,7 +608,7 @@ function MealDetailSheet({
         ...entry,
         title: t,
         description: description.trim() || null,
-        eaten_at: dayTimeToIso(date, time),
+        eaten_at: dayTimeToIso(date, time, entry.tz_offset_min),
         nutrients,
         icon,
       });
@@ -759,8 +764,12 @@ function WorkoutDetailSheet({
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState(workout.title);
-  const [date, setDate] = useState(() => todayStr(new Date(workout.performed_at)));
-  const [time, setTime] = useState(() => hhmmOf(workout.performed_at));
+  const [date, setDate] = useState(
+    () => workout.day ?? dayOf(workout.performed_at, workout.tz_offset_min),
+  );
+  const [time, setTime] = useState(
+    () => hhmmOf(workout.performed_at, workout.tz_offset_min),
+  );
   const [calStr, setCalStr] = useState(numToInput(workout.calories_burned));
   const [durStr, setDurStr] = useState(
     workout.duration_min != null ? numToInput(workout.duration_min) : "",
@@ -795,7 +804,7 @@ function WorkoutDetailSheet({
       await updateWorkout({
         ...workout,
         title: t,
-        performed_at: dayTimeToIso(date, time),
+        performed_at: dayTimeToIso(date, time, workout.tz_offset_min),
         calories_burned: Math.round(cal),
         duration_min: dur,
         icon,
@@ -943,8 +952,10 @@ function SuppLogDetailSheet({
   onChanged: () => void;
 }) {
   const [amount, setAmount] = useState(log.amount);
-  const [date, setDate] = useState(() => todayStr(new Date(log.taken_at)));
-  const [time, setTime] = useState(() => hhmmOf(log.taken_at));
+  const [date, setDate] = useState(
+    () => log.day ?? dayOf(log.taken_at, log.tz_offset_min),
+  );
+  const [time, setTime] = useState(() => hhmmOf(log.taken_at, log.tz_offset_min));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -956,7 +967,12 @@ function SuppLogDetailSheet({
     setBusy(true);
     setError(null);
     try {
-      await updateSupplementLog(log.id, amount, dayTimeToIso(date, time));
+      await updateSupplementLog(
+        log.id,
+        amount,
+        dayTimeToIso(date, time, log.tz_offset_min),
+        log.tz_offset_min,
+      );
       onChanged();
       onClose();
     } catch (err) {
@@ -2302,11 +2318,14 @@ export default function DiaryPage() {
   const untrackedDays = useMemo(() => {
     if (period === "day" || !range || scopeEntries === null) return 0;
     const tracked = new Set<string>();
-    for (const e of scopeEntries ?? []) tracked.add(todayStr(new Date(e.eaten_at)));
+    for (const e of scopeEntries ?? [])
+      tracked.add(e.day ?? dayOf(e.eaten_at, e.tz_offset_min));
     for (const w of scopeWorkouts ?? []) {
-      if (w.source == null) tracked.add(todayStr(new Date(w.performed_at)));
+      if (w.source == null)
+        tracked.add(w.day ?? dayOf(w.performed_at, w.tz_offset_min));
     }
-    for (const l of scopeSuppLogs ?? []) tracked.add(todayStr(new Date(l.taken_at)));
+    for (const l of scopeSuppLogs ?? [])
+      tracked.add(l.day ?? dayOf(l.taken_at, l.tz_offset_min));
     const today = todayStr();
     const last = range.end < today ? range.end : shiftDay(today, -1);
     let n = 0;
@@ -2578,7 +2597,7 @@ export default function DiaryPage() {
                       <div className="row-main">
                         <div className="row-title">{e.title}</div>
                         <div className="row-sub">
-                          {timeOf(e.eaten_at)}
+                          {timeOf(e.eaten_at, e.tz_offset_min)}
                           {e.model_id ? " · AI estimate" : " · manual"}
                         </div>
                         <div style={{ marginTop: 6 }}>
@@ -2606,7 +2625,7 @@ export default function DiaryPage() {
                       <div className="row-main">
                         <div className="row-title">{w.title}</div>
                         <div className="row-sub">
-                          {timeOf(w.performed_at)}
+                          {timeOf(w.performed_at, w.tz_offset_min)}
                           {w.source
                             ? ` · ${w.source}`
                             : w.model_id
@@ -2699,7 +2718,7 @@ export default function DiaryPage() {
                     <div className="row-main">
                       <div className="row-title">{l.name}</div>
                       <div className="row-sub">
-                        {timeOf(l.taken_at)} · {numToInput(l.amount)}
+                        {timeOf(l.taken_at, l.tz_offset_min)} · {numToInput(l.amount)}
                         {l.dose_amount != null
                           ? ` × ${numToInput(l.dose_amount)}${l.dose_unit ? ` ${l.dose_unit}` : ""}`
                           : l.amount === 1

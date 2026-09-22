@@ -64,33 +64,12 @@ internal object CoachDb {
         return dayFormat.format(cal.time)
     }
 
-    /** Start of a local day as an epoch instant. */
-    private fun startOfDay(day: String): Long {
-        val parts = day.split("-")
-        val cal = Calendar.getInstance()
-        cal.set(
-            parts.getOrNull(0)?.toIntOrNull() ?: 1970,
-            (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1,
-            parts.getOrNull(2)?.toIntOrNull() ?: 1,
-            0, 0, 0,
-        )
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
     private val isoFormat =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
 
     fun nowIso(): String = isoFormat.format(Date())
-
-    /** UTC ISO bounds covering local days `from`..`to` inclusive. */
-    private fun rangeIso(from: String, to: String): Pair<String, String> =
-        Pair(
-            isoFormat.format(Date(startOfDay(from))),
-            isoFormat.format(Date(startOfDay(shiftDay(to, 1)))),
-        )
 
     // -- reads --------------------------------------------------------------
 
@@ -169,22 +148,27 @@ internal object CoachDb {
     fun digest(db: SQLiteDatabase, day: String): Digest {
         val weekStart = shiftDay(day, -6)
         val monthStart = shiftDay(day, -30)
-        val (weekFrom, weekTo) = rangeIso(weekStart, day)
 
         val kcalByDay = HashMap<String, Double>()
         val proteinByDay = HashMap<String, Double>()
         var todayItems = 0
         var todayKcal = 0.0
         var todayProtein = 0.0
+        // By the stamped `day`, not the timestamp: an entry logged abroad keeps
+        // the day it was logged on (see src/lib/daystamp.ts). The fallback
+        // reads the instant here, for a row somehow left unstamped.
         db.rawQuery(
-            "SELECT eaten_at, nutrients FROM food_entries WHERE eaten_at >= ? AND eaten_at < ?",
-            arrayOf(weekFrom, weekTo),
+            "SELECT COALESCE(day, ''), eaten_at, nutrients FROM food_entries WHERE " +
+                "COALESCE(day, date(eaten_at, 'localtime')) BETWEEN ? AND ?",
+            arrayOf(weekStart, day),
         ).use { c ->
             while (c.moveToNext()) {
-                val ms = parseIso(c.getString(0)) ?: continue
-                val d = localDay(ms)
-                val kcal = nutrient(c.getString(1), "calories")
-                val protein = nutrient(c.getString(1), "protein_g")
+                val stamped = c.getString(0)
+                val d =
+                    if (stamped.isNotEmpty()) stamped
+                    else localDay(parseIso(c.getString(1)) ?: continue)
+                val kcal = nutrient(c.getString(2), "calories")
+                val protein = nutrient(c.getString(2), "protein_g")
                 kcalByDay[d] = (kcalByDay[d] ?: 0.0) + kcal
                 proteinByDay[d] = (proteinByDay[d] ?: 0.0) + protein
                 if (d == day) {
@@ -199,13 +183,16 @@ internal object CoachDb {
         var todayBurned = 0.0
         var workouts = 0
         db.rawQuery(
-            "SELECT performed_at, calories_burned FROM workouts WHERE performed_at >= ? AND performed_at < ?",
-            arrayOf(weekFrom, weekTo),
+            "SELECT COALESCE(day, ''), performed_at, calories_burned FROM workouts WHERE " +
+                "COALESCE(day, date(performed_at, 'localtime')) BETWEEN ? AND ?",
+            arrayOf(weekStart, day),
         ).use { c ->
             while (c.moveToNext()) {
-                val ms = parseIso(c.getString(0)) ?: continue
-                val d = localDay(ms)
-                val kcal = c.getDouble(1)
+                val stamped = c.getString(0)
+                val d =
+                    if (stamped.isNotEmpty()) stamped
+                    else localDay(parseIso(c.getString(1)) ?: continue)
+                val kcal = c.getDouble(2)
                 burnedByDay[d] = (burnedByDay[d] ?: 0.0) + kcal
                 workouts++
                 if (d == day) {
@@ -217,13 +204,16 @@ internal object CoachDb {
 
         val sleepByDay = HashMap<String, Double>()
         db.rawQuery(
-            "SELECT ended_at, duration_min FROM sleep_sessions WHERE ended_at >= ? AND ended_at < ?",
-            arrayOf(weekFrom, weekTo),
+            "SELECT COALESCE(day, ''), ended_at, duration_min FROM sleep_sessions WHERE " +
+                "COALESCE(day, date(ended_at, 'localtime')) BETWEEN ? AND ?",
+            arrayOf(weekStart, day),
         ).use { c ->
             while (c.moveToNext()) {
-                val ms = parseIso(c.getString(0)) ?: continue
-                val d = localDay(ms)
-                sleepByDay[d] = (sleepByDay[d] ?: 0.0) + c.getDouble(1)
+                val stamped = c.getString(0)
+                val d =
+                    if (stamped.isNotEmpty()) stamped
+                    else localDay(parseIso(c.getString(1)) ?: continue)
+                sleepByDay[d] = (sleepByDay[d] ?: 0.0) + c.getDouble(2)
             }
         }
 

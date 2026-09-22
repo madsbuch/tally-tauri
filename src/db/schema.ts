@@ -26,8 +26,18 @@ export const foodEntries = sqliteTable(
     modelId: text("model_id"),
     /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
     icon: text("icon"),
+    /**
+     * Local day this happened on, stamped where it happened rather than
+     * derived from wherever the phone is now (see lib/daystamp.ts).
+     */
+    day: text("day"),
+    /** Minutes east of UTC at that moment, so the time reads as it was lived. */
+    tzOffsetMin: integer("tz_offset_min"),
   },
-  (t) => [index("idx_food_entries_eaten_at").on(t.eatenAt)],
+  (t) => [
+    index("idx_food_entries_eaten_at").on(t.eatenAt),
+    index("idx_food_entries_day").on(t.day),
+  ],
 );
 
 export const workouts = sqliteTable(
@@ -47,10 +57,18 @@ export const workouts = sqliteTable(
     source: text("source"),
     /** Stable id in the external system (Health Connect record UID) for dedup. */
     externalId: text("external_id"),
+    /**
+     * Local day this happened on, stamped where it happened rather than
+     * derived from wherever the phone is now (see lib/daystamp.ts).
+     */
+    day: text("day"),
+    /** Minutes east of UTC at that moment, so the time reads as it was lived. */
+    tzOffsetMin: integer("tz_offset_min"),
   },
   (t) => [
     index("idx_workouts_performed_at").on(t.performedAt),
     uniqueIndex("idx_workouts_external_id").on(t.externalId),
+    index("idx_workouts_day").on(t.day),
   ],
 );
 
@@ -73,8 +91,18 @@ export const supplementLogs = sqliteTable(
       .references(() => supplements.id),
     takenAt: text("taken_at").notNull(),
     amount: real("amount").notNull().default(1),
+    /**
+     * Local day this happened on, stamped where it happened rather than
+     * derived from wherever the phone is now (see lib/daystamp.ts).
+     */
+    day: text("day"),
+    /** Minutes east of UTC at that moment, so the time reads as it was lived. */
+    tzOffsetMin: integer("tz_offset_min"),
   },
-  (t) => [index("idx_supplement_logs_taken_at").on(t.takenAt)],
+  (t) => [
+    index("idx_supplement_logs_taken_at").on(t.takenAt),
+    index("idx_supplement_logs_day").on(t.day),
+  ],
 );
 
 /**
@@ -112,8 +140,17 @@ export const sleepSessions = sqliteTable(
     lightMin: real("light_min"),
     awakeMin: real("awake_min"),
     source: text("source"),
+    /**
+     * Local day the night ENDED on — the morning it belongs to — stamped from
+     * the sleeper's own timezone (Health Connect carries it) rather than
+     * derived later from wherever the phone is.
+     */
+    day: text("day"),
+    /** Minutes east of UTC where the night was slept. */
+    tzOffsetMin: integer("tz_offset_min"),
   },
   (t) => [
+    index("idx_sleep_sessions_day").on(t.day),
     index("idx_sleep_sessions_started_at").on(t.startedAt),
     uniqueIndex("idx_sleep_sessions_external_id").on(t.externalId),
   ],
@@ -173,6 +210,12 @@ export const fasts = sqliteTable("fasts", {
   startedAt: text("started_at").notNull(),
   goalHours: real("goal_hours").notNull(),
   endedAt: text("ended_at"),
+  /** Local day the fast began on; every day through `endDay` counts as fasted. */
+  startDay: text("start_day"),
+  /** Local day it ended on; null while it's still running. */
+  endDay: text("end_day"),
+  /** Minutes east of UTC where it started. */
+  tzOffsetMin: integer("tz_offset_min"),
 });
 
 /**

@@ -336,6 +336,10 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         s.title?.takeIf { it.isNotBlank() }?.let { obj.put("title", it) }
         obj.put("startMs", s.startTime.toEpochMilli())
         obj.put("endMs", s.endTime.toEpochMilli())
+        // The zone the night was actually slept in, which is the only way to
+        // know its day once the phone has moved on to another one. Optional in
+        // the record; the app falls back to the device.
+        s.endZoneOffset?.let { obj.put("endOffsetMin", it.totalSeconds / 60) }
         if (deepMs > 0) obj.put("deepMin", deepMs / 60_000.0)
         if (remMs > 0) obj.put("remMin", remMs / 60_000.0)
         if (lightMs > 0) obj.put("lightMin", lightMs / 60_000.0)
@@ -475,6 +479,8 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         obj.put("exerciseType", exerciseTypeName(s.exerciseType))
         obj.put("startMs", s.startTime.toEpochMilli())
         obj.put("endMs", s.endTime.toEpochMilli())
+        // See sleepToJson: the zone it was done in, so a run keeps its day.
+        s.startZoneOffset?.let { obj.put("startOffsetMin", it.totalSeconds / 60) }
         calories?.let { obj.put("calories", it) }
         distanceMeters?.let { obj.put("distanceMeters", it) }
         avgHeartRate?.let { obj.put("avgHeartRate", it) }

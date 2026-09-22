@@ -60,6 +60,13 @@ export interface FoodEntry {
   model_id: string | null;
   /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
   icon: string | null;
+  /**
+   * Local day this happened on, stamped where it happened (see lib/daystamp.ts)
+   * — null only on a row written before day stamps existed.
+   */
+  day: string | null;
+  /** Minutes east of UTC at that moment; null means "read it here". */
+  tz_offset_min: number | null;
 }
 
 export interface Supplement {
@@ -81,6 +88,13 @@ export interface SupplementLog {
   taken_at: string;
   /** Multiplier of the supplement's default dose (1 = one dose). */
   amount: number;
+  /**
+   * Local day this happened on, stamped where it happened (see lib/daystamp.ts)
+   * — null only on a row written before day stamps existed.
+   */
+  day: string | null;
+  /** Minutes east of UTC at that moment; null means "read it here". */
+  tz_offset_min: number | null;
 }
 
 /** Supplement log joined with its supplement for display. */
@@ -98,6 +112,12 @@ export interface Fast {
   goal_hours: number;
   /** ISO 8601 UTC timestamp; null while the fast is active. */
   ended_at: string | null;
+  /** Local day it began on; every day through `end_day` counts as fasted. */
+  start_day: string | null;
+  /** Local day it ended on; null while it's still running. */
+  end_day: string | null;
+  /** Minutes east of UTC where it started. */
+  tz_offset_min: number | null;
 }
 
 /**
@@ -135,6 +155,13 @@ export interface Workout {
   source: string | null;
   /** Stable id in the external system (Health Connect record UID) for dedup. */
   external_id: string | null;
+  /**
+   * Local day this happened on, stamped where it happened (see lib/daystamp.ts)
+   * — null only on a row written before day stamps existed.
+   */
+  day: string | null;
+  /** Minutes east of UTC at that moment; null means "read it here". */
+  tz_offset_min: number | null;
 }
 
 /** A night of sleep synced from Health Connect (written by e.g. Garmin). */
@@ -152,6 +179,10 @@ export interface SleepSession {
   light_min: number | null;
   awake_min: number | null;
   source: string | null;
+  /** Local day the night ENDED on — the morning it belongs to. */
+  day: string | null;
+  /** Minutes east of UTC where it was slept. */
+  tz_offset_min: number | null;
 }
 
 /**
