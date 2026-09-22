@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { JSX } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Link } from "../router";
@@ -10,6 +10,12 @@ import {
   onDiaryChanged,
   resumePendingCaptures,
 } from "../lib/agent";
+import { installAppLifecycle } from "../lib/appLifecycle";
+import {
+  getAssistantState,
+  installAssistantLifecycle,
+  subscribeAssistant,
+} from "../lib/assistantRunner";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 
@@ -84,6 +90,10 @@ const TABS: { to: Path; label: string; icon: JSX.Element }[] = [
 
 export default function App() {
   const { pathname } = useLocation();
+  // The assistant keeps working after you leave its tab, so say so — otherwise
+  // a turn running in the background is invisible.
+  const assistantBusy =
+    useSyncExternalStore(subscribeAssistant, getAssistantState).status === "running";
 
   useEffect(() => {
     // Warm the DB (runs migrations), re-sync the fasting notification, resume
@@ -103,9 +113,18 @@ export default function App() {
       .then(() => scanAchievements())
       .catch((e) => console.error("Startup failed", e));
 
-    // Re-run captures interrupted by the OS suspending the app, and keep
-    // resuming them each time it returns to the foreground.
-    return installCaptureLifecycle();
+    // Everything that talks to OpenRouter runs outside the pages, so it keeps
+    // going across tab switches and survives the OS suspending the app. Track
+    // foreground/background transitions once, then let the capture agent and
+    // the assistant pick up whatever was interrupted on the way back.
+    const offLifecycle = installAppLifecycle();
+    const offCaptures = installCaptureLifecycle();
+    const offAssistant = installAssistantLifecycle();
+    return () => {
+      offAssistant();
+      offCaptures();
+      offLifecycle();
+    };
   }, []);
 
   // Re-scan achievements when diary data changes, debounced — agent captures
@@ -136,7 +155,12 @@ export default function App() {
             to={t.to}
             className={`tab ${pathname === t.to ? "tab-active" : ""}`}
           >
-            <span className="tab-icon">{t.icon}</span>
+            <span className="tab-icon">
+              {t.icon}
+              {t.to === "/assistant" && assistantBusy && (
+                <span className="tab-dot" aria-label="Assistant is working" />
+              )}
+            </span>
             <span className="tab-label">{t.label}</span>
           </Link>
         ))}

@@ -534,6 +534,16 @@ export type AssistantEvent =
   | { type: "message"; text: string }
   | { type: "chart"; chart: ChartSpec };
 
+export interface AssistantTurnOptions {
+  /**
+   * Called after every completed round, once `messages` is consistent again.
+   * The runner persists there, so an interruption (a suspended WebView, the
+   * process being killed) leaves the work done so far in the transcript
+   * instead of throwing it away.
+   */
+  onRound?: () => void;
+}
+
 /**
  * Run one user turn: appends to `messages` IN PLACE (assistant/tool messages
  * included) and streams events as they happen. `messages` must already
@@ -543,6 +553,7 @@ export type AssistantEvent =
 export async function runAssistantTurn(
   messages: ChatMessage[],
   onEvent: (e: AssistantEvent) => void,
+  opts: AssistantTurnOptions = {},
 ): Promise<void> {
   const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
   if (!apiKey) throw new Error("Add your OpenRouter API key in Settings first.");
@@ -570,6 +581,7 @@ export async function runAssistantTurn(
       // the user; with prior deliveries it's just trailing reasoning.
       if (delivered === 0) onEvent({ type: "message", text: content });
       else onEvent({ type: "reasoning", text: content });
+      opts.onRound?.();
       return;
     }
 
@@ -604,6 +616,7 @@ export async function runAssistantTurn(
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
+    opts.onRound?.();
   }
   if (delivered === 0) {
     throw new Error("The assistant got stuck calling tools — try rephrasing.");

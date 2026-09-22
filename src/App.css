@@ -98,10 +98,37 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.tab-icon {
+  position: relative;
+  display: block;
+}
+
 .tab-icon svg {
   width: 23px;
   height: 23px;
   display: block;
+}
+
+/* Assistant still working after you left its tab. */
+.tab-dot {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tab-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .tab-active {

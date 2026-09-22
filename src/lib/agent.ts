@@ -30,6 +30,7 @@ import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
+import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { readPhotoDataUrl, savePhoto } from "./photos";
 import type { Capture, Supplement } from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
@@ -375,48 +376,14 @@ const inFlight = new Set<number>();
 // ---------------------------------------------------------------------------
 // Background awareness
 // ---------------------------------------------------------------------------
-//
-// On mobile the OS suspends the WebView when the app is backgrounded: in-flight
-// fetches to OpenRouter are dropped and timers are throttled, so an analysis
-// round can fail with no fault of the model or the network. We must not burn
-// such a capture into a permanent "error" — instead we keep it "pending" and
-// re-run it once the app returns to the foreground.
-
-/** Epoch ms of the last time the app was backgrounded; 0 before any hide. */
-let lastHiddenAt = 0;
-let lifecycleInstalled = false;
-
-function isHidden(): boolean {
-  return typeof document !== "undefined" && document.visibilityState === "hidden";
-}
 
 /**
- * Wire app foreground/background transitions into capture processing. Call once
- * on app start. Records when the app is suspended (so a run interrupted by it is
- * retried rather than marked failed) and re-runs pending captures whenever the
- * app comes back to the foreground. Returns a cleanup function.
+ * Re-run captures the OS interrupted whenever the app returns to the
+ * foreground (see lib/appLifecycle.ts for why that happens). Call once on app
+ * start; returns a cleanup function.
  */
 export function installCaptureLifecycle(): () => void {
-  if (lifecycleInstalled || typeof document === "undefined") return () => {};
-  lifecycleInstalled = true;
-
-  const onVisibility = () => {
-    if (document.visibilityState === "hidden") {
-      lastHiddenAt = Date.now();
-    } else {
-      // Back in the foreground: pick up anything the OS interrupted.
-      void resumePendingCaptures();
-    }
-  };
-  const onFocus = () => void resumePendingCaptures();
-
-  document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("focus", onFocus);
-  return () => {
-    document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("focus", onFocus);
-    lifecycleInstalled = false;
-  };
+  return onAppResume(() => void resumePendingCaptures());
 }
 
 async function runCapture(capture: Capture): Promise<void> {
@@ -544,7 +511,7 @@ async function processCapture(id: number): Promise<void> {
       // rather than a real problem. Keep the capture "pending" so it retries
       // when the app returns to the foreground, instead of surfacing a bogus
       // error the user has to dismiss and re-run by hand.
-      if (isHidden() || lastHiddenAt >= startedAt) {
+      if (wasSuspendedSince(startedAt)) {
         await setCaptureStatus(id, "pending", null);
       } else {
         await setCaptureStatus(id, "error", msg);
