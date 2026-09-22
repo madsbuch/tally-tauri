@@ -45,13 +45,20 @@ export interface StreakInfo {
 }
 
 interface StreakState {
+  /** Mirror of the last computed streak, for readers that can't recompute. */
+  current: number;
   freezes: number;
   frozenDays: string[];
   /** Streak length at which a freeze was last earned (resets on break). */
   lastEarnedStreak: number;
 }
 
-const DEFAULT_STATE: StreakState = { freezes: 0, frozenDays: [], lastEarnedStreak: 0 };
+const DEFAULT_STATE: StreakState = {
+  current: 0,
+  freezes: 0,
+  frozenDays: [],
+  lastEarnedStreak: 0,
+};
 
 function parseState(raw: string | null): StreakState {
   if (!raw) return { ...DEFAULT_STATE };
@@ -190,6 +197,8 @@ export async function getStreakInfo(): Promise<StreakInfo> {
     state.lastEarnedStreak += FREEZE_EARN_DAYS;
     state.freezes = Math.min(MAX_FREEZES, state.freezes + 1);
   }
+
+  state.current = current;
 
   if (JSON.stringify(state) !== before) {
     await setSetting(SETTING_KEYS.streakState, JSON.stringify(state)).catch(() => {

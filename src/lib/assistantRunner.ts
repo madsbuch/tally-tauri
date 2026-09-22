@@ -22,7 +22,7 @@ import {
   updateChatMessages,
 } from "./db";
 import { runAssistantTurn, sanitizeChart } from "./assistant";
-import { buildCoachSystemPrompt } from "./coach";
+import { buildCoachSystemPrompt, cacheCoachPromptPrefix } from "./coach";
 import type { AssistantEvent, ChartSpec } from "./assistant";
 import type { ChatMessage } from "./openrouter";
 import { parseToolArgs } from "./schemas";
@@ -340,6 +340,9 @@ function run(): void {
       inFlight = null;
       emit();
       await persist();
+      // The turn may have written to memory, which the scheduled Android
+      // check-in reads from the cached prefix rather than rebuilding.
+      void cacheCoachPromptPrefix();
     }
   })();
 }

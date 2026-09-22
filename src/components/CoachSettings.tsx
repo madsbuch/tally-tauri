@@ -11,6 +11,7 @@ import {
   DEFAULT_STANCE,
   LENGTH_LABELS,
   TONE_LABELS,
+  cacheCoachPromptPrefix,
   loadCoachStance,
   saveCoachStance,
 } from "../lib/coach";
@@ -18,10 +19,14 @@ import type { CoachLength, CoachStance, CoachTone } from "../lib/coach";
 import { deleteCoachMemory, listCoachMemory } from "../lib/db";
 import type { CoachMemory } from "../lib/types";
 import {
+  DEFAULT_CHECKIN_HOUR,
   TRIGGERS,
   defaultTriggers,
+  loadCheckinHour,
   loadCoachTriggers,
+  saveCheckinHour,
   saveCoachTriggers,
+  syncCoachSchedule,
 } from "../lib/coachTriggers";
 import type { CoachTriggers, TriggerKey } from "../lib/coachTriggers";
 import { runCoachCheckin } from "../lib/coachCheckin";
@@ -136,6 +141,7 @@ const CHECKIN_REASONS: Record<string, string> = {
 export default function CoachSettings() {
   const [stance, setStance] = useState<CoachStance>(DEFAULT_STANCE);
   const [triggers, setTriggers] = useState<CoachTriggers>(defaultTriggers);
+  const [checkinHour, setCheckinHour] = useState(DEFAULT_CHECKIN_HOUR);
   const [memory, setMemory] = useState<CoachMemory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -149,6 +155,7 @@ export default function CoachSettings() {
       setLoaded(true);
     });
     void loadCoachTriggers().then(setTriggers);
+    void loadCheckinHour().then(setCheckinHour);
     void listCoachMemory().then(setMemory).catch(() => setMemory([]));
     return () => {
       if (savedTimer.current != null) window.clearTimeout(savedTimer.current);
@@ -157,7 +164,15 @@ export default function CoachSettings() {
 
   function commitTriggers(next: CoachTriggers) {
     setTriggers(next);
-    void saveCoachTriggers(next).then(flashSaved);
+    // Re-point the Android alarm: turning everything off should cancel it.
+    void saveCoachTriggers(next).then(syncCoachSchedule).then(flashSaved);
+  }
+
+  function commitCheckinHour(hour: number) {
+    if (!isFinite(hour)) return;
+    const clamped = Math.min(23, Math.max(0, Math.round(hour)));
+    setCheckinHour(clamped);
+    void saveCheckinHour(clamped).then(syncCoachSchedule).then(flashSaved);
   }
 
   function patchTrigger(key: TriggerKey, patch: Partial<CoachTriggers[TriggerKey]>) {
@@ -190,12 +205,15 @@ export default function CoachSettings() {
   /** Persist immediately — every control here is a discrete choice. */
   function commit(next: CoachStance) {
     setStance(next);
-    void saveCoachStance(next).then(flashSaved);
+    void saveCoachStance(next)
+      .then(cacheCoachPromptPrefix)
+      .then(flashSaved);
   }
 
   async function removeMemory(id: number) {
     await deleteCoachMemory(id);
     setMemory(await listCoachMemory());
+    await cacheCoachPromptPrefix();
   }
 
   if (!loaded) return null;
@@ -373,6 +391,32 @@ export default function CoachSettings() {
             </div>
           );
         })}
+        <div className="field">
+          <label className="label" htmlFor="coach-checkin-hour">
+            Wake up and check in at
+          </label>
+          <div className="input-row" style={{ alignItems: "center" }}>
+            <input
+              id="coach-checkin-hour"
+              className="input"
+              type="number"
+              min={0}
+              max={23}
+              inputMode="numeric"
+              value={checkinHour}
+              onChange={(e) => setCheckinHour(parseInt(e.target.value, 10) || 0)}
+              onBlur={() => commitCheckinHour(checkinHour)}
+            />
+            <span className="faint small" style={{ flex: "0 0 auto" }}>
+              :00
+            </span>
+          </div>
+          <p className="muted small" style={{ margin: "8px 2px 0" }}>
+            On Android the app wakes itself at this hour and checks in even when
+            it&apos;s closed. Once a day, matching the one-message budget — the
+            times above still apply as &quot;not before&quot; guards.
+          </p>
+        </div>
         <button
           className="btn btn-block"
           style={{ marginTop: 4 }}

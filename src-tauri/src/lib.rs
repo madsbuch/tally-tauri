@@ -147,6 +147,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_background::init())
+        .plugin(tauri_plugin_coach::init())
         .plugin(tauri_plugin_fasting::init())
         .plugin(tauri_plugin_health_connect::init())
         .plugin(tauri_plugin_share::init())

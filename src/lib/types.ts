@@ -253,6 +253,13 @@ export const SETTING_KEYS = {
   coachStance: "coach_stance",
   /** JSON blob: which check-ins fire, when, and at what threshold. */
   coachTriggers: "coach_triggers",
+  /** Local hour (0-23) the scheduled Android check-in wakes up at. */
+  coachCheckinHour: "coach_checkin_hour",
+  /**
+   * The clock-independent half of the coach prompt, cached for the Android
+   * worker — it has no JavaScript to build one with (see lib/coach.ts).
+   */
+  coachPromptPrefix: "coach_prompt_prefix",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

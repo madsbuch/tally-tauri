@@ -14,6 +14,8 @@ import { installAppLifecycle } from "../lib/appLifecycle";
 import { clearStaleBackgroundTask } from "../lib/background";
 import { onAppResume } from "../lib/appLifecycle";
 import { runCoachCheckin } from "../lib/coachCheckin";
+import { syncCoachSchedule } from "../lib/coachTriggers";
+import { cacheCoachPromptPrefix } from "../lib/coach";
 import {
   getAssistantState,
   installAssistantLifecycle,
@@ -121,6 +123,9 @@ export default function App() {
       // Fresh data may also be worth a word from the coach. Self-throttling,
       // and a no-op when no trigger fires, so it's safe on every start.
       .then(() => runCoachCheckin())
+      // Keep the scheduled check-in armed (alarms don't survive a reinstall)
+      // and its prompt prefix current, since it runs with no JS to build one.
+      .then(() => Promise.all([syncCoachSchedule(), cacheCoachPromptPrefix()]))
       .catch((e) => console.error("Startup failed", e));
 
     // Everything that talks to OpenRouter runs outside the pages, so it keeps

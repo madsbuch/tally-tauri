@@ -4431,6 +4431,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-background",
+ "tauri-plugin-coach",
  "tauri-plugin-fasting",
  "tauri-plugin-health-connect",
  "tauri-plugin-http",
@@ -4635,6 +4636,17 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-background"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "tauri-plugin-coach"
 version = "0.1.0"
 dependencies = [
  "serde",

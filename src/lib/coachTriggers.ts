@@ -10,8 +10,9 @@
  * Evaluation is deterministic and local: plain comparisons over the digest, no
  * model involved. The model is only asked to phrase the winner. That keeps the
  * cost of "nothing to say" at zero, stops the coach inventing reasons to talk,
- * and — because the digest is reproducible in Rust — lets the whole decision
- * move to a scheduled native run without changing what it decides.
+ * and — because it's all plain comparisons over a digest of plain sums — lets
+ * the same decision be made in Kotlin when the scheduled check-in fires with
+ * no JavaScript alive (see the plugin under src-tauri/plugins/coach).
  *
  * Two kinds of trigger:
  *
@@ -20,6 +21,7 @@
  * - **condition** — something being true that shouldn't be. Carries a cooldown
  *   so it raises a thing once, not every day until fixed.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { addCoachRun, listCoachRunsSince, getSetting, setSetting, todayStr } from "./db";
 import { CoachTriggersSchema, parseJson } from "./schemas";
 import { SETTING_KEYS } from "./types";
@@ -209,6 +211,53 @@ export async function loadCoachTriggers(): Promise<CoachTriggers> {
 
 export async function saveCoachTriggers(triggers: CoachTriggers): Promise<void> {
   await setSetting(SETTING_KEYS.coachTriggers, JSON.stringify(triggers));
+}
+
+// ---------------------------------------------------------------------------
+// The scheduled wake-up
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_CHECKIN_HOUR = 21;
+
+export async function loadCheckinHour(): Promise<number> {
+  const raw = await getSetting(SETTING_KEYS.coachCheckinHour).catch(() => null);
+  const n = raw != null ? parseInt(raw, 10) : NaN;
+  return isFinite(n) && n >= 0 && n <= 23 ? n : DEFAULT_CHECKIN_HOUR;
+}
+
+export async function saveCheckinHour(hour: number): Promise<void> {
+  const clamped = Math.min(23, Math.max(0, Math.round(hour)));
+  await setSetting(SETTING_KEYS.coachCheckinHour, String(clamped));
+}
+
+/**
+ * Point the Android alarm at the configured hour, or cancel it when every
+ * trigger is off.
+ *
+ * One wake-up a day, matching the one-message budget: there's no point waking
+ * twice to decide something that can only be said once. Per-trigger hours stay
+ * meaningful as "not before" guards within that evaluation.
+ *
+ * A no-op everywhere but Android, where the app evaluates check-ins while it's
+ * running anyway.
+ */
+export async function syncCoachSchedule(): Promise<void> {
+  try {
+    const triggers = await loadCoachTriggers();
+    const anyEnabled = TRIGGERS.some((t) => triggers[t.key]?.enabled);
+    if (!anyEnabled) {
+      await invoke("plugin:coach|cancel_checkin");
+      return;
+    }
+    await invoke("plugin:coach|schedule_checkin", {
+      hour: await loadCheckinHour(),
+      minute: 0,
+    });
+  } catch (e) {
+    // Desktop, dev in a browser, or an OEM that refuses alarms. The in-app
+    // evaluation on open still runs; only the unattended one is lost.
+    console.warn("Could not schedule the coach check-in", e);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -355,27 +355,26 @@ export interface CoachPromptOptions {
 }
 
 /**
- * The full coach system prompt: who it is, what it's pushing for, what it
- * remembers, and how the week has actually gone.
+ * Everything in the prompt that does NOT change with the clock or the diary:
+ * who the coach is, the stance you set, what it remembers, the guardrails, and
+ * how to deliver.
+ *
+ * Split out and cached (see `cacheCoachPromptPrefix`) because the scheduled
+ * Android check-in has to assemble this same prompt in Kotlin, at a moment
+ * when no JavaScript is running. Rather than re-implement stance and memory
+ * rendering over there and watch the two drift apart, Kotlin reads this
+ * prefix and appends only what it can compute itself: the digest and the
+ * occasion.
  */
-export async function buildCoachSystemPrompt(
-  opts: CoachPromptOptions = {},
-): Promise<string> {
-  const [stance, memory, digest] = await Promise.all([
+export async function buildCoachPromptPrefix(): Promise<string> {
+  const [stance, memory] = await Promise.all([
     loadCoachStance(),
     listCoachMemory().catch(() => [] as CoachMemory[]),
-    buildCoachDigest(),
   ]);
-  const now = new Date();
-  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
-  const local = `${todayStr(now)} ${String(now.getHours()).padStart(2, "0")}:${String(
-    now.getMinutes(),
-  ).padStart(2, "0")}`;
 
   return [
     "You are Tally's coach. Tally is a local-first tracker holding this person's food diary, workouts, sleep, daily wellness metrics (synced from their Garmin watch via Health Connect), supplements, and fasting history. You have read access to all of it.",
     "You are a coach, not a search engine: you have a view on how their week is going and you say it. But they also just ask things sometimes — when they do, answer the question rather than turning it into a lesson.",
-    `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
     "",
     "## Your stance",
     renderStance(stance),
@@ -383,11 +382,6 @@ export async function buildCoachSystemPrompt(
     "## What you know about them",
     renderMemory(memory),
     "Keep this current as you go: `remember` something durable the moment it comes up, `update_memory` when a commitment is met or abandoned, `forget` what turned out to be wrong. Never record anything they told you to drop.",
-    "",
-    "## Where they stand right now",
-    renderCoachDigest(digest),
-    "These numbers are already yours — don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
-    ...(opts.occasion ? ["", `## This check-in`, opts.occasion] : []),
     "",
     "## Rules that don't bend",
     ...GUARDRAILS.map((g) => `- ${g}`),
@@ -405,4 +399,49 @@ export async function buildCoachSystemPrompt(
     "Say one useful thing rather than five true ones. If there's nothing worth raising, don't manufacture a concern.",
     "Message style: concise markdown in a narrow mobile chat bubble. Lead with the point, bold the key figures, always include units, skip headers. Put numbers a chart already shows in the chart, not the text.",
   ].join("\n");
+}
+
+/**
+ * The full system prompt: the prefix, plus the parts that move — the clock,
+ * the diary digest, and the occasion when the coach opened the conversation
+ * itself.
+ */
+export async function buildCoachSystemPrompt(
+  opts: CoachPromptOptions = {},
+): Promise<string> {
+  const [prefix, digest] = await Promise.all([
+    buildCoachPromptPrefix(),
+    buildCoachDigest(),
+  ]);
+  const now = new Date();
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+  const local = `${todayStr(now)} ${String(now.getHours()).padStart(2, "0")}:${String(
+    now.getMinutes(),
+  ).padStart(2, "0")}`;
+
+  return [
+    prefix,
+    "",
+    `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
+    "",
+    "## Where they stand right now",
+    renderCoachDigest(digest),
+    "These numbers are already yours — don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
+    ...(opts.occasion ? ["", "## This check-in", opts.occasion] : []),
+  ].join("\n");
+}
+
+/**
+ * Store the prompt prefix where the Android check-in worker can read it, since
+ * it runs with no JavaScript alive to build one. Cheap and idempotent — call
+ * it whenever the stance or the coach's memory may have moved.
+ */
+export async function cacheCoachPromptPrefix(): Promise<void> {
+  try {
+    await setSetting(SETTING_KEYS.coachPromptPrefix, await buildCoachPromptPrefix());
+  } catch (e) {
+    // Only the scheduled check-in loses out, and it falls back to a plain
+    // persona; the app's own chats build the prompt live regardless.
+    console.warn("Could not cache the coach prompt prefix", e);
+  }
 }

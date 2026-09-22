@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-coach"
+version = "0.1.0"
+description = "Scheduled Android coach check-ins that run with the app closed"
+edition = "2021"
+links = "tauri-plugin-coach"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(mobile)',
+  'cfg(desktop)',
+] }

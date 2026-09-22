@@ -12,6 +12,7 @@
     "sql:allow-execute",
     "sql:allow-select",
     "background:default",
+    "coach:default",
     "fasting:default",
     "health-connect:default",
     "share:default",

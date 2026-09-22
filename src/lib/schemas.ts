@@ -305,6 +305,13 @@ export const CoachTriggersSchema = z.record(z.string(), TriggerConfigSchema).cat
 
 /** Streak-freeze bookkeeping (see lib/streak.ts). Tolerant: junk fields reset. */
 export const StreakStateSchema = z.object({
+  /**
+   * The streak as last computed. Not needed by the engine — it recomputes
+   * from the diary every time — but the scheduled Android check-in has no
+   * JavaScript to recompute with, and a day-stale streak length is plenty for
+   * "this is about to break".
+   */
+  current: nonNegInt,
   freezes: nonNegInt,
   frozenDays: z
     .array(z.unknown())
