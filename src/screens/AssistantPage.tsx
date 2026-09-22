@@ -63,6 +63,9 @@ export default function AssistantPage() {
   const [input, setInput] = useState("");
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  const composerHeight = useRef(0);
 
   useEffect(() => {
     void getSetting(SETTING_KEYS.openrouterApiKey).then((k) => setHasKey(!!k));
@@ -79,6 +82,27 @@ export default function AssistantPage() {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [items, status, activeTool, chatOpen]);
+
+  // Grow the box with the message. A textarea doesn't do this on its own — it
+  // scrolls inside a fixed height — which makes anything past the first line
+  // invisible while you write it. The CSS caps it; past that it scrolls.
+  useEffect(() => {
+    const field = inputRef.current;
+    if (field) {
+      field.style.height = "auto";
+      field.style.height = `${field.scrollHeight}px`;
+    }
+    // The composer is fixed over the thread, so the page's bottom padding has
+    // to follow its height or a taller box hides the newest message.
+    const composer = composerRef.current;
+    if (!composer) return;
+    const height = composer.offsetHeight;
+    document.documentElement.style.setProperty("--composer-h", `${height}px`);
+    if (height !== composerHeight.current) {
+      composerHeight.current = height;
+      if (chatOpen) endRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [input, chatOpen]);
 
   async function removeChat(id: number) {
     if (!window.confirm("Delete this chat?")) return;
@@ -248,15 +272,21 @@ export default function AssistantPage() {
         </div>
       )}
 
-      <div className="chat-composer">
+      <div className="chat-composer" ref={composerRef}>
         <textarea
+          ref={inputRef}
           className="input chat-input"
           rows={1}
+          enterKeyHint="enter"
           placeholder={chatOpen ? "Reply…" : "Ask about your data…"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            // Enter writes a newline. On a phone it's the only line-break key
+            // there is and Shift+Enter doesn't exist, so sending on it made
+            // paragraphs impossible. Send is the button; Ctrl/Cmd+Enter is
+            // there for a hardware keyboard and can't be hit by accident.
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               send();
             }

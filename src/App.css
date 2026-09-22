@@ -683,7 +683,9 @@ textarea.input {
 
 /* Clear the fixed composer sitting above the tabbar. */
 .chat-page {
-  padding-bottom: 86px;
+  /* Tracks the composer, which grows as the message does (AssistantPage sets
+     --composer-h). The fallback matches a single-line box. */
+  padding-bottom: calc(var(--composer-h, 60px) + 26px);
 }
 
 .chat-thread {
@@ -925,7 +927,10 @@ textarea.input {
   z-index: 55;
 }
 
-.chat-input {
+/* Qualified with the element: `textarea.input` above sets min-height 68px and
+   outranks a bare `.chat-input`, so the 44px here never actually applied and
+   the composer sat two lines tall on a single line of text. */
+textarea.chat-input {
   resize: none;
   min-height: 44px;
   max-height: 120px;
