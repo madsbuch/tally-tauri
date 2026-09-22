@@ -193,6 +193,16 @@ export interface CoachMemory {
   updated_at: string;
 }
 
+/** A check-in the coach started (see lib/coachTriggers.ts). */
+export interface CoachRun {
+  id: number;
+  trigger_key: string;
+  /** Local day "YYYY-MM-DD". */
+  day: string;
+  created_at: string;
+  chat_id: number | null;
+}
+
 /** A saved assistant conversation (without its transcript). */
 export interface ChatSummary {
   id: number;
@@ -241,6 +251,8 @@ export const SETTING_KEYS = {
   streakState: "streak_state",
   /** JSON blob: what the coach is pushing for and how (see lib/coach.ts). */
   coachStance: "coach_stance",
+  /** JSON blob: which check-ins fire, when, and at what threshold. */
+  coachTriggers: "coach_triggers",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

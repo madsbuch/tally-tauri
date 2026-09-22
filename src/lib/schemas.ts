@@ -281,6 +281,28 @@ export const CoachStanceSchema = z.object({
   language: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim() : "")),
 });
 
+/**
+ * Per-trigger check-in config (see lib/coachTriggers.ts). Every field is
+ * optional and clamped: a stale or partial blob should degrade to the
+ * trigger's own defaults, never disable the coach outright.
+ */
+export const TriggerConfigSchema = z.object({
+  enabled: z.unknown().optional().transform((v) => (typeof v === "boolean" ? v : null)),
+  hour: z
+    .unknown()
+    .optional()
+    .transform((v) =>
+      typeof v === "number" && isFinite(v) ? Math.min(23, Math.max(0, Math.round(v))) : null,
+    ),
+  threshold: z
+    .unknown()
+    .optional()
+    .transform((v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : null)),
+});
+
+/** A map of trigger key → config; unknown keys are ignored downstream. */
+export const CoachTriggersSchema = z.record(z.string(), TriggerConfigSchema).catch({});
+
 /** Streak-freeze bookkeeping (see lib/streak.ts). Tolerant: junk fields reset. */
 export const StreakStateSchema = z.object({
   freezes: nonNegInt,

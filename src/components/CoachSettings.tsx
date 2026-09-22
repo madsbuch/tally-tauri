@@ -17,6 +17,14 @@ import {
 import type { CoachLength, CoachStance, CoachTone } from "../lib/coach";
 import { deleteCoachMemory, listCoachMemory } from "../lib/db";
 import type { CoachMemory } from "../lib/types";
+import {
+  TRIGGERS,
+  defaultTriggers,
+  loadCoachTriggers,
+  saveCoachTriggers,
+} from "../lib/coachTriggers";
+import type { CoachTriggers, TriggerKey } from "../lib/coachTriggers";
+import { runCoachCheckin } from "../lib/coachCheckin";
 
 const MAX_IMPERATIVES = 5;
 const MAX_AVOID = 10;
@@ -115,11 +123,24 @@ function RankedList({
   );
 }
 
+/** Why a forced check-in produced nothing, in the user's terms. */
+const CHECKIN_REASONS: Record<string, string> = {
+  nothing: "Nothing worth raising right now — that's the coach working as intended.",
+  cooldown: "Everything it would have raised, it raised recently. Give it a few days.",
+  budget: "It has already spoken today.",
+  "no-key": "Add your OpenRouter API key first.",
+  busy: "A check-in is already running.",
+  failed: "The check-in failed — check your connection and key.",
+};
+
 export default function CoachSettings() {
   const [stance, setStance] = useState<CoachStance>(DEFAULT_STANCE);
+  const [triggers, setTriggers] = useState<CoachTriggers>(defaultTriggers);
   const [memory, setMemory] = useState<CoachMemory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkinNote, setCheckinNote] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -127,20 +148,49 @@ export default function CoachSettings() {
       setStance(s);
       setLoaded(true);
     });
+    void loadCoachTriggers().then(setTriggers);
     void listCoachMemory().then(setMemory).catch(() => setMemory([]));
     return () => {
       if (savedTimer.current != null) window.clearTimeout(savedTimer.current);
     };
   }, []);
 
+  function commitTriggers(next: CoachTriggers) {
+    setTriggers(next);
+    void saveCoachTriggers(next).then(flashSaved);
+  }
+
+  function patchTrigger(key: TriggerKey, patch: Partial<CoachTriggers[TriggerKey]>) {
+    const current = triggers[key];
+    commitTriggers({ ...triggers, [key]: { ...current, ...patch } });
+  }
+
+  async function checkInNow() {
+    setCheckingIn(true);
+    setCheckinNote(null);
+    try {
+      const r = await runCoachCheckin({ force: true });
+      setCheckinNote(
+        r.sent
+          ? "Done — it's at the top of your chats."
+          : (CHECKIN_REASONS[r.reason] ?? "Nothing to say right now."),
+      );
+      setMemory(await listCoachMemory());
+    } finally {
+      setCheckingIn(false);
+    }
+  }
+
+  function flashSaved() {
+    setSaved(true);
+    if (savedTimer.current != null) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSaved(false), 1500);
+  }
+
   /** Persist immediately — every control here is a discrete choice. */
   function commit(next: CoachStance) {
     setStance(next);
-    void saveCoachStance(next).then(() => {
-      setSaved(true);
-      if (savedTimer.current != null) window.clearTimeout(savedTimer.current);
-      savedTimer.current = window.setTimeout(() => setSaved(false), 1500);
-    });
+    void saveCoachStance(next).then(flashSaved);
   }
 
   async function removeMemory(id: number) {
@@ -244,6 +294,98 @@ export default function CoachSettings() {
           placeholder="e.g. my weight"
           onChange={(avoid) => commit({ ...stance, avoid })}
         />
+      </div>
+
+      <div className="card">
+        <h2 className="card-title">When it speaks up</h2>
+        <p className="muted small" style={{ margin: "0 0 10px" }}>
+          At most one check-in a day, whatever fires — and each of these waits
+          days before raising the same thing twice. When several are true at
+          once, the coach opens with the most useful one and folds the rest in.
+        </p>
+        {TRIGGERS.map((t) => {
+          const c = triggers[t.key];
+          return (
+            <div key={t.key} className="field">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <label className="label" style={{ margin: 0 }}>
+                  {t.title}
+                </label>
+                <div className="seg" style={{ flex: "0 0 auto", padding: 2, gap: 2 }}>
+                  {[false, true].map((on) => (
+                    <button
+                      key={String(on)}
+                      className={`seg-item${c.enabled === on ? " seg-item-active" : ""}`}
+                      style={{ flex: "0 0 auto", padding: "4px 12px", fontSize: 12 }}
+                      onClick={() => patchTrigger(t.key, { enabled: on })}
+                    >
+                      {on ? "On" : "Off"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="muted small" style={{ margin: "6px 2px 0" }}>
+                {t.help}
+              </p>
+              {c.enabled && (t.hourLabel || t.thresholdLabel) && (
+                <div className="input-row" style={{ marginTop: 8 }}>
+                  {t.hourLabel && (
+                    <div>
+                      <label className="label">{t.hourLabel}</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={23}
+                        inputMode="numeric"
+                        value={c.hour ?? 21}
+                        onChange={(e) =>
+                          patchTrigger(t.key, { hour: parseInt(e.target.value, 10) })
+                        }
+                      />
+                    </div>
+                  )}
+                  {t.thresholdLabel && (
+                    <div>
+                      <label className="label">{t.thresholdLabel}</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="any"
+                        inputMode="decimal"
+                        value={c.threshold ?? 0}
+                        onChange={(e) =>
+                          patchTrigger(t.key, { threshold: parseFloat(e.target.value) })
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button
+          className="btn btn-block"
+          style={{ marginTop: 4 }}
+          disabled={checkingIn}
+          onClick={() => void checkInNow()}
+        >
+          {checkingIn ? <span className="spinner" /> : "Check in now"}
+        </button>
+        {checkinNote && (
+          <p className="muted small" style={{ margin: "8px 2px 0" }}>
+            {checkinNote}
+          </p>
+        )}
       </div>
 
       <div className="card">

@@ -6,6 +6,7 @@ import {
   captures,
   chats,
   coachMemory,
+  coachRuns,
   dayGoalAdjustments,
   fasts,
   foodEntries,
@@ -20,6 +21,7 @@ import type {
   Capture,
   ChatSummary,
   CoachMemory,
+  CoachRun,
   DayGoalAdjustment,
   Fast,
   FoodEntry,
@@ -914,6 +916,45 @@ export async function updateCoachMemory(
 
 export async function deleteCoachMemory(id: number): Promise<void> {
   await db.delete(coachMemory).where(eq(coachMemory.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Coach check-in history (cooldowns and the daily budget)
+// ---------------------------------------------------------------------------
+
+type CoachRunRow = typeof coachRuns.$inferSelect;
+
+function toCoachRun(r: CoachRunRow): CoachRun {
+  return {
+    id: r.id,
+    trigger_key: r.triggerKey,
+    day: r.day,
+    created_at: r.createdAt,
+    chat_id: r.chatId,
+  };
+}
+
+/** Check-ins since `sinceDay` (inclusive), newest first. */
+export async function listCoachRunsSince(sinceDay: string): Promise<CoachRun[]> {
+  const rows = await db
+    .select()
+    .from(coachRuns)
+    .where(gte(coachRuns.day, sinceDay))
+    .orderBy(desc(coachRuns.createdAt));
+  return rows.map(toCoachRun);
+}
+
+export async function addCoachRun(
+  triggerKey: string,
+  day: string,
+  chatId: number | null,
+): Promise<void> {
+  await db.insert(coachRuns).values({
+    triggerKey,
+    day,
+    chatId,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------

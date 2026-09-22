@@ -12,6 +12,8 @@ import {
 } from "../lib/agent";
 import { installAppLifecycle } from "../lib/appLifecycle";
 import { clearStaleBackgroundTask } from "../lib/background";
+import { onAppResume } from "../lib/appLifecycle";
+import { runCoachCheckin } from "../lib/coachCheckin";
 import {
   getAssistantState,
   installAssistantLifecycle,
@@ -116,6 +118,9 @@ export default function App() {
       )
       // After sync: fresh Garmin data may complete achievements.
       .then(() => scanAchievements())
+      // Fresh data may also be worth a word from the coach. Self-throttling,
+      // and a no-op when no trigger fires, so it's safe on every start.
+      .then(() => runCoachCheckin())
       .catch((e) => console.error("Startup failed", e));
 
     // Everything that talks to OpenRouter runs outside the pages, so it keeps
@@ -125,7 +130,9 @@ export default function App() {
     const offLifecycle = installAppLifecycle();
     const offCaptures = installCaptureLifecycle();
     const offAssistant = installAssistantLifecycle();
+    const offCoach = onAppResume(() => void runCoachCheckin());
     return () => {
+      offCoach();
       offAssistant();
       offCaptures();
       offLifecycle();

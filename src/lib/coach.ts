@@ -115,6 +115,8 @@ export interface CoachDigest {
     avgProteinG: number | null;
     workouts: number;
     avgSleepH: number | null;
+    /** Nights with sleep data — an average over one night proves nothing. */
+    sleepNights: number;
     avgSteps: number | null;
   };
   weight: { latestKg: number; change7dKg: number | null; change30dKg: number | null } | null;
@@ -224,6 +226,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
         sleepByDay.size === 0
           ? null
           : round((avg([...sleepByDay.values()]) as number) / 60, 1),
+      sleepNights: sleepByDay.size,
       avgSteps: stepDays.length === 0 ? null : round(avg(stepDays) as number),
     },
     weight: latest

@@ -196,6 +196,26 @@ export const coachMemory = sqliteTable(
   (t) => [index("idx_coach_memory_kind").on(t.kind)],
 );
 
+/**
+ * Every check-in the coach started, so it can't repeat itself. Gives the
+ * trigger engine three things at once: when a trigger last fired (cooldown),
+ * how many times it has spoken today (budget), and which chat it wrote into.
+ */
+export const coachRuns = sqliteTable(
+  "coach_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** Trigger that won the evaluation (see lib/coachTriggers.ts). */
+    triggerKey: text("trigger_key").notNull(),
+    /** Local day "YYYY-MM-DD" it fired on. */
+    day: text("day").notNull(),
+    createdAt: text("created_at").notNull(),
+    /** The chat it opened; null if writing the chat failed. */
+    chatId: integer("chat_id"),
+  },
+  (t) => [index("idx_coach_runs_day").on(t.day)],
+);
+
 /** Unlocked gamification achievements — a row's presence means unlocked. */
 export const achievements = sqliteTable("achievements", {
   key: text("key").primaryKey(),
