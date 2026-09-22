@@ -6,9 +6,13 @@
     <application>
         <!-- dataSync: the work this holds the process open for is transferring
              the user's diary data to and from the model. -->
+        <!-- stopWithTask: swiping the app away destroys the WebView, so the
+             work is gone and nothing is left to end the task. Without this the
+             notification would sit there until the watchdog. -->
         <service
             android:name="com.madsbuch.tally.background.BackgroundService"
             android:exported="false"
+            android:stopWithTask="true"
             android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

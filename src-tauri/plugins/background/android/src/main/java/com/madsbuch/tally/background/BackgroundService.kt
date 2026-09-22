@@ -90,9 +90,31 @@ class BackgroundService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * The app was swiped out of recents. The WebView went with it, so no end
+     * is ever coming and the work it was protecting is already gone — stop
+     * rather than leave the notification up. Declared in the manifest too;
+     * this is the belt to that braces, since OEMs differ on which fires.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        stopForegroundAndDropNotification()
         super.onDestroy()
+    }
+
+    /**
+     * Every path out of this service goes through onDestroy, so taking the
+     * notification down here means it can't outlive the service however the
+     * service ended — stopped by the frontend, by the watchdog, or by the task
+     * being removed.
+     */
+    private fun stopForegroundAndDropNotification() {
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
     }
 
     private fun buildNotification(): Notification {

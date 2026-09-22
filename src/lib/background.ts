@@ -60,6 +60,31 @@ function schedule(): Promise<void> {
 }
 
 /**
+ * Take down a notification left behind by a previous process: the WebView can
+ * be destroyed and rebuilt (a crash, the Activity being recreated) while the
+ * service survives, and the JavaScript that comes back has no idea a task was
+ * ever running, so nothing would ever end it.
+ *
+ * Safe to call on app start — no task can be running yet — and it no-ops if
+ * one already is.
+ */
+export function clearStaleBackgroundTask(): Promise<void> {
+  queue = queue
+    .then(async () => {
+      if (active.size > 0) return;
+      running = false;
+      applied = null;
+      try {
+        await invoke("plugin:background|end_task");
+      } catch {
+        // Nothing was running, or there's no plugin here. Either way: fine.
+      }
+    })
+    .catch(() => {});
+  return queue;
+}
+
+/**
  * Run `fn` with the process held open, labelled for the notification.
  *
  * The service is started before `fn` begins and awaited: Android refuses to

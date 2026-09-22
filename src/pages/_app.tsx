@@ -11,6 +11,7 @@ import {
   resumePendingCaptures,
 } from "../lib/agent";
 import { installAppLifecycle } from "../lib/appLifecycle";
+import { clearStaleBackgroundTask } from "../lib/background";
 import {
   getAssistantState,
   installAssistantLifecycle,
@@ -96,6 +97,10 @@ export default function App() {
     useSyncExternalStore(subscribeAssistant, getAssistantState).status === "running";
 
   useEffect(() => {
+    // Clear a "working…" notification stranded by a previous process before
+    // anything new starts holding one.
+    void clearStaleBackgroundTask();
+
     // Warm the DB (runs migrations), re-sync the fasting notification, resume
     // any captures whose background analysis was interrupted, and pull new
     // Garmin/Health Connect data (no-op unless connected in Settings).
