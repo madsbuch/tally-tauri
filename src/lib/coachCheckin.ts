@@ -23,6 +23,7 @@ import {
   recordTriggerRun,
 } from "./coachTriggers";
 import type { Evaluation } from "./coachTriggers";
+import { markCheckinUnread } from "./coachInbox";
 import { withBackgroundTask } from "./background";
 import { ensureNotificationPermission } from "./fasting";
 import { SETTING_KEYS } from "./types";
@@ -141,6 +142,11 @@ export async function runCoachCheckin(
     const chatId = await createChat(title, saved);
 
     await recordTriggerRun(winner.key, today, chatId);
+    // What makes it findable: the notification can't say which chat it means,
+    // so the app asks this on the way back in.
+    await markCheckinUnread(chatId).catch(() => {
+      /* the chat is saved either way; it just won't announce itself */
+    });
     // A reminder fires once. The coach re-arms it from inside the turn if the
     // thing still needs watching; clearing here means one it forgot to close
     // can't come back tomorrow and crowd out everything else.

@@ -82,6 +82,22 @@ internal object CoachDb {
         }
     }
 
+    /**
+     * Write a setting the app will read on its way back in. The app is closed
+     * while this runs, so a row in the database is the only channel there is.
+     */
+    fun putSetting(db: SQLiteDatabase, key: String, value: String) {
+        val stmt = db.compileStatement(
+            "INSERT INTO settings (key, value) VALUES (?, ?) " +
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        stmt.bindString(1, key)
+        stmt.bindString(2, value)
+        // executeInsert is the documented call for an INSERT; the upsert makes
+        // its return value (-1 when the row already existed) uninteresting.
+        stmt.use { it.executeInsert() }
+    }
+
     /** Trigger keys fired on or after `sinceDay`, as day→key pairs. */
     fun runHistory(db: SQLiteDatabase, sinceDay: String): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()

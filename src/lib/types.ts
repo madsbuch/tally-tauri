@@ -323,6 +323,12 @@ export const SETTING_KEYS = {
    * worker — it has no JavaScript to build one with (see lib/coach.ts).
    */
   coachPromptPrefix: "coach_prompt_prefix",
+  /**
+   * Id of the check-in chat the user hasn't opened yet. Written by both the
+   * in-app run and the Android worker, which is the only way the app can find
+   * out that the coach said something while it was closed.
+   */
+  coachUnreadChat: "coach_unread_chat",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

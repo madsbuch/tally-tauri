@@ -14,6 +14,7 @@ import {
 } from "../lib/assistantRunner";
 import type { UiItem } from "../lib/assistantRunner";
 import AssistantChart from "../components/AssistantChart";
+import { markCheckinRead, useUnreadCheckin } from "../lib/coachInbox";
 import { Link } from "../router";
 
 const SUGGESTIONS = [
@@ -59,6 +60,8 @@ export default function AssistantPage() {
   const { items, status, error, activeTool, canRetry } = state;
   const busy = status === "running";
   const chatOpen = items.length > 0;
+
+  const unread = useUnreadCheckin();
 
   const [history, setHistory] = useState<ChatSummary[]>([]);
   const [input, setInput] = useState("");
@@ -111,6 +114,12 @@ export default function AssistantPage() {
     setHistory(await listChats());
   }
 
+  function openChat(id: number) {
+    void openAssistantChat(id)
+      .then(() => markCheckinRead(id))
+      .catch((e) => console.error("Could not open chat", e));
+  }
+
   function send(textRaw?: string) {
     const text = (textRaw ?? input).trim();
     if (!text || busy) return;
@@ -132,6 +141,21 @@ export default function AssistantPage() {
           </button>
         )}
       </header>
+
+      {unread && (
+        <button
+          className="coach-unread"
+          onClick={() => openChat(unread.id)}
+          disabled={busy}
+        >
+          <span className="coach-unread-icon">🔔</span>
+          <span className="coach-unread-main">
+            <span className="coach-unread-title">Your coach checked in</span>
+            <span className="coach-unread-sub">{unread.title}</span>
+          </span>
+          <span className="row-end">›</span>
+        </button>
+      )}
 
       {hasKey === false && (
         <div className="card">
@@ -187,11 +211,7 @@ export default function AssistantPage() {
                     <button
                       className="chat-suggestion row-main"
                       style={{ background: "none", border: "none", padding: 0 }}
-                      onClick={() => {
-                        void openAssistantChat(c.id).catch((e) =>
-                          console.error("Could not open chat", e),
-                        );
-                      }}
+                      onClick={() => openChat(c.id)}
                     >
                       <div className="row-title" style={{ whiteSpace: "normal" }}>
                         {c.title}

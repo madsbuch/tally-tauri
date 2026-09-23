@@ -815,6 +815,24 @@ export async function listChats(limit = 50): Promise<ChatSummary[]> {
   }));
 }
 
+/** One chat's heading, without its transcript; null when it's gone. */
+export async function getChatSummary(id: number): Promise<ChatSummary | null> {
+  const rows = await db
+    .select({
+      id: chats.id,
+      title: chats.title,
+      createdAt: chats.createdAt,
+      updatedAt: chats.updatedAt,
+    })
+    .from(chats)
+    .where(eq(chats.id, id))
+    .limit(1);
+  const r = rows[0];
+  return r
+    ? { id: r.id, title: r.title, created_at: r.createdAt, updated_at: r.updatedAt }
+    : null;
+}
+
 /** Full transcript of a saved chat; null when the chat doesn't exist. */
 export async function getChatMessages(id: number): Promise<ChatMessage[] | null> {
   const rows = await db

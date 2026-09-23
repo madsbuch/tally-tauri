@@ -427,11 +427,27 @@ export async function openAssistantChat(id: number): Promise<boolean> {
 }
 
 /**
- * Resume an interrupted turn whenever the app returns to the foreground.
- * Call once on app start; returns a cleanup function.
+ * Long enough away that the conversation you left open isn't where you are any
+ * more — the Coach tab should greet you with the list (and anything the coach
+ * has sent since) rather than a thread from yesterday.
+ */
+const STALE_CHAT_MS = 30 * 60_000;
+
+/**
+ * Resume an interrupted turn whenever the app returns to the foreground, and
+ * let go of a long-abandoned conversation. Call once on app start; returns a
+ * cleanup function.
  */
 export function installAssistantLifecycle(): () => void {
-  return onAppResume(() => {
-    if (status === "interrupted" && autoResumable && !inFlight) retryAssistant();
+  return onAppResume((awayMs) => {
+    if (status === "interrupted" && autoResumable && !inFlight) {
+      retryAssistant();
+      return;
+    }
+    // Nothing is lost by closing it: the transcript is saved after every turn
+    // and the chat stays at the top of the list.
+    if (awayMs >= STALE_CHAT_MS && status === "idle" && !inFlight) {
+      closeAssistantChat();
+    }
   });
 }

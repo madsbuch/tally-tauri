@@ -21,6 +21,7 @@ import {
   installAssistantLifecycle,
   subscribeAssistant,
 } from "../lib/assistantRunner";
+import { useUnreadCheckin } from "../lib/coachInbox";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 
@@ -99,6 +100,9 @@ export default function App() {
   // a turn running in the background is invisible.
   const assistantBusy =
     useSyncExternalStore(subscribeAssistant, getAssistantState).status === "running";
+  // A check-in the user hasn't opened: findable from any tab, since the
+  // notification that announced it can't point at anything.
+  const unreadCheckin = useUnreadCheckin();
 
   useEffect(() => {
     // Clear a "working…" notification stranded by a previous process before
@@ -178,8 +182,13 @@ export default function App() {
           >
             <span className="tab-icon">
               {t.icon}
-              {t.to === "/assistant" && assistantBusy && (
-                <span className="tab-dot" aria-label="Assistant is working" />
+              {t.to === "/assistant" && (assistantBusy || unreadCheckin) && (
+                <span
+                  className={`tab-dot${assistantBusy ? "" : " tab-dot-unread"}`}
+                  aria-label={
+                    assistantBusy ? "Coach is working" : "Your coach checked in"
+                  }
+                />
               )}
             </span>
             <span className="tab-label">{t.label}</span>

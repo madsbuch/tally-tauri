@@ -17,8 +17,10 @@
 
 /** Epoch ms of the last time the app was backgrounded; 0 before any hide. */
 let lastHiddenAt = 0;
+/** How long the app was away the last time it came back. */
+let lastAwayMs = 0;
 let installed = false;
-const resumeHandlers = new Set<() => void>();
+const resumeHandlers = new Set<(awayMs: number) => void>();
 
 export function isAppHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
@@ -34,10 +36,12 @@ export function wasSuspendedSince(startedAtMs: number): boolean {
 }
 
 /**
- * Run `fn` every time the app returns to the foreground. Returns an
- * unsubscribe function.
+ * Run `fn` every time the app returns to the foreground, with how long the app
+ * was away — some things (an interrupted request) want picking up whatever the
+ * gap, others (the conversation you had open) only matter if it was brief.
+ * Returns an unsubscribe function.
  */
-export function onAppResume(fn: () => void): () => void {
+export function onAppResume(fn: (awayMs: number) => void): () => void {
   resumeHandlers.add(fn);
   return () => resumeHandlers.delete(fn);
 }
@@ -53,15 +57,21 @@ export function installAppLifecycle(): () => void {
   const fire = () => {
     for (const fn of resumeHandlers) {
       try {
-        fn();
+        fn(lastAwayMs);
       } catch (e) {
         console.warn("Resume handler failed", e);
       }
     }
   };
   const onVisibility = () => {
-    if (document.visibilityState === "hidden") lastHiddenAt = Date.now();
-    else fire();
+    if (document.visibilityState === "hidden") {
+      lastHiddenAt = Date.now();
+      return;
+    }
+    // Measured once per return, so the `focus` event that follows reports the
+    // same gap rather than one that keeps growing.
+    lastAwayMs = lastHiddenAt ? Date.now() - lastHiddenAt : 0;
+    fire();
   };
 
   document.addEventListener("visibilitychange", onVisibility);

@@ -186,7 +186,12 @@ internal object CoachWorker {
 
             val title = "${winner.trigger.title} · $day"
             val chatId = CoachDb.insertChat(db, title, system, message)
-            if (chatId > 0) CoachDb.insertRun(db, winner.trigger.key, day, chatId)
+            if (chatId > 0) {
+                CoachDb.insertRun(db, winner.trigger.key, day, chatId)
+                // Tapping the notification only reopens the app wherever it
+                // was; this is what lets it find the check-in (lib/coachInbox.ts).
+                CoachDb.putSetting(db, "coach_unread_chat", chatId.toString())
+            }
             if (winner.trigger.key == "follow_up_due") {
                 CoachDb.clearFollowUps(db, due.map { it.id })
             }

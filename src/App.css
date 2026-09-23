@@ -144,6 +144,11 @@ body {
   animation: tab-dot-pulse 1.4s ease-in-out infinite;
 }
 
+/* A waiting check-in isn't in progress — it sits still until you read it. */
+.tab-dot-unread {
+  animation: none;
+}
+
 @keyframes tab-dot-pulse {
   0%,
   100% {
@@ -525,6 +530,55 @@ textarea.input {
   object-fit: cover;
   border-radius: var(--radius-sm);
   background: var(--bg-elev);
+}
+
+/* The coach's unread check-in. Sits above whatever the Coach page is showing,
+   including an open conversation — being hidden behind one is what made
+   check-ins impossible to find. */
+.coach-unread {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.coach-unread:disabled {
+  opacity: 0.6;
+}
+
+.coach-unread-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.coach-unread-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.coach-unread-title {
+  font-weight: 600;
+}
+
+.coach-unread-sub {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Library document pages.
