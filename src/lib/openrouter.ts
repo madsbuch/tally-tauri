@@ -4,6 +4,8 @@ import { NUTRIENT_DEFS } from "./nutrients";
 import {
   DocumentAnalysisSchema,
   FoodAnalysisSchema,
+  MealRevisionSchema,
+  WorkoutRevisionSchema,
   PhotoAnalysisSchema,
   SupplementAnalysisSchema,
   WorkoutAnalysisSchema,
@@ -467,6 +469,77 @@ export async function analyzeDocument(
   ]);
 
   return DocumentAnalysisSchema.parse(extractJsonObject(content));
+}
+
+export interface ReviseEntryOptions {
+  apiKey: string;
+  model: string;
+  /** The entry as it stands, as the user sees it. */
+  current: Record<string, unknown>;
+  /** What the user says is wrong with it, in their own words. */
+  instruction: string;
+  /** The entry's own photo, when it has one — the best evidence there is. */
+  imageDataUrl?: string | undefined;
+}
+
+const REVISION_RULES = [
+  "You are correcting ONE entry in someone's diary. You are given the entry exactly as it stands and a correction from the person who logged it.",
+  "Respond with a SINGLE JSON object and nothing else - no markdown, no code fences.",
+  "Apply the correction and carry it through the whole entry: if the portion changes, every nutrient changes with it, proportionally unless you have reason to think otherwise.",
+  "Change nothing the correction doesn't bear on. If the title is still right, return it unchanged.",
+  "The correction is the authority — they were there and you weren't. A photo, when given, is this entry's own: use it to re-estimate what the correction asks about, not to argue with them.",
+  "`note`: one short sentence, to them, saying what you changed and why. No preamble.",
+];
+
+/**
+ * Re-estimate an entry from a plain-language correction — "the cheese block
+ * was 7 g, not 3 g", "this was a double espresso".
+ *
+ * The whole corrected entry comes back rather than a patch: a portion change
+ * moves every nutrient with it, and a patch would leave half of them stale.
+ */
+export async function reviseMealEntry(
+  opts: ReviseEntryOptions,
+): Promise<z.infer<typeof MealRevisionSchema>> {
+  const system = [
+    ...REVISION_RULES,
+    `Schema: {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}, "note": string}`,
+    "Nutrients are TOTALS for the whole portion as corrected. Include every key you can reasonably estimate; omit the rest rather than guessing zeros.",
+  ].join("\n");
+  return MealRevisionSchema.parse(extractJsonObject(await askForRevision(opts, system)));
+}
+
+export async function reviseWorkoutEntry(
+  opts: ReviseEntryOptions,
+): Promise<z.infer<typeof WorkoutRevisionSchema>> {
+  const system = [
+    ...REVISION_RULES,
+    `Schema: {"title": string (short, max 5 words), "description": string (1-2 sentences), "calories_burned": number (kcal), "duration_min": number (minutes, omit if unknown), "note": string}`,
+  ].join("\n");
+  return WorkoutRevisionSchema.parse(
+    extractJsonObject(await askForRevision(opts, system)),
+  );
+}
+
+function askForRevision(opts: ReviseEntryOptions, system: string): Promise<string> {
+  const parts: ContentPart[] = [
+    {
+      type: "text",
+      text: [
+        "The entry as it stands:",
+        JSON.stringify(opts.current),
+        "",
+        `Their correction: ${opts.instruction}`,
+      ].join("\n"),
+    },
+  ];
+  if (opts.imageDataUrl) {
+    parts.push({ type: "image_url", image_url: { url: opts.imageDataUrl } });
+  }
+  return chat(opts.apiKey, opts.model, [
+    { role: "system", content: system },
+    { role: "user", content: parts },
+  ]);
 }
 
 /**

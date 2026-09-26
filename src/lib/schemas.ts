@@ -184,6 +184,28 @@ export const WorkoutAnalysisSchema = z.object({
   duration_min: looseMinutes,
 });
 
+/**
+ * A correction to an entry that already exists ("the cheese block was 7 g, not
+ * 3 g"). The model returns the whole corrected entry rather than a patch: a
+ * portion change moves every nutrient with it, and asking for a patch invites
+ * half of them to be left behind.
+ */
+export const MealRevisionSchema = z.object({
+  title: looseTitle("Meal"),
+  description: looseDescription,
+  nutrients: NutrientsField,
+  /** One line for the user: what this changed. */
+  note: looseDescription,
+});
+
+export const WorkoutRevisionSchema = z.object({
+  title: looseTitle("Workout"),
+  description: looseDescription,
+  calories_burned: looseKcal,
+  duration_min: looseMinutes,
+  note: looseDescription,
+});
+
 export const SupplementAnalysisSchema = z.object({
   nutrients: NutrientsField,
   notes: z.unknown().optional().transform((v) => (typeof v === "string" ? v : "")),

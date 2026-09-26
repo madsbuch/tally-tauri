@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type {
   Capture,
   FoodEntry,
@@ -9,11 +10,7 @@ import type {
   Workout,
 } from "../lib/types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
-import {
-  NUTRIENT_DEFS,
-  NUTRIENT_KEYS,
-  scaleNutrients,
-} from "../lib/nutrients";
+import { NUTRIENT_DEFS, NUTRIENT_KEYS } from "../lib/nutrients";
 import {
   dayOf,
   formatTimeHere,
@@ -21,15 +18,21 @@ import {
   timeOf as localHhMm,
 } from "../lib/daystamp";
 import {
+  GlyphThumb,
+  IconPicker,
+  PhotoImg,
+  errMsg,
+  numToInput,
+  workoutGlyph,
+} from "../components/EntryBits";
+import { useSheetHistory } from "../lib/sheetHistory";
+import {
   addFoodEntry,
   addSupplement,
   addSupplementLog,
   addWorkout,
-  deleteFoodEntry,
   deletePhotoIfUnused,
   deleteSupplement,
-  deleteSupplementLog,
-  deleteWorkout,
   getSetting,
   listCapturesForDay,
   listFoodEntriesForDay,
@@ -42,10 +45,7 @@ import {
   listWorkoutsForRange,
   setDayGoalAdjustment,
   todayStr,
-  updateFoodEntry,
   updateSupplement,
-  updateSupplementLog,
-  updateWorkout,
 } from "../lib/db";
 import {
   discardCapture,
@@ -54,21 +54,13 @@ import {
   retryCapture,
 } from "../lib/agent";
 import { analyzeSupplement } from "../lib/openrouter";
-import { compressImage, photoSrc, savePhoto } from "../lib/photos";
-import NutrientTable, { MacroChips } from "../components/NutrientTable";
+import { compressImage, savePhoto } from "../lib/photos";
+import { MacroChips } from "../components/NutrientTable";
 import AchievementsSheet from "../components/AchievementsSheet";
 import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
-import {
-  SYNCED_WORKOUT_GLYPH,
-  WORKOUT_FALLBACK_GLYPH,
-  entryGlyph,
-  guessIconKey,
-  iconGlyph,
-  iconsFor,
-} from "../lib/icons";
-import type { IconKind } from "../lib/icons";
+import { entryGlyph } from "../lib/icons";
 import {
   MAX_MANUAL_ADJUSTMENT,
   getDayGoal,
@@ -101,10 +93,6 @@ const COMMON_SUPP_KEYS = new Set<NutrientKey>([
 ]);
 
 const DOSE_UNITS = ["mg", "µg", "g", "IU", "ml", "capsule", "tablet", "drop"];
-
-function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
@@ -199,10 +187,6 @@ function dayTimeToIso(day: string, time: string, offsetMin?: number | null): str
   return isoFromLocal(day, hhmm, offsetMin);
 }
 
-function numToInput(v: number): string {
-  return String(Math.round(v * 100) / 100);
-}
-
 /** Round-and-format, rendering negatives with a proper minus sign. */
 function fmtSignedInt(n: number): string {
   const r = Math.round(n);
@@ -238,162 +222,6 @@ function MeterBar({ pct, warn }: { pct: number; warn?: boolean }) {
           background: warn ? "var(--warn)" : "var(--accent)",
         }}
       />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Android back button ↔ sheets
-// ---------------------------------------------------------------------------
-
-/**
- * Stack of currently open sheet layers (topmost last). A single global
- * popstate listener closes only the topmost layer, so the hardware back
- * button peels sheets one at a time instead of navigating the WebView.
- */
-const sheetLayers: { close: () => void }[] = [];
-/** History entries we popped ourselves (button/backdrop close) — ignore their popstate. */
-let consumePending = 0;
-let popListenerInstalled = false;
-
-function ensurePopListener() {
-  if (popListenerInstalled) return;
-  popListenerInstalled = true;
-  window.addEventListener("popstate", () => {
-    if (consumePending > 0) {
-      consumePending--;
-      return;
-    }
-    const top = sheetLayers.pop();
-    if (top) top.close();
-  });
-}
-
-/**
- * While `open` is true, keep one history entry on the stack so the Android
- * back button closes this sheet (via `close`) instead of leaving the app.
- * Closing by button/backdrop consumes the pushed entry with history.back().
- */
-function useSheetHistory(open: boolean, close: () => void) {
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  useEffect(() => {
-    if (!open) return;
-    ensurePopListener();
-    const layer = { close: () => closeRef.current() };
-    sheetLayers.push(layer);
-    window.history.pushState({ sheet: true }, "");
-    return () => {
-      const idx = sheetLayers.indexOf(layer);
-      // Still on the stack → closed by button/backdrop, not by popstate:
-      // remove it and consume the history entry we pushed.
-      if (idx !== -1) {
-        sheetLayers.splice(idx, 1);
-        consumePending++;
-        window.history.back();
-      }
-    };
-  }, [open]);
-}
-
-/** Resolves a stored photo filename to a displayable <img>. */
-function PhotoImg({
-  filename,
-  className,
-  alt,
-}: {
-  filename: string;
-  className: string;
-  alt: string;
-}) {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    photoSrc(filename)
-      .then((s) => {
-        if (alive) setSrc(s);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [filename]);
-  if (!src) return <div className={className} />;
-  return <img src={src} className={className} alt={alt} />;
-}
-
-/** Emoji glyph in a photo-thumb-sized rounded square. */
-function GlyphThumb({ glyph }: { glyph: string }) {
-  return (
-    <div
-      className="photo-thumb"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 22,
-      }}
-    >
-      {glyph}
-    </div>
-  );
-}
-
-/**
- * The glyph for a photo-less workout row. Synced sessions fall back to the
- * watch marker only when their title says nothing useful — "Morning run"
- * deserves 🏃 whether it came from Garmin or was typed in by hand.
- */
-function workoutGlyph(w: Workout): string {
-  return (
-    iconGlyph(w.icon) ??
-    iconGlyph(guessIconKey(w.title, "workout")) ??
-    (w.source ? SYNCED_WORKOUT_GLYPH : WORKOUT_FALLBACK_GLYPH)
-  );
-}
-
-/**
- * Icon chooser for entries without a photo. "Auto" (null) keeps whatever the
- * title suggests, so renaming an entry keeps its icon sensible.
- */
-function IconPicker({
-  kind,
-  title,
-  value,
-  onChange,
-}: {
-  kind: IconKind;
-  title: string;
-  value: string | null;
-  onChange: (key: string | null) => void;
-}) {
-  return (
-    <div className="field">
-      <label className="label">Icon</label>
-      <div className="icon-picker">
-        <button
-          type="button"
-          className={`icon-opt${value === null ? " icon-opt-active" : ""}`}
-          onClick={() => onChange(null)}
-          title="Automatic — matched from the title"
-          aria-label="Automatic icon"
-        >
-          <span>{entryGlyph(null, title, kind)}</span>
-          <span className="icon-opt-auto">auto</span>
-        </button>
-        {iconsFor(kind).map((i) => (
-          <button
-            type="button"
-            key={i.key}
-            className={`icon-opt${value === i.key ? " icon-opt-active" : ""}`}
-            onClick={() => onChange(i.key)}
-            title={i.label}
-            aria-label={i.label}
-          >
-            <span>{i.glyph}</span>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -543,513 +371,6 @@ function AmountStepper({
       >
         +
       </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Meal detail sheet
-// ---------------------------------------------------------------------------
-
-function MealDetailSheet({
-  entry,
-  onClose,
-  onChanged,
-}: {
-  entry: FoodEntry;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [title, setTitle] = useState(entry.title);
-  const [date, setDate] = useState(
-    () => entry.day ?? dayOf(entry.eaten_at, entry.tz_offset_min),
-  );
-  const [time, setTime] = useState(() => hhmmOf(entry.eaten_at, entry.tz_offset_min));
-  const [description, setDescription] = useState(entry.description ?? "");
-  const [icon, setIcon] = useState<string | null>(entry.icon);
-  const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>(() => {
-    const vals: Partial<Record<NutrientKey, string>> = {};
-    for (const k of NUTRIENT_KEYS) {
-      const v = entry.nutrients[k];
-      if (v != null) vals[k] = numToInput(v);
-    }
-    return vals;
-  });
-  const [showAllN, setShowAllN] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save() {
-    const t = title.trim();
-    if (!t) {
-      setError("Title is required.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setError("Pick a valid date.");
-      return;
-    }
-    const nutrients: Nutrients = {};
-    for (const k of NUTRIENT_KEYS) {
-      const raw = (nutrVals[k] ?? "").trim();
-      if (!raw) continue;
-      const n = parseFloat(raw);
-      if (!isFinite(n) || n < 0) {
-        const label = NUTRIENT_DEFS.find((d) => d.key === k)?.label ?? k;
-        setError(`${label} must be a number ≥ 0.`);
-        return;
-      }
-      nutrients[k] = n;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await updateFoodEntry({
-        ...entry,
-        title: t,
-        description: description.trim() || null,
-        eaten_at: dayTimeToIso(date, time, entry.tz_offset_min),
-        nutrients,
-        icon,
-      });
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  async function remove() {
-    if (!window.confirm(`Delete "${entry.title}"? This cannot be undone.`)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteFoodEntry(entry.id);
-      await deletePhotoIfUnused(entry.photo_path);
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        {entry.photo_path && (
-          <div style={{ marginBottom: 12 }}>
-            <PhotoImg filename={entry.photo_path} className="photo-full" alt={entry.title} />
-          </div>
-        )}
-        <div className="field">
-          <label className="label">Title</label>
-          <input
-            className="input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Meal title"
-          />
-        </div>
-        {!entry.photo_path && (
-          <IconPicker kind="meal" title={title} value={icon} onChange={setIcon} />
-        )}
-        <div className="input-row" style={{ marginBottom: 12 }}>
-          <div>
-            <label className="label">Date</label>
-            <input
-              className="input"
-              type="date"
-              max={todayStr()}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Eaten at</label>
-            <input
-              className="input"
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="field">
-          <label className="label">Description</label>
-          <textarea
-            className="input"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What it is, portion size…"
-            rows={2}
-          />
-        </div>
-        <div className="label" style={{ marginTop: 4 }}>
-          Nutrients
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "8px 10px",
-            marginBottom: 8,
-          }}
-        >
-          {NUTRIENT_DEFS.filter(
-            (d) =>
-              showAllN ||
-              BASE_KEYS.includes(d.key) ||
-              (nutrVals[d.key] ?? "").trim() !== "",
-          ).map((d) => (
-            <div key={d.key}>
-              <div className="faint small" style={{ margin: "0 2px 3px" }}>
-                {d.label} ({d.unit})
-              </div>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                step="any"
-                inputMode="decimal"
-                placeholder="—"
-                value={nutrVals[d.key] ?? ""}
-                onChange={(e) =>
-                  setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))
-                }
-              />
-            </div>
-          ))}
-        </div>
-        <button
-          className="btn btn-ghost btn-sm btn-block"
-          onClick={() => setShowAllN((v) => !v)}
-        >
-          {showAllN ? "Fewer nutrients" : "More nutrients"}
-        </button>
-        <div className="muted small" style={{ marginTop: 10 }}>
-          {entry.model_id ? `Estimated by ${entry.model_id}` : "Manual entry"}
-        </div>
-        {error && (
-          <div className="error-text" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
-        <div className="btn-row" style={{ marginTop: 16 }}>
-          <button className="btn btn-danger" onClick={remove} disabled={busy}>
-            Delete
-          </button>
-          <button className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? <span className="spinner" /> : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workout detail sheet
-// ---------------------------------------------------------------------------
-
-function WorkoutDetailSheet({
-  workout,
-  onClose,
-  onChanged,
-}: {
-  workout: Workout;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [title, setTitle] = useState(workout.title);
-  const [date, setDate] = useState(
-    () => workout.day ?? dayOf(workout.performed_at, workout.tz_offset_min),
-  );
-  const [time, setTime] = useState(
-    () => hhmmOf(workout.performed_at, workout.tz_offset_min),
-  );
-  const [calStr, setCalStr] = useState(numToInput(workout.calories_burned));
-  const [durStr, setDurStr] = useState(
-    workout.duration_min != null ? numToInput(workout.duration_min) : "",
-  );
-  const [icon, setIcon] = useState<string | null>(workout.icon);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save() {
-    const t = title.trim();
-    if (!t) {
-      setError("Title is required.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setError("Pick a valid date.");
-      return;
-    }
-    const cal = parseFloat(calStr);
-    if (!isFinite(cal) || cal < 0) {
-      setError("Calories burned must be a number ≥ 0.");
-      return;
-    }
-    const durParsed = parseFloat(durStr);
-    const dur =
-      durStr.trim() && isFinite(durParsed) && durParsed > 0
-        ? Math.round(durParsed)
-        : null;
-    setBusy(true);
-    setError(null);
-    try {
-      await updateWorkout({
-        ...workout,
-        title: t,
-        performed_at: dayTimeToIso(date, time, workout.tz_offset_min),
-        calories_burned: Math.round(cal),
-        duration_min: dur,
-        icon,
-      });
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  async function remove() {
-    if (!window.confirm(`Delete "${workout.title}"? This cannot be undone.`)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteWorkout(workout.id);
-      await deletePhotoIfUnused(workout.photo_path);
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        {workout.photo_path && (
-          <div style={{ marginBottom: 12 }}>
-            <PhotoImg
-              filename={workout.photo_path}
-              className="photo-full"
-              alt={workout.title}
-            />
-          </div>
-        )}
-        <div className="field">
-          <label className="label">Title</label>
-          <input
-            className="input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Workout title"
-          />
-        </div>
-        <IconPicker kind="workout" title={title} value={icon} onChange={setIcon} />
-        <div className="input-row" style={{ marginBottom: 12 }}>
-          <div>
-            <label className="label">Date</label>
-            <input
-              className="input"
-              type="date"
-              max={todayStr()}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Performed at</label>
-            <input
-              className="input"
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="input-row" style={{ marginBottom: 12 }}>
-          <div>
-            <label className="label">Calories burned</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step="any"
-              inputMode="decimal"
-              value={calStr}
-              onChange={(e) => setCalStr(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Duration (min)</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step="any"
-              inputMode="decimal"
-              placeholder="—"
-              value={durStr}
-              onChange={(e) => setDurStr(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="muted small" style={{ marginBottom: 8 }}>
-          {workout.source
-            ? `Synced from ${workout.source}`
-            : workout.model_id
-              ? `Imported by ${workout.model_id}`
-              : "Manual entry"}
-        </div>
-        {workout.source && (
-          <div className="faint small" style={{ marginBottom: 8 }}>
-            Edits may be overwritten by the next {workout.source} sync.
-          </div>
-        )}
-        {workout.description && (
-          <div className="muted small" style={{ marginBottom: 8 }}>
-            {workout.description}
-          </div>
-        )}
-        {error && (
-          <div className="error-text" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
-        <div className="btn-row" style={{ marginTop: 16 }}>
-          <button className="btn btn-danger" onClick={remove} disabled={busy}>
-            Delete
-          </button>
-          <button className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? <span className="spinner" /> : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Supplement-log detail sheet
-// ---------------------------------------------------------------------------
-
-function SuppLogDetailSheet({
-  log,
-  onClose,
-  onChanged,
-}: {
-  log: SupplementLogWithSupplement;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [amount, setAmount] = useState(log.amount);
-  const [date, setDate] = useState(
-    () => log.day ?? dayOf(log.taken_at, log.tz_offset_min),
-  );
-  const [time, setTime] = useState(() => hhmmOf(log.taken_at, log.tz_offset_min));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save() {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setError("Pick a valid date.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await updateSupplementLog(
-        log.id,
-        amount,
-        dayTimeToIso(date, time, log.tz_offset_min),
-        log.tz_offset_min,
-      );
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  async function remove() {
-    if (!window.confirm(`Delete this ${log.name} dose? This cannot be undone.`)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteSupplementLog(log.id);
-      onChanged();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        <h2 className="sheet-title">💊 {log.name}</h2>
-        <div className="muted small" style={{ marginBottom: 12 }}>
-          {log.dose_amount != null
-            ? `1 dose = ${numToInput(log.dose_amount)}${log.dose_unit ? ` ${log.dose_unit}` : ""}`
-            : "Dose size not set"}
-        </div>
-        <div className="field">
-          <label className="label">Amount</label>
-          <AmountStepper
-            value={amount}
-            onChange={setAmount}
-            doseAmount={log.dose_amount}
-            doseUnit={log.dose_unit}
-          />
-        </div>
-        <div className="input-row" style={{ marginBottom: 12 }}>
-          <div>
-            <label className="label">Date</label>
-            <input
-              className="input"
-              type="date"
-              max={todayStr()}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Taken at</label>
-            <input
-              className="input"
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
-          </div>
-        </div>
-        <NutrientTable nutrients={scaleNutrients(log.nutrients, amount)} />
-        {error && (
-          <div className="error-text" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
-        <div className="btn-row" style={{ marginTop: 16 }}>
-          <button className="btn btn-danger" onClick={remove} disabled={busy}>
-            Delete
-          </button>
-          <button className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? <span className="spinner" /> : "Save"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2044,6 +1365,14 @@ type TimelineItem =
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
   | { kind: "capture"; ts: string; capture: Capture };
 
+/** Where an entry's own page lives. */
+function entryPath(item: TimelineItem): string {
+  if (item.kind === "meal") return `/entry/meal/${item.entry.id}`;
+  if (item.kind === "workout") return `/entry/workout/${item.workout.id}`;
+  if (item.kind === "supp") return `/entry/supplement/${item.log.id}`;
+  return "/";
+}
+
 /** Short row title for a capture: its note, truncated, or "Photo". */
 function captureTitle(c: Capture): string {
   const note = c.note?.trim();
@@ -2074,6 +1403,12 @@ export default function DiaryPage() {
   const [hasTarget, setHasTarget] = useState<boolean | null>(null);
   const [showAdjust, setShowAdjust] = useState(false);
   const [detail, setDetail] = useState<TimelineItem | null>(null);
+  const navigate = useNavigate();
+  /** An entry has a page of its own now; only a failed capture opens a sheet. */
+  const openItem = (item: TimelineItem) => {
+    if (item.kind === "capture") setDetail(item);
+    else navigate(entryPath(item));
+  };
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [streak, setStreak] = useState<StreakInfo | null>(null);
@@ -2580,9 +1915,9 @@ export default function DiaryPage() {
                       role="button"
                       tabIndex={0}
                       style={{ cursor: "pointer" }}
-                      onClick={() => setDetail(item)}
+                      onClick={() => openItem(item)}
                       onKeyDown={(ev) => {
-                        if (ev.key === "Enter") setDetail(item);
+                        if (ev.key === "Enter") openItem(item);
                       }}
                     >
                       {e.photo_path ? (
@@ -2616,9 +1951,9 @@ export default function DiaryPage() {
                       role="button"
                       tabIndex={0}
                       style={{ cursor: "pointer" }}
-                      onClick={() => setDetail(item)}
+                      onClick={() => openItem(item)}
                       onKeyDown={(ev) => {
-                        if (ev.key === "Enter") setDetail(item);
+                        if (ev.key === "Enter") openItem(item);
                       }}
                     >
                       <GlyphThumb glyph={workoutGlyph(w)} />
@@ -2685,9 +2020,9 @@ export default function DiaryPage() {
                       role="button"
                       tabIndex={0}
                       style={{ cursor: "pointer" }}
-                      onClick={() => setDetail(item)}
+                      onClick={() => openItem(item)}
                       onKeyDown={(ev) => {
-                        if (ev.key === "Enter") setDetail(item);
+                        if (ev.key === "Enter") openItem(item);
                       }}
                     >
                       {thumb}
@@ -2709,9 +2044,9 @@ export default function DiaryPage() {
                     role="button"
                     tabIndex={0}
                     style={{ cursor: "pointer" }}
-                    onClick={() => setDetail(item)}
+                    onClick={() => openItem(item)}
                     onKeyDown={(ev) => {
-                      if (ev.key === "Enter") setDetail(item);
+                      if (ev.key === "Enter") openItem(item);
                     }}
                   >
                     <GlyphThumb glyph="💊" />
@@ -2750,27 +2085,6 @@ export default function DiaryPage() {
         </button>
       </div>
 
-      {detail?.kind === "meal" && (
-        <MealDetailSheet
-          entry={detail.entry}
-          onClose={() => setDetail(null)}
-          onChanged={bump}
-        />
-      )}
-      {detail?.kind === "workout" && (
-        <WorkoutDetailSheet
-          workout={detail.workout}
-          onClose={() => setDetail(null)}
-          onChanged={bump}
-        />
-      )}
-      {detail?.kind === "supp" && (
-        <SuppLogDetailSheet
-          log={detail.log}
-          onClose={() => setDetail(null)}
-          onChanged={bump}
-        />
-      )}
       {detail?.kind === "capture" && (
         <CaptureErrorSheet capture={detail.capture} onClose={() => setDetail(null)} />
       )}

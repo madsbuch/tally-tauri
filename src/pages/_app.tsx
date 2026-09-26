@@ -25,8 +25,14 @@ import { useUnreadCheckin } from "../lib/coachInbox";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 
-/** Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type error. */
-const TABS: { to: Path; label: string; icon: JSX.Element }[] = [
+/**
+ * Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type
+ * error. Parameterised routes (an entry's own page) are excluded: they need
+ * params, and nothing here links to one.
+ */
+type TabPath = Exclude<Path, `${string}:${string}`>;
+
+const TABS: { to: TabPath; label: string; icon: JSX.Element }[] = [
   {
     to: "/",
     label: "Diary",

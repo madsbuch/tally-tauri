@@ -357,6 +357,13 @@ export async function updateWorkout(w: Workout): Promise<void> {
     .where(eq(workouts.id, w.id));
 }
 
+/** One workout by id; null when it's been deleted. */
+export async function getWorkout(id: number): Promise<Workout | null> {
+  const rows = await db.select().from(workouts).where(eq(workouts.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toWorkout(row) : null;
+}
+
 export async function deleteWorkout(id: number): Promise<void> {
   await db.delete(workouts).where(eq(workouts.id, id));
 }
@@ -760,6 +767,31 @@ export async function updateSupplementLog(
       tzOffsetMin: tzOffsetMin ?? stampOf(takenAt).tz_offset_min,
     })
     .where(eq(supplementLogs.id, id));
+}
+
+/** One supplement dose by id, joined with its supplement; null when gone. */
+export async function getSupplementLog(
+  id: number,
+): Promise<SupplementLogWithSupplement | null> {
+  const rows = await db
+    .select({
+      id: supplementLogs.id,
+      supplement_id: supplementLogs.supplementId,
+      taken_at: supplementLogs.takenAt,
+      amount: supplementLogs.amount,
+      day: supplementLogs.day,
+      tz_offset_min: supplementLogs.tzOffsetMin,
+      name: supplements.name,
+      dose_amount: supplements.doseAmount,
+      dose_unit: supplements.doseUnit,
+      nutrients: supplements.nutrients,
+    })
+    .from(supplementLogs)
+    .innerJoin(supplements, eq(supplements.id, supplementLogs.supplementId))
+    .where(eq(supplementLogs.id, id))
+    .limit(1);
+  const r = rows[0];
+  return r ? { ...r, nutrients: sanitizeNutrients(r.nutrients) } : null;
 }
 
 export async function deleteSupplementLog(id: number): Promise<void> {
