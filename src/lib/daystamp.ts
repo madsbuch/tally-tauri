@@ -98,6 +98,18 @@ function shortOffsetLabel(offsetMin: number): string {
   return `UTC${sign}${h}${m ? `:${String(m).padStart(2, "0")}` : ""}`;
 }
 
+/**
+ * Shift a "YYYY-MM-DD" day by whole days.
+ *
+ * Pure calendar arithmetic — no timezone is involved in "the day before the
+ * 1st", and routing it through local time (as the older copies of this helper
+ * do) only invites a DST edge case that doesn't exist here.
+ */
+export function shiftDay(day: string, delta: number): string {
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
 /** "UTC+02:00" / "UTC-07:00", for telling the model where the user is. */
 export function offsetLabel(offsetMin: number): string {
   const sign = offsetMin >= 0 ? "+" : "-";

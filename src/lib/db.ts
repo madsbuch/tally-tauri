@@ -183,6 +183,13 @@ export async function listFoodEntriesForDay(day: string): Promise<FoodEntry[]> {
   return listFoodEntriesForRange(day, day);
 }
 
+/** One entry by id; null when it's been deleted. */
+export async function getFoodEntry(id: number): Promise<FoodEntry | null> {
+  const rows = await db.select().from(foodEntries).where(eq(foodEntries.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toFoodEntry(row) : null;
+}
+
 /**
  * ISO timestamp of the most recently eaten entry that counts as a meal for
  * fasting (>= FAST_BREAK_KCAL, or no calorie estimate), or null if none.

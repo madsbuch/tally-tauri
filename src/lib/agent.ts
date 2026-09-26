@@ -2,11 +2,12 @@
  * Fire-and-forget diary agent.
  *
  * A capture (photo and/or note) is stored instantly and resolved in the
- * background: the model sees the current time and the supplement catalog and
- * records entries exclusively through tool calls (log_meal / log_workout /
- * log_supplement), so phrases like "ate this earlier today" get a concrete
- * timestamp chosen by the model. Successful captures are deleted; failures
- * stay visible in the timeline with a retry.
+ * background: the model sees the current time, the supplement catalog and the
+ * diary around this day, then records entries exclusively through tool calls
+ * (log_meal / repeat_meal / log_workout / log_supplement), so phrases like
+ * "ate this earlier today" get a concrete timestamp and "one more of those"
+ * gets the same numbers as the first one. Successful captures are deleted;
+ * failures stay visible in the timeline with a retry.
  */
 import {
   addCapture,
@@ -17,9 +18,14 @@ import {
   deleteCapture,
   deletePhotoIfUnused,
   getCapture,
+  getFoodEntry,
   getSetting,
+  listFoodEntriesForDay,
+  listFoodEntriesForRange,
   listPendingCaptures,
+  listSupplementLogsForDay,
   listSupplements,
+  listWorkoutsForDay,
   setCaptureStatus,
   todayStr,
 } from "./db";
@@ -28,12 +34,19 @@ import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
 import { parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
-import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
+import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
-import type { Capture, Supplement } from "./types";
+import { shiftDay, timeOf } from "./daystamp";
+import type {
+  Capture,
+  FoodEntry,
+  Supplement,
+  SupplementLogWithSupplement,
+  Workout,
+} from "./types";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +177,35 @@ const DIARY_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "repeat_meal",
+      description:
+        "Log another serving of something already in the diary — \"one more cheese cube\", " +
+        "\"same coffee as this morning\", \"the usual breakfast\". Copies that entry's nutrients " +
+        "exactly rather than estimating them again, so a thing eaten twice counts the same twice. " +
+        "Use it whenever the note points back at an entry listed in your instructions; fall back " +
+        "to log_meal only when nothing listed is what they mean.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "number",
+            description: "Entry id (the #number) from the diary listing in your instructions",
+          },
+          portion: {
+            type: "number",
+            description:
+              "Multiple of that entry's portion: 1 (default) for the same again, 2 for twice as much, 0.5 for half.",
+          },
+          time: { type: "string", description: TIME_DESC },
+        },
+        required: ["id", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
   FOOD_FACTS_TOOL,
 ];
 
@@ -178,7 +220,97 @@ function tzOffsetLabel(d: Date): string {
   return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
-function buildSystemPrompt(capture: Capture, catalog: Supplement[]): string {
+/**
+ * What the diary already holds around this capture.
+ *
+ * Without it the agent estimates every cheese cube from scratch, so the same
+ * food logged twice in a day comes out at two different numbers — and "one
+ * more of those" means nothing to it at all.
+ */
+interface DiaryContext {
+  meals: FoodEntry[];
+  workouts: Workout[];
+  supplements: SupplementLogWithSupplement[];
+  /**
+   * Distinct things eaten on the days before — what "the usual" refers to
+   * when the day being added to is still empty.
+   */
+  recentMeals: FoodEntry[];
+}
+
+const RECENT_DAYS = 7;
+const MAX_RECENT = 10;
+
+async function loadDiaryContext(day: string): Promise<DiaryContext> {
+  const before = shiftDay(day, -RECENT_DAYS);
+  const [meals, workouts, supplements, week] = await Promise.all([
+    listFoodEntriesForDay(day).catch(() => []),
+    listWorkoutsForDay(day).catch(() => []),
+    listSupplementLogsForDay(day).catch(() => []),
+    listFoodEntriesForRange(before, shiftDay(day, -1)).catch(() => []),
+  ]);
+
+  // One line per distinct food, newest first: a week of repeats would
+  // otherwise crowd out everything else.
+  const seen = new Set(meals.map((m) => m.title.toLowerCase()));
+  const recentMeals: FoodEntry[] = [];
+  for (const m of week) {
+    const key = m.title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recentMeals.push(m);
+    if (recentMeals.length >= MAX_RECENT) break;
+  }
+  return { meals, workouts, supplements, recentMeals };
+}
+
+const kcalOf = (e: FoodEntry): number => Math.round(e.nutrients.calories ?? 0);
+
+function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): string {
+  const lines: string[] = [];
+  const when = isToday ? "today" : day;
+
+  if (ctx.meals.length + ctx.workouts.length + ctx.supplements.length === 0) {
+    lines.push(`Already in the diary for ${when}: nothing yet.`);
+  } else {
+    lines.push(`Already in the diary for ${when}:`);
+    for (const m of ctx.meals) {
+      const p = m.nutrients.protein_g;
+      lines.push(
+        `  #${m.id} ${timeOf(m.eaten_at, m.tz_offset_min)} ate "${m.title}"` +
+          ` — ${kcalOf(m)} kcal${p != null ? `, ${Math.round(p)}g protein` : ""}`,
+      );
+    }
+    for (const w of ctx.workouts) {
+      lines.push(
+        `  ${timeOf(w.performed_at, w.tz_offset_min)} did "${w.title}"` +
+          ` — ${Math.round(w.calories_burned)} kcal burned` +
+          `${w.duration_min != null ? `, ${Math.round(w.duration_min)} min` : ""}`,
+      );
+    }
+    for (const l of ctx.supplements) {
+      lines.push(
+        `  ${timeOf(l.taken_at, l.tz_offset_min)} took ${l.amount} × "${l.name}"`,
+      );
+    }
+  }
+
+  if (ctx.recentMeals.length > 0) {
+    lines.push(
+      `Eaten in the last week (for "the usual" when it isn't on the list above): ` +
+        ctx.recentMeals
+          .map((m) => `#${m.id} "${m.title}" ${kcalOf(m)} kcal`)
+          .join(", "),
+    );
+  }
+  return lines.join("\n");
+}
+
+function buildSystemPrompt(
+  capture: Capture,
+  catalog: Supplement[],
+  diary: DiaryContext,
+): string {
   const now = new Date();
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
   const local = `${todayStr(now)} ${String(now.getHours()).padStart(2, "0")}:${String(
@@ -200,7 +332,12 @@ function buildSystemPrompt(capture: Capture, catalog: Supplement[]): string {
     `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
     `Diary day being added to: ${capture.day}${isToday ? " (today)" : " (a past day — with no time clue, use 12:00)"}.`,
     `Supplement catalog: ${catalogTxt}.`,
+    "",
+    renderDiaryContext(diary, capture.day, isToday),
+    "",
     "Rules:",
+    "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
+    "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
     "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement.",
     "- Branded/packaged products (wrappers, bottles, cans, labels): look them up with search_packaged_food first and base the nutrients on the best match, scaled to the portion actually consumed. The database often lacks micronutrients — estimate missing keys yourself. Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
@@ -271,6 +408,8 @@ interface ToolContext {
   logged: number;
 }
 
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 function num(v: unknown): number | null {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return typeof n === "number" && isFinite(n) ? n : null;
@@ -318,6 +457,34 @@ async function executeTool(
     }
     notifyDiaryChanged();
     return `Logged meal "${title}" at ${time}.`;
+  }
+
+  if (name === "repeat_meal") {
+    const rawId = num(args["id"]);
+    if (rawId == null) return "Error: id is required.";
+    const source = await getFoodEntry(Math.round(rawId));
+    if (!source) {
+      return `Error: there is no diary entry #${Math.round(rawId)} — log it with log_meal instead.`;
+    }
+    // A portion is a multiple of what that entry was, so the bounds only have
+    // to keep a nonsense number from turning into a nonsense day.
+    const portion = Math.min(20, Math.max(0.05, num(args["portion"]) ?? 1));
+    const title = portion === 1 ? source.title : `${source.title} (${round2(portion)}×)`;
+    const photo = ctx.photoToAttach;
+    ctx.photoToAttach = null;
+    await addFoodEntry({
+      eaten_at: time,
+      title,
+      description: source.description,
+      photo_path: photo,
+      nutrients: sanitizeNutrients(scaleNutrients(source.nutrients, portion)),
+      // The numbers are the earlier entry's, not this model's guess.
+      model_id: source.model_id,
+      icon: source.icon,
+    });
+    ctx.logged++;
+    notifyDiaryChanged();
+    return `Logged "${title}" at ${time}, copied from #${source.id}.`;
   }
 
   if (name === "log_workout") {
@@ -393,7 +560,10 @@ async function runCapture(capture: Capture): Promise<void> {
     throw new Error("Add your OpenRouter API key in Settings first");
   }
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
-  const catalog = await listSupplements();
+  const [catalog, diary] = await Promise.all([
+    listSupplements(),
+    loadDiaryContext(capture.day),
+  ]);
 
   const parts: ContentPart[] = [
     {
@@ -411,7 +581,7 @@ async function runCapture(capture: Capture): Promise<void> {
   }
 
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(capture, catalog) },
+    { role: "system", content: buildSystemPrompt(capture, catalog, diary) },
     { role: "user", content: parts },
   ];
 
