@@ -1927,18 +1927,25 @@ export default function DiaryPage() {
                   Set a daily calorie target in Settings to track your budget here.
                 </div>
               )}
-              {steps != null && (
-                <div className="muted small" style={{ margin: "10px 2px 0" }}>
-                  👟 {Math.round(steps).toLocaleString()} steps
-                  {period !== "day" && elapsedDays > 0
-                    ? ` · ~${Math.round(steps / elapsedDays).toLocaleString()} per day`
-                    : ""}
-                </div>
-              )}
-              {sleepMin != null && (
-                <div className="muted small" style={{ margin: "4px 2px 0" }}>
-                  😴 {fmtDuration(sleepMin) ?? "—"}
-                  {period !== "day" ? " a night, on average" : " asleep"}
+              {(steps != null || sleepMin != null) && (
+                <div className="day-stats muted small">
+                  {steps != null && (
+                    <span>
+                      👟 {Math.round(steps).toLocaleString()} steps
+                      {period !== "day" && elapsedDays > 0 && (
+                        <span className="faint">
+                          {" "}
+                          ~{Math.round(steps / elapsedDays).toLocaleString()}/day
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {sleepMin != null && (
+                    <span>
+                      😴 {fmtDuration(sleepMin) ?? "—"}
+                      {period !== "day" && <span className="faint"> a night</span>}
+                    </span>
+                  )}
                 </div>
               )}
             </>

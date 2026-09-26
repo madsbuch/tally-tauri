@@ -671,6 +671,15 @@ textarea.input {
   flex: 0 0 auto;
 }
 
+/* The day's watch figures, side by side under the calorie card. They wrap to
+   two lines rather than shrinking when a week's numbers get long. */
+.day-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 10px 2px 0;
+}
+
 /* A night's stages. The watch records them and nothing showed them until the
    entry page existed; the bar is the only place they're visible at a glance. */
 .sleep-bar {
