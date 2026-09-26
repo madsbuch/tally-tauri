@@ -124,6 +124,14 @@ export function numToInput(v: number): string {
   return String(Math.round(v * 100) / 100);
 }
 
+/** "7 h 20 min", "45 min", or null when there's nothing to show. */
+export function fmtDuration(min: number | null): string | null {
+  if (min == null || min <= 0) return null;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
 export function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

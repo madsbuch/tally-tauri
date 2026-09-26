@@ -89,6 +89,21 @@ export function formatTimeHere(iso: string, offsetMin: number | null): string {
   return `${t} (${shortOffsetLabel(offsetMin)})`;
 }
 
+/**
+ * A span of time, in the zone it was lived in: "23:12 → 07:05", with the zone
+ * named once at the end when it isn't the one the phone is in now. Saying it
+ * on both ends of a range is just noise.
+ */
+export function formatRangeHere(
+  fromIso: string,
+  toIso: string,
+  offsetMin: number | null,
+): string {
+  const span = `${formatTime(fromIso, offsetMin)} → ${formatTime(toIso, offsetMin)}`;
+  if (offsetMin == null || !isElsewhere(offsetMin)) return span;
+  return `${span} (${shortOffsetLabel(offsetMin)})`;
+}
+
 /** "UTC+2" / "UTC-7:30" — the compact form, for sitting next to a time. */
 function shortOffsetLabel(offsetMin: number): string {
   const sign = offsetMin >= 0 ? "+" : "-";

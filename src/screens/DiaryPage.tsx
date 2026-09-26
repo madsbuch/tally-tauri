@@ -5,6 +5,7 @@ import type {
   FoodEntry,
   NutrientKey,
   Nutrients,
+  SleepSession,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -13,6 +14,7 @@ import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
 import { NUTRIENT_DEFS, NUTRIENT_KEYS } from "../lib/nutrients";
 import {
   dayOf,
+  formatRangeHere,
   formatTimeHere,
   isoFromLocal,
   timeOf as localHhMm,
@@ -22,6 +24,7 @@ import {
   IconPicker,
   PhotoImg,
   errMsg,
+  fmtDuration,
   numToInput,
   workoutGlyph,
 } from "../components/EntryBits";
@@ -38,6 +41,7 @@ import {
   listFoodEntriesForDay,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
+  listSleepForRange,
   listSupplementLogsForDay,
   listSupplementLogsForRange,
   listSupplements,
@@ -1360,6 +1364,7 @@ function CaptureErrorSheet({
 // ---------------------------------------------------------------------------
 
 type TimelineItem =
+  | { kind: "sleep"; ts: string; sleep: SleepSession }
   | { kind: "meal"; ts: string; entry: FoodEntry }
   | { kind: "workout"; ts: string; workout: Workout }
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
@@ -1367,6 +1372,7 @@ type TimelineItem =
 
 /** Where an entry's own page lives. */
 function entryPath(item: TimelineItem): string {
+  if (item.kind === "sleep") return `/entry/sleep/${item.sleep.id}`;
   if (item.kind === "meal") return `/entry/meal/${item.entry.id}`;
   if (item.kind === "workout") return `/entry/workout/${item.workout.id}`;
   if (item.kind === "supp") return `/entry/supplement/${item.log.id}`;
@@ -1388,6 +1394,7 @@ export default function DiaryPage() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [captures, setCaptures] = useState<Capture[] | null>(null);
+  const [sleep, setSleep] = useState<SleepSession[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [period, setPeriod] = useState<TotalsPeriod>("day");
   const [rangeData, setRangeData] = useState<{
@@ -1497,14 +1504,18 @@ export default function DiaryPage() {
       listWorkoutsForDay(day),
       listSupplementLogsForDay(day),
       listCapturesForDay(day),
+      // A night is filed under the morning it ended on, so it belongs to this
+      // day's timeline even though most of it happened yesterday.
+      listSleepForRange(day, day).catch(() => [] as SleepSession[]),
     ])
-      .then(([e, w, s, c]) => {
+      .then(([e, w, s, c, sl]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
         setWorkouts(w);
         setSuppLogs(s);
         setCaptures(c);
+        setSleep(sl);
       })
       .catch((err) => {
         if (alive) setLoadError(errMsg(err));
@@ -1577,6 +1588,38 @@ export default function DiaryPage() {
     };
   }, [day, rangeKey, refresh]);
 
+  /**
+   * Sleep for the shown day/period, synced from the watch: the night itself
+   * for a day, the average night for a week or month. Null when nothing was
+   * recorded, which hides the line rather than showing a zero.
+   */
+  const [sleepMin, setSleepMin] = useState<number | null>(null);
+  useEffect(() => {
+    const [start = day, end = day] = rangeKey ? rangeKey.split("..") : [day, day];
+    let alive = true;
+    listSleepForRange(start, end)
+      .then((nights) => {
+        if (!alive) return;
+        const byDay = new Map<string, number>();
+        for (const n of nights) {
+          const d = n.day ?? dayOf(n.ended_at, n.tz_offset_min);
+          byDay.set(d, (byDay.get(d) ?? 0) + n.duration_min);
+        }
+        const totals = [...byDay.values()];
+        setSleepMin(
+          totals.length === 0
+            ? null
+            : totals.reduce((a, b) => a + b, 0) / totals.length,
+        );
+      })
+      .catch(() => {
+        if (alive) setSleepMin(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [day, rangeKey, refresh]);
+
   // Steps for the shown day/period, synced from Health Connect. Null when no
   // day in the scope has step data (nothing synced) — the line is hidden then.
   const [steps, setSteps] = useState<number | null>(null);
@@ -1618,6 +1661,7 @@ export default function DiaryPage() {
 
   const timeline = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = [
+      ...sleep.map((s) => ({ kind: "sleep" as const, ts: s.ended_at, sleep: s })),
       ...(entries ?? []).map((e) => ({ kind: "meal" as const, ts: e.eaten_at, entry: e })),
       ...(workouts ?? []).map((w) => ({
         kind: "workout" as const,
@@ -1637,7 +1681,7 @@ export default function DiaryPage() {
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs, captures]);
+  }, [entries, workouts, suppLogs, captures, sleep]);
 
   const today = todayStr();
   const isToday = day === today;
@@ -1891,6 +1935,12 @@ export default function DiaryPage() {
                     : ""}
                 </div>
               )}
+              {sleepMin != null && (
+                <div className="muted small" style={{ margin: "4px 2px 0" }}>
+                  😴 {fmtDuration(sleepMin) ?? "—"}
+                  {period !== "day" ? " a night, on average" : " asleep"}
+                </div>
+              )}
             </>
           )}
 
@@ -1906,6 +1956,44 @@ export default function DiaryPage() {
           ) : (
             <div className="list">
               {timeline.map((item) => {
+                if (item.kind === "sleep") {
+                  const n = item.sleep;
+                  return (
+                    <div
+                      key={`sleep-${n.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => openItem(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") openItem(item);
+                      }}
+                    >
+                      <GlyphThumb glyph="😴" />
+                      <div className="row-main">
+                        <div className="row-title">
+                          Slept {fmtDuration(n.duration_min) ?? "—"}
+                        </div>
+                        <div className="row-sub">
+                          {formatRangeHere(n.started_at, n.ended_at, n.tz_offset_min)}
+                          {n.source ? ` · ${n.source}` : ""}
+                        </div>
+                        {n.deep_min != null && (
+                          <div className="chips" style={{ marginTop: 6 }}>
+                            <span className="chip">
+                              {Math.round(n.deep_min)} min deep
+                            </span>
+                            {n.rem_min != null && (
+                              <span className="chip">{Math.round(n.rem_min)} min REM</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="row-end">›</div>
+                    </div>
+                  );
+                }
                 if (item.kind === "meal") {
                   const e = item.entry;
                   return (

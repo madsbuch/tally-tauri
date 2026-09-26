@@ -461,6 +461,13 @@ export async function listAllSleepSessions(): Promise<SleepSession[]> {
   return rows.map(toSleepSession);
 }
 
+/** One night by id; null when it's gone. */
+export async function getSleepSession(id: number): Promise<SleepSession | null> {
+  const rows = await db.select().from(sleepSessions).where(eq(sleepSessions.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toSleepSession(row) : null;
+}
+
 /**
  * Sleep sessions that END within the local-day range — a night that starts
  * before midnight belongs to the morning it finished.

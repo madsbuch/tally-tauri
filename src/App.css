@@ -656,19 +656,58 @@ textarea.input {
   flex: 0 0 auto;
 }
 
+/* Wraps rather than truncates: a sleep span or a portion note is longer than
+   the row is wide, and half of it is no use to anyone. */
 .info-value {
   flex: 1 1 auto;
   min-width: 0;
   text-align: right;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .info-chev {
   color: var(--faint);
   flex: 0 0 auto;
+}
+
+/* A night's stages. The watch records them and nothing showed them until the
+   entry page existed; the bar is the only place they're visible at a glance. */
+.sleep-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+
+.sleep-seg {
+  height: 100%;
+}
+
+.sleep-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: 1px;
+}
+
+.sleep-seg-deep {
+  background: var(--accent-dim);
+}
+
+.sleep-seg-rem {
+  background: var(--accent);
+}
+
+.sleep-seg-light {
+  background: color-mix(in srgb, var(--accent) 45%, var(--bg-elev));
+}
+
+.sleep-seg-awake {
+  background: var(--warn);
 }
 
 /* Correcting an estimate in words rather than numbers. */

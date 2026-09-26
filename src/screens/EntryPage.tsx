@@ -17,6 +17,7 @@ import {
   deleteSupplementLog,
   deleteWorkout,
   getFoodEntry,
+  getSleepSession,
   getSupplementLog,
   getWorkout,
   todayStr,
@@ -30,11 +31,13 @@ import type { NutrientKey } from "../lib/types";
 import type {
   FoodEntry,
   Nutrients,
+  SleepSession,
   SupplementLogWithSupplement,
   Workout,
 } from "../lib/types";
 import {
   dayOf,
+  formatRangeHere,
   formatTimeHere,
   isElsewhere,
   isoFromLocal,
@@ -45,6 +48,7 @@ import {
   IconPicker,
   PhotoImg,
   errMsg,
+  fmtDuration,
   numToInput,
   workoutGlyph,
 } from "../components/EntryBits";
@@ -52,13 +56,13 @@ import { entryGlyph } from "../lib/icons";
 import { useSheetHistory } from "../lib/sheetHistory";
 import EntryReviseBox from "../components/EntryReviseBox";
 
-type Kind = "meal" | "workout" | "supplement";
+type Kind = "meal" | "workout" | "supplement" | "sleep";
 
 /** Nutrients shown without asking; the rest hide behind "all nutrients". */
 const BASE_KEYS: NutrientKey[] = ["calories", "protein_g", "carbs_g", "fat_g"];
 
 function isKind(v: string | undefined): v is Kind {
-  return v === "meal" || v === "workout" || v === "supplement";
+  return v === "meal" || v === "workout" || v === "supplement" || v === "sleep";
 }
 
 function longDate(day: string): string {
@@ -82,7 +86,7 @@ function InfoRow({
   value,
   onClick,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: React.ReactNode;
   onClick?: (() => void) | undefined;
 }) {
@@ -187,6 +191,7 @@ export default function EntryPage() {
   const [meal, setMeal] = useState<FoodEntry | null>(null);
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [dose, setDose] = useState<SupplementLogWithSupplement | null>(null);
+  const [night, setNight] = useState<SleepSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -208,10 +213,14 @@ export default function EntryPage() {
         const w = await getWorkout(id);
         setWorkout(w);
         setGone(w === null);
-      } else {
+      } else if (kind === "supplement") {
         const l = await getSupplementLog(id);
         setDose(l);
         setGone(l === null);
+      } else {
+        const n = await getSleepSession(id);
+        setNight(n);
+        setGone(n === null);
       }
     } catch (e) {
       setError(errMsg(e));
@@ -261,7 +270,7 @@ export default function EntryPage() {
     );
   }
 
-  if (gone || (!meal && !workout && !dose)) {
+  if (gone || (!meal && !workout && !dose && !night)) {
     return (
       <div className="page">
         <header className="page-header">
@@ -283,16 +292,29 @@ export default function EntryPage() {
 
   // -- the three shapes, reduced to what the page draws --------------------
   const photo = meal?.photo_path ?? workout?.photo_path ?? null;
-  const when = meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? "";
+  // A night is placed by the morning it ended on, which is also the day it is
+  // filed under (see lib/daystamp.ts).
+  const when =
+    meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? night?.ended_at ?? "";
   const offset =
-    meal?.tz_offset_min ?? workout?.tz_offset_min ?? dose?.tz_offset_min ?? null;
-  const day = meal?.day ?? workout?.day ?? dose?.day ?? dayOf(when, offset);
-  const title = meal?.title ?? workout?.title ?? dose?.name ?? "";
+    meal?.tz_offset_min ??
+    workout?.tz_offset_min ??
+    dose?.tz_offset_min ??
+    night?.tz_offset_min ??
+    null;
+  const day = meal?.day ?? workout?.day ?? dose?.day ?? night?.day ?? dayOf(when, offset);
+  const title =
+    meal?.title ??
+    workout?.title ??
+    dose?.name ??
+    (night ? (fmtDuration(night.duration_min) ?? "Sleep") : "");
   const glyph = meal
     ? entryGlyph(meal.icon, meal.title, "meal")
     : workout
       ? workoutGlyph(workout)
-      : "💊";
+      : night
+        ? "😴"
+        : "💊";
 
   return (
     <div className="page entry-page">
@@ -308,7 +330,9 @@ export default function EntryPage() {
         <div className="entry-glyph">{glyph}</div>
       )}
 
-      {meal || workout ? (
+      {night ? (
+        <div className="entry-title">Slept {title}</div>
+      ) : meal || workout ? (
         <button className="entry-title" onClick={() => setEditing({ field: "title" })}>
           {title}
           <span className="entry-title-edit">✎</span>
@@ -319,11 +343,26 @@ export default function EntryPage() {
       )}
 
       <div className="list" style={{ marginTop: 12 }}>
-        <InfoRow
-          label="When"
-          value={`${longDate(day)} · ${formatTimeHere(when, offset)}`}
-          onClick={() => setEditing({ field: "when" })}
-        />
+        {night ? (
+          <>
+            <InfoRow label="Night of" value={longDate(day)} />
+            <InfoRow
+              label="Asleep"
+              value={formatRangeHere(
+                night.started_at,
+                night.ended_at,
+                night.tz_offset_min,
+              )}
+            />
+            <InfoRow label="Time asleep" value={fmtDuration(night.duration_min) ?? "—"} />
+          </>
+        ) : (
+          <InfoRow
+            label="When"
+            value={`${longDate(day)} · ${formatTimeHere(when, offset)}`}
+            onClick={() => setEditing({ field: "when" })}
+          />
+        )}
         {!photo && (meal || workout) && (
           <InfoRow
             label="Icon"
@@ -396,6 +435,8 @@ export default function EntryPage() {
         </>
       )}
 
+      {night && <SleepStages night={night} />}
+
       {(meal || workout) && (
         <EntryReviseBox
           kind={meal ? "meal" : "workout"}
@@ -421,9 +462,11 @@ export default function EntryPage() {
       <p className="faint small" style={{ margin: "18px 2px 0" }}>
         {(meal?.model_id ?? workout?.model_id)
           ? `Estimated by ${meal?.model_id ?? workout?.model_id}`
-          : workout?.source
-            ? `Synced from ${workout.source}`
-            : "Entered by hand"}
+          : (workout?.source ?? night?.source)
+            ? `Synced from ${workout?.source ?? night?.source}`
+            : night
+              ? "Synced from your watch"
+              : "Entered by hand"}
         {offset != null && isElsewhere(offset)
           ? ` · logged in ${offsetLabel(offset)}`
           : ""}
@@ -435,11 +478,13 @@ export default function EntryPage() {
         </div>
       )}
 
-      <div className="btn-row" style={{ marginTop: 18 }}>
-        <button className="btn btn-danger btn-block" onClick={() => void remove()}>
-          Delete entry
-        </button>
-      </div>
+      {!night && (
+        <div className="btn-row" style={{ marginTop: 18 }}>
+          <button className="btn btn-danger btn-block" onClick={() => void remove()}>
+            Delete entry
+          </button>
+        </div>
+      )}
 
       {editing && (
         <FieldEditor
@@ -452,6 +497,56 @@ export default function EntryPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * How the night was spent, as a bar.
+ *
+ * The watch records the stages and nothing in the app has ever shown them —
+ * they went straight into the database and out again in the coach's weekly
+ * average. Sources vary in what they record, so a stage with no minutes is
+ * simply absent rather than drawn as zero.
+ */
+function SleepStages({ night }: { night: SleepSession }) {
+  const stages = [
+    { key: "deep", label: "Deep", min: night.deep_min },
+    { key: "rem", label: "REM", min: night.rem_min },
+    { key: "light", label: "Light", min: night.light_min },
+    { key: "awake", label: "Awake", min: night.awake_min },
+  ].filter((s): s is { key: string; label: string; min: number } => s.min != null);
+  if (stages.length === 0) return null;
+
+  const total = stages.reduce((a, s) => a + s.min, 0);
+  if (total <= 0) return null;
+
+  return (
+    <>
+      <div className="section-title">Stages</div>
+      <div className="sleep-bar">
+        {stages.map((s) => (
+          <div
+            key={s.key}
+            className={`sleep-seg sleep-seg-${s.key}`}
+            style={{ width: `${(s.min / total) * 100}%` }}
+            title={`${s.label} ${Math.round(s.min)} min`}
+          />
+        ))}
+      </div>
+      <div className="list" style={{ marginTop: 10 }}>
+        {stages.map((s) => (
+          <InfoRow
+            key={s.key}
+            label={
+              <>
+                <span className={`sleep-dot sleep-seg-${s.key}`} /> {s.label}
+              </>
+            }
+            value={`${fmtDuration(s.min) ?? "—"} · ${Math.round((s.min / total) * 100)}%`}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
