@@ -671,6 +671,46 @@ textarea.input {
   flex: 0 0 auto;
 }
 
+/* Help behind an ⓘ rather than a grey paragraph under every heading.
+   Sized for a thumb (the icon is 17px but the target is 32). */
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -7px -8px -7px -2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+
+.info-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.info-btn:active {
+  color: var(--accent);
+}
+
+.info-body p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.info-body p:last-child {
+  margin-bottom: 0;
+}
+
+.info-body strong {
+  color: var(--text);
+}
+
 /* The day's watch figures, side by side under the calorie card. They wrap to
    two lines rather than shrinking when a week's numbers get long. */
 .day-stats {

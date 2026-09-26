@@ -23,6 +23,7 @@ import {
   startFast,
 } from "../lib/fasting";
 import type { FastingStage } from "../lib/fasting";
+import InfoButton from "../components/InfoButton";
 
 const PRESET_HOURS = [13, 16, 18, 24, 48, 72];
 const MIN_HOURS = 1;
@@ -239,11 +240,7 @@ function StageTimeline({ elapsedMs }: { elapsedMs: number | null }) {
           </div>
         );
       })}
-      <div className="faint small" style={{ marginTop: 10 }}>
-        Stage timings are rough estimates from fasting research (much of it in
-        animals). Your last meal, activity and metabolism shift them by hours —
-        treat this as a map, not a measurement.
-      </div>
+
     </div>
   );
 }
@@ -687,7 +684,23 @@ export default function FastingPage() {
 
       {body}
 
-      <div className="section-title">Autophagy & stages</div>
+      <div
+        className="section-title"
+        style={{ display: "flex", alignItems: "center", gap: 2 }}
+      >
+        Autophagy &amp; stages
+        <InfoButton title="Fasting stages">
+          <p>
+            These timings are rough estimates from fasting research, much of it
+            done in animals.
+          </p>
+          <p>
+            Your last meal, your activity and your own metabolism shift them by
+            hours in either direction. Treat the list as a map, not a
+            measurement.
+          </p>
+        </InfoButton>
+      </div>
       <StageTimeline elapsedMs={active ? fastProgress(active, now).elapsedMs : null} />
 
       {records.completed > 0 && (

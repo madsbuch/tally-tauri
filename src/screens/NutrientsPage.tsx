@@ -7,6 +7,7 @@ import {
   todayStr,
 } from "../lib/db";
 import { onDiaryChanged } from "../lib/agent";
+import InfoButton from "../components/InfoButton";
 import {
   NUTRIENT_DEFS,
   REFERENCE_INTAKES,
@@ -477,8 +478,21 @@ export default function NutrientsPage() {
                 marginBottom: 8,
               }}
             >
-              <div className="card-title" style={{ margin: 0 }}>
+              <div
+                className="card-title"
+                style={{ margin: 0, display: "flex", alignItems: "center", gap: 2 }}
+              >
                 Keto{avgSuffix}
+                <InfoButton title="Keto">
+                  <p>
+                    <strong>Net carbs</strong> are carbs minus fiber, counted from
+                    food only — supplements don&apos;t move this bar.
+                  </p>
+                  <p>
+                    Most people stay in ketosis under {carbLimit} g a day with fat
+                    around 70–80% of their energy. Your limit is in Settings.
+                  </p>
+                </InfoButton>
               </div>
               {netCarbsPerDay != null && (
                 <span className={`chip ${overCarbLimit ? "chip-warn" : "chip-accent"}`}>
@@ -542,11 +556,6 @@ export default function NutrientsPage() {
               </div>
             </div>
 
-            <div className="faint small" style={{ marginTop: 10 }}>
-              Net carbs = carbs − fiber, from food only. On keto, most people stay
-              in ketosis under {carbLimit} g/day with fat around 70–80% of energy.
-              Adjust your limit in Settings.
-            </div>
           </div>
 
           {/* Source filter — recomputes the cards below */}
@@ -600,7 +609,23 @@ export default function NutrientsPage() {
 
           {/* Micronutrients */}
           <div className="card">
-            <div className="card-title">Micronutrients{avgSuffix}</div>
+            <div
+              className="card-title"
+              style={{ display: "flex", alignItems: "center", gap: 2 }}
+            >
+              Micronutrients{avgSuffix}
+              <InfoButton title="Micronutrients">
+                <p>
+                  Each bar compares your intake with an approximate adult daily
+                  reference — a rough yardstick, not a prescription.
+                </p>
+                <p>
+                  Over a range of days the bars show the average per day, so one
+                  unusual day doesn&apos;t swing them. Sodium turns amber when
+                  you go over rather than under.
+                </p>
+              </InfoButton>
+            </div>
             {microDefs.map((def, i) => (
               <RefRow
                 key={def.key}
@@ -609,15 +634,22 @@ export default function NutrientsPage() {
                 last={i === microDefs.length - 1}
               />
             ))}
-            <div className="faint small" style={{ marginTop: 10 }}>
-              Bars compare the {multi ? `average intake per day over these ${spanDays} days` : "day's intake"}{" "}
-              with an approximate adult daily reference. Sodium turns amber when over.
-            </div>
           </div>
 
           {/* Other compounds — creatine, caffeine, … */}
           <div className="card">
-            <div className="card-title">Other{avgSuffix}</div>
+            <div
+              className="card-title"
+              style={{ display: "flex", alignItems: "center", gap: 2 }}
+            >
+              Other{avgSuffix}
+              <InfoButton title="Other compounds">
+                <p>
+                  The creatine bar tracks a common 5 g a day supplementation
+                  target, not a dietary reference — nobody eats that much of it.
+                </p>
+              </InfoButton>
+            </div>
             {otherDefs.map((def, i) => (
               <RefRow
                 key={def.key}
@@ -626,10 +658,6 @@ export default function NutrientsPage() {
                 last={i === otherDefs.length - 1}
               />
             ))}
-            <div className="faint small" style={{ marginTop: 10 }}>
-              The creatine bar tracks a common 5 g/day supplementation target,
-              not a dietary reference.
-            </div>
           </div>
         </>
       )}

@@ -15,6 +15,7 @@ import {
 import type { UiItem } from "../lib/assistantRunner";
 import AssistantChart from "../components/AssistantChart";
 import { markCheckinRead, useUnreadCheckin } from "../lib/coachInbox";
+import InfoButton from "../components/InfoButton";
 import { Link } from "../router";
 
 const SUGGESTIONS = [
@@ -130,7 +131,21 @@ export default function AssistantPage() {
   return (
     <div className="page chat-page">
       <header className="page-header">
-        <h1 className="page-title">Coach</h1>
+        <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          Coach
+          <InfoButton title="Coach">
+            <p>
+              It reads the whole diary — meals, workouts, sleep, heart rate,
+              steps, weight, supplements, fasting — and remembers what you agree
+              on between chats.
+            </p>
+            <p>
+              It also starts conversations of its own when something in the data
+              is worth a word. Set what it should push you toward, and when it
+              may check in, under Settings → Coach.
+            </p>
+          </InfoButton>
+        </h1>
         {chatOpen && (
           <button
             className="btn btn-ghost btn-sm"
@@ -169,12 +184,6 @@ export default function AssistantPage() {
 
       {!chatOpen && hasKey !== false && (
         <>
-          <p className="muted small" style={{ margin: "0 2px 12px" }}>
-            Your coach reads the whole diary — meals, workouts, sleep, heart
-            rate, steps, weight, supplements, fasting — and remembers what you
-            agree on between chats. Set what it should push you toward under
-            Settings → Coach.
-          </p>
           <Link to="/library" className="list-row" style={{ marginBottom: 12 }}>
             <div className="row-main">
               <div className="row-title">🗄 Library</div>

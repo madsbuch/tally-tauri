@@ -24,6 +24,7 @@ import {
 import { updateDocument } from "../lib/db";
 import { compressImage, photoSrc } from "../lib/photos";
 import { MAX_PDF_PAGES, isPdf, pdfToImages } from "../lib/pdf";
+import InfoButton from "../components/InfoButton";
 
 const KIND_LABELS: Record<LibraryDocument["kind"], string> = {
   lab: "Lab result",
@@ -198,17 +199,25 @@ function DocumentSheet({
           />
         </div>
         <div className="field">
-          <label className="label">Date on the document</label>
+          <label className="label" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            Date on the document
+            <InfoButton title="Date on the document">
+              <p>
+                What the document is filed under — the day the sample was taken,
+                not the day you added it.
+              </p>
+              <p>
+                It&apos;s read off the page where there is one. Correcting it here
+                moves the document in your history.
+              </p>
+            </InfoButton>
+          </label>
           <input
             className="input"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
-          <p className="faint small" style={{ margin: "6px 2px 0" }}>
-            This is what it&apos;s filed under — the day the sample was taken, not
-            the day you added it.
-          </p>
         </div>
 
         {doc.summary && (
@@ -337,7 +346,20 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        <h2 className="sheet-title">Add to library</h2>
+        <h2 className="sheet-title" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          Add to library
+          <InfoButton title="Adding a document">
+            <p>
+              A PDF comes in as one image per page. Photograph a paper result and
+              it&apos;s the same thing with one page.
+            </p>
+            <p>
+              It gets read in the background — the date, what was measured, and
+              which values sit outside their range. You can correct any of it
+              afterwards.
+            </p>
+          </InfoButton>
+        </h2>
 
         {reading && (
           <div
@@ -415,11 +437,6 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
           />
         </div>
 
-        <p className="faint small" style={{ margin: "0 2px 12px" }}>
-          A PDF comes in as one image per page. It gets read in the background —
-          the date, what was measured, and which values sit outside their range.
-          You can correct any of it afterwards.
-        </p>
 
         {error && <div className="error-text">{error}</div>}
 
@@ -469,13 +486,22 @@ export default function LibraryPage() {
   return (
     <div className="page page-with-fab">
       <header className="page-header">
-        <h1 className="page-title">Library</h1>
+        <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          Library
+          <InfoButton title="Library">
+            <p>
+              Blood results, scan reports, letters. Photograph one or add a PDF
+              and it&apos;s read in the background — the date, what was measured,
+              and which values sit outside their range.
+            </p>
+            <p>
+              Each is filed under the date printed on it rather than the day you
+              added it, so a result from March reads as March. Your coach can
+              read the measurements off them.
+            </p>
+          </InfoButton>
+        </h1>
       </header>
-
-      <p className="muted small" style={{ margin: "0 2px 14px" }}>
-        Blood results, scan reports, letters. Each one is filed under the date
-        printed on it, and your coach can read the measurements off them.
-      </p>
 
       {loadError && <div className="error-text">{loadError}</div>}
 

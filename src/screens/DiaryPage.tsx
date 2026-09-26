@@ -29,6 +29,7 @@ import {
   workoutGlyph,
 } from "../components/EntryBits";
 import { useSheetHistory } from "../lib/sheetHistory";
+import InfoButton from "../components/InfoButton";
 import {
   addFoodEntry,
   addSupplement,
@@ -285,8 +286,23 @@ function GoalAdjustPanel({
 
   return (
     <div className="goal-adjust">
-      <div className="label" style={{ marginBottom: 6 }}>
+      <div
+        className="label"
+        style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 2 }}
+      >
         Correct this day&apos;s target
+        <InfoButton title="Correcting a day">
+          <p>
+            Takes kcal off (or adds them to) <strong>this day only</strong>. The
+            target in Settings doesn&apos;t change, and neither does the week or
+            month budget.
+          </p>
+          <p>
+            That&apos;s the point of it: the room comes off this day and stays on
+            the others, so paying back an overshoot over the next couple of days
+            leaves the period level.
+          </p>
+        </InfoButton>
       </div>
       <div className="chips" style={{ marginBottom: 8 }}>
         {QUICK_GOAL_DELTAS.map((d) => (
@@ -328,11 +344,7 @@ function GoalAdjustPanel({
           {error}
         </div>
       )}
-      <p className="faint small" style={{ margin: "8px 0 0" }}>
-        Applies to this day only. Your week and month budgets don&apos;t change —
-        the room comes off this day and stays on the others, so paying back an
-        overshoot leaves the period level. The Settings target stays as it is.
-      </p>
+
     </div>
   );
 }
@@ -1839,11 +1851,27 @@ export default function DiaryPage() {
               {untrackedDays > 0 && (
                 <div
                   className="small"
-                  style={{ margin: "0 2px 8px", color: "var(--warn)" }}
+                  style={{
+                    margin: "0 2px 8px",
+                    color: "var(--warn)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 2,
+                  }}
                 >
-                  ⚠ {untrackedDays} {untrackedDays === 1 ? "day" : "days"} in this
-                  period {untrackedDays === 1 ? "has" : "have"} nothing logged —
-                  totals{containsToday ? " and pace" : ""} are incomplete.
+                  ⚠ {untrackedDays} {untrackedDays === 1 ? "day" : "days"} with
+                  nothing logged
+                  <InfoButton title="Days with nothing logged">
+                    <p>
+                      A day with no meals on it counts as zero here, so the totals
+                      below — and the pace, if the period includes today — read
+                      lower than the days you did track.
+                    </p>
+                    <p>
+                      Only elapsed days count: the rest of a week still to come
+                      isn't held against you.
+                    </p>
+                  </InfoButton>
                 </div>
               )}
               {goalBase != null && periodTarget != null && (
@@ -1857,8 +1885,27 @@ export default function DiaryPage() {
                       marginBottom: 8,
                     }}
                   >
-                    <div className="card-title" style={{ margin: 0 }}>
+                    <div
+                      className="card-title"
+                      style={{ margin: 0, display: "flex", alignItems: "center", gap: 2 }}
+                    >
                       Calorie target
+                      <InfoButton title="Calorie target">
+                        <p>
+                          The bar is <strong>net kcal</strong> — what you ate minus
+                          what you burned — against your daily target from Settings.
+                        </p>
+                        <p>
+                          Over a week or a month the budget is simply that target
+                          times the days in the period, so a heavy day and a light
+                          one cancel out.
+                        </p>
+                        <p>
+                          Correcting a single day moves room between days inside the
+                          period; it never changes the period's own budget. Paying
+                          back Monday's overshoot on Tuesday leaves the week level.
+                        </p>
+                      </InfoButton>
                     </div>
                     <span className={`chip ${overTarget ? "chip-warn" : "chip-accent"}`}>
                       {overTarget
@@ -1888,23 +1935,15 @@ export default function DiaryPage() {
                   {periodGoal && periodGoal.manual !== 0 && (
                     <div className="faint small" style={{ marginTop: 8 }}>
                       {fmtDelta(periodGoal.manual)} kcal corrected on single days
-                      in this period — that shifts those days, not this budget.
                     </div>
                   )}
                   {period !== "day" && containsToday && (
                     <div className="faint small" style={{ marginTop: 8 }}>
-                      Budget through today: {Math.round(goalBase * elapsedDays)} kcal
-                      — you're {Math.abs(Math.round(goalBase * elapsedDays - net))}{" "}
-                      kcal {goalBase * elapsedDays - net >= 0 ? "under" : "over"} pace.
+                      {Math.abs(Math.round(goalBase * elapsedDays - net))} kcal{" "}
+                      {goalBase * elapsedDays - net >= 0 ? "under" : "over"} pace
+                      through today
                     </div>
                   )}
-                  <div
-                    className="faint small"
-                    style={{ marginTop: period !== "day" && containsToday ? 4 : 8 }}
-                  >
-                    Net kcal (eaten − burned) vs {Math.round(goalBase)} kcal/day
-                    {period !== "day" ? ` × ${daysInPeriod} days` : ""}.
-                  </div>
                   {dayGoal && (
                     <>
                       <button
