@@ -29,6 +29,10 @@ import { scanAchievements } from "../lib/achievements";
  * Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type
  * error. Parameterised routes (an entry's own page) are excluded: they need
  * params, and nothing here links to one.
+ *
+ * The links REPLACE rather than push. A tab bar is not a trail: pushing meant
+ * that after a few minutes of moving between tabs, leaving the app took a
+ * dozen presses of back, replaying every tab you had looked at.
  */
 type TabPath = Exclude<Path, `${string}:${string}`>;
 
@@ -184,6 +188,7 @@ export default function App() {
           <Link
             key={t.to}
             to={t.to}
+            replace
             className={`tab ${pathname === t.to ? "tab-active" : ""}`}
           >
             <span className="tab-icon">
