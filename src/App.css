@@ -897,20 +897,20 @@ textarea.entry-chat-input {
   transform: scale(0.96);
 }
 
-/* The quick logs sit shoulder to shoulder above ＋ Add. They carry their
-   names: two unlabelled emoji circles are a guessing game, and these are the
-   actions someone reaches for in a hurry. */
+/* The quick logs sit shoulder to shoulder above ＋ Add. */
 .fab-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .fab-secondary {
   background: var(--card);
   color: var(--text);
   border: 1px solid var(--border);
-  font-size: 13.5px;
-  padding: 10px 15px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  font-size: 20px;
   box-shadow: 0 4px 12px rgb(36 49 42 / 0.16);
 }
 

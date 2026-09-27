@@ -2252,11 +2252,21 @@ export default function DiaryPage() {
         {/* The quick logs: things with no photo to take and nothing to
             estimate, which would be a slow trip through the capture flow. */}
         <div className="fab-row">
-          <button className="fab fab-secondary" onClick={() => setSheet("state")}>
-            <span aria-hidden="true">💭</span> Feeling
+          <button
+            className="fab fab-secondary"
+            onClick={() => setSheet("state")}
+            aria-label="Log how you feel"
+            title="How do you feel?"
+          >
+            💭
           </button>
-          <button className="fab fab-secondary" onClick={() => setSheet("supp")}>
-            <span aria-hidden="true">💊</span> Supplement
+          <button
+            className="fab fab-secondary"
+            onClick={() => setSheet("supp")}
+            aria-label="Log supplement"
+            title="Log supplement"
+          >
+            💊
           </button>
         </div>
         <button className="fab" onClick={() => setSheet("add")}>
