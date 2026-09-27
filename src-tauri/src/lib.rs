@@ -99,6 +99,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0014_state_logs.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 16,
+            description: "state_categories",
+            sql: include_str!("../migrations/0015_state_categories.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

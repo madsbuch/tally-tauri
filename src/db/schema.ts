@@ -362,8 +362,9 @@ export const entryMessages = sqliteTable(
  * "bloated at 13:40" can be lined up against what was eaten at 12:15 and a
  * number out of ten can't.
  *
- * `label` is free text (a preset's wording, or their own); `icon` is a preset
- * key looked up in lib/states.ts, null for something they typed.
+ * `label` and `icon` are copied from the category it was logged under, not a
+ * reference to it: the row is a record of a day and must survive that
+ * category being renamed or removed.
  */
 export const stateLogs = sqliteTable(
   "state_logs",
@@ -383,4 +384,26 @@ export const stateLogs = sqliteTable(
     index("idx_state_logs_day").on(t.day),
     index("idx_state_logs_logged_at").on(t.loggedAt),
   ],
+);
+
+
+/**
+ * The states you can log, as a list you own.
+ *
+ * Not a fixed vocabulary shipped with the app: what is worth noticing is
+ * personal, and a list of fifteen guesses is mostly clutter around the three
+ * things you actually watch. So it starts at three, and grows only when you
+ * add to it — which is also why the emoji lives here rather than in a code
+ * table of keys. It belongs to the category, which belongs to the user.
+ */
+export const stateCategories = sqliteTable(
+  "state_categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    label: text("label").notNull(),
+    /** The emoji itself, picked by the model when the category was created. */
+    icon: text("icon").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("idx_state_categories_label").on(t.label)],
 );

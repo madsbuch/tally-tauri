@@ -475,6 +475,37 @@ textarea.input {
   line-height: 1;
 }
 
+/* Adding one, and taking one off the list. */
+.state-chip-new {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.state-chip-x {
+  color: var(--danger);
+  font-size: 12px;
+  margin-left: 2px;
+}
+
+/* The name takes the room; the button takes what it needs. */
+.state-new-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.state-new-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.state-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
 textarea.state-note {
   min-height: 52px;
 }

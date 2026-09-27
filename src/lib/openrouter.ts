@@ -7,6 +7,7 @@ import {
   MealChatSchema,
   WorkoutChatSchema,
   PhotoAnalysisSchema,
+  StateIconSchema,
   SupplementAnalysisSchema,
   WorkoutAnalysisSchema,
   parseChatResponse,
@@ -549,6 +550,37 @@ function askAboutEntry(opts: EntryChatOptions, system: string): Promise<string> 
     ...opts.history.map((m) => ({ role: m.role, content: m.text })),
     { role: "user", content: opts.message },
   ]);
+}
+
+/**
+ * One emoji for a state someone just named.
+ *
+ * Small enough to be worth asking a model rather than shipping a lookup
+ * table: the whole point of letting people name their own states is that the
+ * names are theirs, and "ears ringing" or "restless legs" was never going to
+ * be in anyone's table. Failure is not fatal anywhere it's used — the chip
+ * falls back to 💭 — so this returns null instead of throwing.
+ */
+export async function suggestStateIcon(
+  apiKey: string,
+  model: string,
+  label: string,
+): Promise<string | null> {
+  const system = [
+    "You pick ONE emoji to stand for a physical or mental state someone tracks in their health diary.",
+    'Respond with a SINGLE JSON object and nothing else: {"icon": "<one emoji>"}',
+    "Pick the most recognisable match at thumbnail size. No text, no explanation, no more than one emoji.",
+    "Faces are fine for moods; prefer a body part or an object for a symptom. Never a flag or a skin-toned hand.",
+  ].join("\n");
+  try {
+    const content = await chat(apiKey, model, [
+      { role: "system", content: system },
+      { role: "user", content: `State: ${label}` },
+    ]);
+    return StateIconSchema.parse(extractJsonObject(content)).icon;
+  } catch {
+    return null;
+  }
 }
 
 /**

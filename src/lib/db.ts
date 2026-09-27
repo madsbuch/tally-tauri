@@ -15,6 +15,7 @@ import {
   healthMetrics,
   settings,
   sleepSessions,
+  stateCategories,
   stateLogs,
   supplementLogs,
   supplements,
@@ -33,6 +34,7 @@ import type {
   FoodEntry,
   HealthMetric,
   SleepSession,
+  StateCategory,
   StateLog,
   Supplement,
   SupplementLogWithSupplement,
@@ -42,6 +44,7 @@ import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
+import { stateKey } from "./states";
 import { deletePhoto } from "./photos";
 import {
   parseChatTranscript,
@@ -1459,26 +1462,49 @@ export async function listStateLogsForRange(
 }
 
 /**
- * The states they have actually logged, most recent first — the chips that
- * matter more than the built-in ones, since a state someone typed once is
- * usually a state they will type again.
+ * The states they keep an eye on, in the order they added them — the three
+ * the app starts with first, then their own.
  */
-export async function listRecentStateLabels(
-  limit = 8,
-): Promise<{ label: string; icon: string | null }[]> {
+export async function listStateCategories(): Promise<StateCategory[]> {
+  const rows = await db.select().from(stateCategories).orderBy(stateCategories.id);
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    icon: r.icon,
+    created_at: r.createdAt,
+  }));
+}
+
+/**
+ * Add one, or hand back the one that is already there.
+ *
+ * Matching on the words rather than the exact string: someone who types
+ * "bloated" a fortnight after tapping "Bloated" means the same thing, and a
+ * list with both in it is the beginning of a mess.
+ */
+export async function addStateCategory(
+  label: string,
+  icon: string,
+): Promise<StateCategory> {
+  const name = label.trim();
+  const existing = (await listStateCategories()).find(
+    (c) => stateKey(c.label) === stateKey(name),
+  );
+  if (existing) return existing;
+  const created_at = new Date().toISOString();
   const rows = await db
-    .select({ label: stateLogs.label, icon: stateLogs.icon })
-    .from(stateLogs)
-    .orderBy(desc(stateLogs.loggedAt))
-    .limit(200);
-  const seen = new Map<string, { label: string; icon: string | null }>();
-  for (const r of rows) {
-    const key = r.label.trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.set(key, { label: r.label, icon: r.icon });
-    if (seen.size >= limit) break;
-  }
-  return [...seen.values()];
+    .insert(stateCategories)
+    .values({ label: name, icon, createdAt: created_at })
+    .returning({ id: stateCategories.id });
+  return { id: rows[0]?.id ?? 0, label: name, icon, created_at };
+}
+
+/**
+ * Take one off the list. States already logged under it keep their name and
+ * their emoji — they are a record of a day, not a reference to this row.
+ */
+export async function deleteStateCategory(id: number): Promise<void> {
+  await db.delete(stateCategories).where(eq(stateCategories.id, id));
 }
 
 // ---------------------------------------------------------------------------

@@ -327,6 +327,30 @@ export function parseEntrySnapshot(raw: unknown): FoodEntry | Workout | null {
   return workout.success ? workout.data : null;
 }
 
+/**
+ * One emoji for a state someone just invented ("Ears ringing" → 👂).
+ *
+ * Forgiving about what comes back — a model will happily answer "👂 (ear)" or
+ * wrap it in quotes — but strict about what gets through: anything with ASCII
+ * letters or digits in it is a word, not a glyph, and a word in the chip
+ * where the icon goes looks like a bug. Nothing usable becomes null, and the
+ * caller falls back to 💭.
+ */
+export const StateIconSchema = z.object({
+  icon: z
+    .unknown()
+    .optional()
+    .transform((v) => {
+      if (typeof v !== "string") return null;
+      // Keep the first "character" — an emoji can be several code points, and
+      // a variation selector or a skin-tone modifier is part of the glyph.
+      const first = [...v.trim()][0] ?? "";
+      const glyph = v.trim().split(/\s/)[0] ?? "";
+      const candidate = glyph.length <= 8 ? glyph : first;
+      return candidate && !/[a-zA-Z0-9]/.test(candidate) ? candidate : null;
+    }),
+});
+
 export const SupplementAnalysisSchema = z.object({
   nutrients: NutrientsField,
   notes: z.unknown().optional().transform((v) => (typeof v === "string" ? v : "")),

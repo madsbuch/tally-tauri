@@ -24,6 +24,7 @@ import {
   listFoodEntriesForDay,
   listFoodEntriesForRange,
   listPendingCaptures,
+  listStateCategories,
   listSupplementLogsForDay,
   listSupplements,
   listWorkoutsForDay,
@@ -37,7 +38,7 @@ import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
-import { statePresetKeys } from "./states";
+import { stateKey } from "./states";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
@@ -196,11 +197,6 @@ const DIARY_TOOLS: ToolDef[] = [
             type: "string",
             description:
               "What it is, in 1-3 words, as they'd say it: \"Bloated\", \"Depressive thoughts\".",
-          },
-          icon: {
-            type: "string",
-            enum: statePresetKeys(),
-            description: "Closest match, for the glyph; omit when none of them fits.",
           },
           note: {
             type: "string",
@@ -571,10 +567,15 @@ async function executeTool(
   if (name === "log_state") {
     const label = str(args["label"]);
     if (!label) return "Error: label is required.";
-    const icon = str(args["icon"]);
+    // The emoji belongs to the category when they keep one for this; a state
+    // the agent hears about that isn't on their list is logged all the same,
+    // just without one. Their list stays theirs to add to.
+    const known = (await listStateCategories()).find(
+      (c) => stateKey(c.label) === stateKey(label),
+    );
     await addStateLog({
-      label,
-      icon: icon && statePresetKeys().includes(icon) ? icon : null,
+      label: known?.label ?? label,
+      icon: known?.icon ?? null,
       note: str(args["note"]) || null,
       loggedAt: time,
     });

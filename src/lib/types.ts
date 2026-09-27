@@ -164,12 +164,22 @@ export interface Workout {
   tz_offset_min: number | null;
 }
 
+/** One of the states they keep an eye on (see lib/states.ts). */
+export interface StateCategory {
+  id: number;
+  label: string;
+  /** The emoji itself, picked by the model when the category was created. */
+  icon: string;
+  created_at: string;
+}
+
 /**
  * A state that was logged: how they felt, when.
  *
- * `label` is what it's called — a preset's wording or their own words — and
- * `icon` is the preset key behind it (see lib/states.ts), null for a state
- * they typed. The note is whatever else they wanted to say about it.
+ * `label` and `icon` are copied from the category it was logged under (see
+ * lib/states.ts) rather than pointing at it: a row is a record of a day, so
+ * renaming or removing a category later must not rewrite what was felt then.
+ * The note is whatever else they wanted to say about it.
  */
 export interface StateLog {
   id: number;
