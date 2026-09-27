@@ -475,18 +475,6 @@ textarea.input {
   line-height: 1;
 }
 
-/* Adding one, and taking one off the list. */
-.state-chip-new {
-  color: var(--muted);
-  border-style: dashed;
-}
-
-.state-chip-x {
-  color: var(--danger);
-  font-size: 12px;
-  margin-left: 2px;
-}
-
 /* The name takes the room; the button takes what it needs. */
 .state-new-row {
   display: flex;

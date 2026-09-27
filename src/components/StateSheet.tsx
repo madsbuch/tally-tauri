@@ -3,20 +3,16 @@
  *
  * The thing this has to get right is the moment it's used in. Nobody opens
  * their phone to describe being bloated, or to write a paragraph about a
- * depressive afternoon — so the whole sheet is one tap deep: the states you
- * watch are already chips, tapping one selects it, and Log saves. The note
- * and the time are there when the moment deserves them and skipped when it
- * doesn't.
+ * depressive afternoon — so the sheet is one tap deep: the states you watch
+ * are chips, tapping one selects it, Log saves. The note and the time are
+ * there when the moment deserves them and skipped when it doesn't.
  *
- * The chips are a list you own rather than a vocabulary the app ships. Adding
- * to it is the same one tap plus a name, and the emoji is the model's job,
- * because a state someone invents — "ears ringing", "restless legs" — was
- * never going to be in a table written in advance.
- *
- * Several at once is the normal case rather than a special one — tired AND
- * bloated AND irritable is one moment, not three trips through a form — and
- * each becomes its own row, so a state can be counted across weeks without
- * unpicking a sentence.
+ * Which means the chips must be one kind of thing and nothing else. An
+ * earlier version put "＋ New" in the row beside them and had an Edit mode
+ * that turned the same chips into delete buttons: three behaviours on one
+ * control, and a form that opened inline with no way back out of it. Keeping
+ * the list is a different job from using it, so it happens in a sheet of its
+ * own — which the back button can leave, like every other sheet in the app.
  */
 import { useEffect, useState } from "react";
 import {
@@ -28,10 +24,11 @@ import {
 } from "../lib/db";
 import { isoFromLocal, timeOf } from "../lib/daystamp";
 import { suggestStateIcon } from "../lib/openrouter";
+import { useSheetHistory } from "../lib/sheetHistory";
 import { STATE_FALLBACK_GLYPH, stateKey } from "../lib/states";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
 import type { StateCategory } from "../lib/types";
-import { errMsg } from "./EntryBits";
+import { GlyphThumb, errMsg } from "./EntryBits";
 
 /** The emoji for a state nobody has named before; the model usually finds one. */
 async function iconFor(label: string): Promise<string> {
@@ -40,6 +37,136 @@ async function iconFor(label: string): Promise<string> {
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
   return (await suggestStateIcon(apiKey, model, label)) ?? STATE_FALLBACK_GLYPH;
 }
+
+// ---------------------------------------------------------------------------
+// Keeping the list
+// ---------------------------------------------------------------------------
+
+/**
+ * The states you watch, as a list you can add to and take from.
+ *
+ * A sheet rather than a mode: adding a category is a small errand you go off
+ * on and come back from, and Cancel, Done and the back button all end it.
+ */
+function ManageStatesSheet({
+  categories,
+  onClose,
+  onChanged,
+}: {
+  categories: StateCategory[];
+  onClose: () => void;
+  /** Reload the list upstairs; the picker is showing the same rows. */
+  onChanged: () => Promise<void>;
+}) {
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add() {
+    const name = label.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // An existing one comes back as-is, so typing a name already on the
+      // list is a no-op rather than a near-duplicate.
+      const known = categories.find((c) => stateKey(c.label) === stateKey(name));
+      if (!known) await addStateCategory(name, await iconFor(name));
+      await onChanged();
+      setLabel("");
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(c: StateCategory) {
+    setError(null);
+    try {
+      await deleteStateCategory(c.id);
+      await onChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <h2 className="sheet-title">States you watch</h2>
+
+        <div className="state-new-row">
+          <input
+            className="input"
+            placeholder="Name one — ears ringing, restless legs…"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void add();
+              }
+            }}
+            disabled={busy}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={() => void add()}
+            disabled={busy || !label.trim()}
+          >
+            {busy ? <span className="spinner" /> : "Add"}
+          </button>
+        </div>
+        <p className="faint small" style={{ margin: "6px 2px 14px" }}>
+          The icon is picked for you.
+        </p>
+
+        {categories.length === 0 ? (
+          <div className="empty">
+            <div className="empty-icon">💭</div>
+            Nothing on the list yet.
+          </div>
+        ) : (
+          <div className="list">
+            {categories.map((c) => (
+              <div key={c.id} className="list-row">
+                <GlyphThumb glyph={c.icon} />
+                <div className="row-main">
+                  <div className="row-title">{c.label}</div>
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  aria-label={`Remove ${c.label}`}
+                  onClick={() => void remove(c)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className="error-text" style={{ marginTop: 10 }}>
+            {error}
+          </div>
+        )}
+
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <button className="btn btn-primary btn-block" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Using it
+// ---------------------------------------------------------------------------
 
 export default function StateSheet({
   day,
@@ -55,17 +182,19 @@ export default function StateSheet({
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [note, setNote] = useState("");
   const [time, setTime] = useState(() => timeOf(new Date().toISOString()));
-  const [adding, setAdding] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(): Promise<StateCategory[]> {
+  // The manage sheet is a layer of its own, so back leaves it and lands here
+  // rather than closing everything.
+  useSheetHistory(managing, () => setManaging(false));
+
+  async function load(): Promise<void> {
     const rows = await listStateCategories();
     setCategories(rows);
-    return rows;
+    // A state taken off the list can't stay selected underneath.
+    setPicked((prev) => new Set([...prev].filter((id) => rows.some((r) => r.id === id))));
   }
 
   useEffect(() => {
@@ -80,43 +209,6 @@ export default function StateSheet({
       return next;
     });
     setError(null);
-  }
-
-  async function create() {
-    const label = newLabel.trim();
-    if (!label || creating) return;
-    setCreating(true);
-    setError(null);
-    try {
-      // An existing one comes back as-is, so typing a name you already have
-      // selects it rather than filling the list with near-duplicates.
-      const known = categories.find((c) => stateKey(c.label) === stateKey(label));
-      const cat = known ?? (await addStateCategory(label, await iconFor(label)));
-      await load();
-      setPicked((prev) => new Set(prev).add(cat.id));
-      setNewLabel("");
-      setAdding(false);
-    } catch (e) {
-      setError(errMsg(e));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function remove(c: StateCategory) {
-    setError(null);
-    try {
-      await deleteStateCategory(c.id);
-      setPicked((prev) => {
-        const next = new Set(prev);
-        next.delete(c.id);
-        return next;
-      });
-      const rows = await load();
-      if (rows.length === 0) setEditing(false);
-    } catch (e) {
-      setError(errMsg(e));
-    }
   }
 
   async function save() {
@@ -147,70 +239,32 @@ export default function StateSheet({
           <h2 className="sheet-title" style={{ margin: 0 }}>
             How do you feel?
           </h2>
-          {categories.length > 0 && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setEditing((v) => !v);
-                setAdding(false);
-              }}
-            >
-              {editing ? "Done" : "Edit"}
-            </button>
-          )}
+          <button className="btn btn-ghost btn-sm" onClick={() => setManaging(true)}>
+            Manage
+          </button>
         </div>
 
-        <div className="state-chips">
-          {categories.map((c) => {
-            const on = picked.has(c.id);
-            return (
-              <button
-                key={c.id}
-                type="button"
-                className={`state-chip${on && !editing ? " state-chip-on" : ""}`}
-                aria-pressed={editing ? undefined : on}
-                onClick={() => (editing ? void remove(c) : toggle(c))}
-              >
-                <span className="state-chip-glyph">{c.icon}</span>
-                {c.label}
-                {editing && <span className="state-chip-x">✕</span>}
-              </button>
-            );
-          })}
-          {!editing && (
-            <button
-              type="button"
-              className="state-chip state-chip-new"
-              onClick={() => setAdding(true)}
-            >
-              ＋ New
-            </button>
-          )}
-        </div>
-
-        {adding && (
-          <div className="state-new-row">
-            <input
-              className="input"
-              autoFocus
-              placeholder="Name it — ears ringing, restless legs…"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void create();
-                }
-              }}
-              disabled={creating}
-            />
-            <button
-              className="btn btn-primary"
-              onClick={() => void create()}
-              disabled={creating || !newLabel.trim()}
-            >
-              {creating ? <span className="spinner" /> : "Add"}
-            </button>
+        {categories.length === 0 ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            No states on your list yet — add one under Manage.
+          </p>
+        ) : (
+          <div className="state-chips">
+            {categories.map((c) => {
+              const on = picked.has(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`state-chip${on ? " state-chip-on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => toggle(c)}
+                >
+                  <span className="state-chip-glyph">{c.icon}</span>
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -250,6 +304,14 @@ export default function StateSheet({
             {saving ? <span className="spinner" /> : count > 1 ? `Log ${count} states` : "Log"}
           </button>
         </div>
+
+        {managing && (
+          <ManageStatesSheet
+            categories={categories}
+            onClose={() => setManaging(false)}
+            onChanged={load}
+          />
+        )}
       </div>
     </div>
   );
