@@ -13,6 +13,11 @@
  * control, and a form that opened inline with no way back out of it. Keeping
  * the list is a different job from using it, so it happens in a sheet of its
  * own — which the back button can leave, like every other sheet in the app.
+ *
+ * One state per trip, too. Logging several at once looked like a saving until
+ * you notice what the note is for: being anxious and being low at the same
+ * hour usually have different reasons, and copying one sentence onto both
+ * records something nobody said.
  */
 import { useEffect, useState } from "react";
 import {
@@ -179,7 +184,7 @@ export default function StateSheet({
   onLogged: () => void;
 }) {
   const [categories, setCategories] = useState<StateCategory[]>([]);
-  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [picked, setPicked] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [time, setTime] = useState(() => timeOf(new Date().toISOString()));
   const [managing, setManaging] = useState(false);
@@ -194,42 +199,36 @@ export default function StateSheet({
     const rows = await listStateCategories();
     setCategories(rows);
     // A state taken off the list can't stay selected underneath.
-    setPicked((prev) => new Set([...prev].filter((id) => rows.some((r) => r.id === id))));
+    setPicked((prev) => (rows.some((r) => r.id === prev) ? prev : null));
   }
 
   useEffect(() => {
     load().catch((e) => setError(errMsg(e)));
   }, []);
 
-  function toggle(c: StateCategory) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(c.id)) next.delete(c.id);
-      else next.add(c.id);
-      return next;
-    });
+  function pick(c: StateCategory) {
+    setPicked((prev) => (prev === c.id ? null : c.id));
     setError(null);
   }
 
   async function save() {
-    const states = categories.filter((c) => picked.has(c.id));
-    if (states.length === 0 || saving) return;
+    const c = categories.find((x) => x.id === picked);
+    if (!c || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const loggedAt = isoFromLocal(day, time);
-      // One row each, sharing the moment and the note that came with it.
-      for (const c of states) {
-        await addStateLog({ label: c.label, icon: c.icon, note, loggedAt });
-      }
+      await addStateLog({
+        label: c.label,
+        icon: c.icon,
+        note,
+        loggedAt: isoFromLocal(day, time),
+      });
       onLogged();
     } catch (e) {
       setError(errMsg(e));
       setSaving(false);
     }
   }
-
-  const count = picked.size;
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -251,14 +250,14 @@ export default function StateSheet({
         ) : (
           <div className="state-chips">
             {categories.map((c) => {
-              const on = picked.has(c.id);
+              const on = picked === c.id;
               return (
                 <button
                   key={c.id}
                   type="button"
                   className={`state-chip${on ? " state-chip-on" : ""}`}
                   aria-pressed={on}
-                  onClick={() => toggle(c)}
+                  onClick={() => pick(c)}
                 >
                   <span className="state-chip-glyph">{c.icon}</span>
                   {c.label}
@@ -298,10 +297,10 @@ export default function StateSheet({
         <div className="btn-row">
           <button
             className="btn btn-primary btn-block"
-            disabled={count === 0 || saving}
+            disabled={picked === null || saving}
             onClick={() => void save()}
           >
-            {saving ? <span className="spinner" /> : count > 1 ? `Log ${count} states` : "Log"}
+            {saving ? <span className="spinner" /> : "Log"}
           </button>
         </div>
 
