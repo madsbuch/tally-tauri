@@ -1538,6 +1538,81 @@ textarea.chat-input {
   white-space: nowrap;
 }
 
+/* Weekly & monthly recap ---------------------------------------------------- */
+
+.recap-grid {
+  /* Up to nine tiles: three even rows, with room for "7h 12m". */
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 12px;
+}
+
+.recap-delta {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+
+.recap-chart {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 8px 4px;
+  margin-bottom: 4px;
+}
+
+/* "Your week in review is ready" — same weight as the coach's unread card. */
+.recap-ready {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 6px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+}
+
+.recap-ready-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recap-ready-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.recap-ready-title {
+  font-weight: 600;
+}
+
+.recap-ready-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.recap-ready-dismiss {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
 .toast {
   position: fixed;
   left: 50%;

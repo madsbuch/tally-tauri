@@ -536,6 +536,17 @@ export const TriggerConfigSchema = z.object({
 /** A map of trigger key → config; unknown keys are ignored downstream. */
 export const CoachTriggersSchema = z.record(z.string(), TriggerConfigSchema).catch({});
 
+/**
+ * Which finished recaps have been seen (see lib/recap.ts): the first day of
+ * the last week and month whose recap was opened or dismissed. Ours, so
+ * strict — the caller treats a corrupt blob as nothing seen, which at worst
+ * offers a recap twice.
+ */
+export const RecapSeenSchema = z.object({
+  week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+});
+
 /** Streak-freeze bookkeeping (see lib/streak.ts). Tolerant: junk fields reset. */
 export const StreakStateSchema = z.object({
   /**

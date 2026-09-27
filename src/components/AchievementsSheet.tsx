@@ -124,9 +124,11 @@ function AchievementRow({
 export default function AchievementsSheet({
   streak,
   onClose,
+  onOpenRecap,
 }: {
   streak: StreakInfo | null;
   onClose: () => void;
+  onOpenRecap: () => void;
 }) {
   const [unlocked, setUnlocked] = useState<Map<string, string> | null>(null);
   const [measured, setMeasured] = useState<Map<string, number>>(new Map());
@@ -195,6 +197,10 @@ export default function AchievementsSheet({
             </div>
           </>
         )}
+
+        <button className="btn btn-block" style={{ marginTop: 12 }} onClick={onOpenRecap}>
+          📅 Weekly &amp; monthly recaps
+        </button>
 
         <div className="section-title" style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Achievements</span>

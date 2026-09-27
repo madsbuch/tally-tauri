@@ -379,6 +379,8 @@ export const SETTING_KEYS = {
    * out that the coach said something while it was closed.
    */
   coachUnreadChat: "coach_unread_chat",
+  /** JSON blob: the last finished week/month whose recap was seen (see lib/recap.ts). */
+  recapSeen: "recap_seen",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

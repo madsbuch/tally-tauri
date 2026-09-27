@@ -29,7 +29,7 @@ import {
   numToInput,
   workoutGlyph,
 } from "../components/EntryBits";
-import { useSheetHistory } from "../lib/sheetHistory";
+import { afterSheetHistorySettles, useSheetHistory } from "../lib/sheetHistory";
 import InfoButton from "../components/InfoButton";
 import StateSheet from "../components/StateSheet";
 import {
@@ -65,6 +65,16 @@ import { analyzeSupplement } from "../lib/openrouter";
 import { compressImage, savePhoto } from "../lib/photos";
 import { MacroChips } from "../components/NutrientTable";
 import AchievementsSheet from "../components/AchievementsSheet";
+import RecapSheet from "../components/RecapSheet";
+import {
+  lastFinishedRange,
+  markRecapSeen,
+  pendingRecap,
+  recapCoachPrompt,
+  recapTitle,
+} from "../lib/recap";
+import type { RecapRange } from "../lib/recap";
+import { closeAssistantChat, sendAssistantMessage } from "../lib/assistantRunner";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
@@ -1444,6 +1454,12 @@ export default function DiaryPage() {
   const [refresh, setRefresh] = useState(0);
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   const [showAchievements, setShowAchievements] = useState(false);
+  /** The finished week/month whose recap is on offer, not yet opened. */
+  const [recapOffer, setRecapOffer] = useState<RecapRange | null>(null);
+  /** The recap sheet's opening range; null = closed. */
+  const [recapOpen, setRecapOpen] = useState<RecapRange | null>(null);
+  /** Where to go once the recap sheet has given its history entry back. */
+  const [afterRecap, setAfterRecap] = useState<"/assistant" | null>(null);
 
   // True when `day` was "today" at the time it was selected. Used to snap the
   // page forward after an overnight resume so new entries aren't stamped
@@ -1472,6 +1488,31 @@ export default function DiaryPage() {
   useSheetHistory(sheet === "supp", () => setSheet(null));
   useSheetHistory(sheet === "state", () => setSheet(null));
   useSheetHistory(showAchievements, () => setShowAchievements(false));
+  useSheetHistory(recapOpen !== null, () => setRecapOpen(null));
+
+  // A week or month just ended: offer its recap (re-checked on every diary
+  // change, which also covers the day rolling over while the app is open).
+  useEffect(() => {
+    let alive = true;
+    pendingRecap()
+      .then((r) => {
+        if (alive) setRecapOffer(r);
+      })
+      .catch(() => {
+        /* no card, nothing lost */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [refresh, day]);
+
+  // "Talk it over with the coach": the sheet's close runs first (effect
+  // cleanups precede effects), so by now its back() is pending.
+  useEffect(() => {
+    if (recapOpen !== null || afterRecap === null) return;
+    afterSheetHistorySettles(() => navigate(afterRecap));
+    setAfterRecap(null);
+  }, [recapOpen, afterRecap, navigate]);
 
   // Refresh whenever the background agent changes diary data — this is how a
   // pending capture row appears instantly and later turns into real entries.
@@ -1786,6 +1827,39 @@ export default function DiaryPage() {
           ›
         </button>
       </div>
+
+      {recapOffer && isToday && (
+        <div className="recap-ready" style={{ marginTop: 12 }}>
+          <button
+            className="recap-ready-open"
+            onClick={() => {
+              setRecapOpen(recapOffer);
+              setRecapOffer(null);
+            }}
+          >
+            <span className="recap-ready-icon" aria-hidden>
+              📅
+            </span>
+            <span>
+              <span className="recap-ready-title">
+                Your {recapOffer.period === "week" ? "week" : "month"} in review
+              </span>
+              <br />
+              <span className="recap-ready-sub">{recapTitle(recapOffer)}</span>
+            </span>
+          </button>
+          <button
+            className="recap-ready-dismiss"
+            aria-label="Dismiss recap"
+            onClick={() => {
+              void markRecapSeen(recapOffer);
+              setRecapOffer(null);
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {loadError && (
         <div className="error-text" style={{ margin: "14px 2px" }}>
@@ -2290,7 +2364,27 @@ export default function DiaryPage() {
         />
       )}
       {showAchievements && (
-        <AchievementsSheet streak={streak} onClose={() => setShowAchievements(false)} />
+        <AchievementsSheet
+          streak={streak}
+          onClose={() => setShowAchievements(false)}
+          onOpenRecap={() => {
+            setShowAchievements(false);
+            setRecapOpen(lastFinishedRange("week"));
+          }}
+        />
+      )}
+      {recapOpen && (
+        <RecapSheet
+          initial={recapOpen}
+          onClose={() => setRecapOpen(null)}
+          onAskCoach={(r) => {
+            // A fresh conversation, so the recap isn't tacked onto an old one.
+            closeAssistantChat();
+            sendAssistantMessage(recapCoachPrompt(r));
+            setRecapOpen(null);
+            setAfterRecap("/assistant");
+          }}
+        />
       )}
     </div>
   );

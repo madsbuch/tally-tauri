@@ -52,6 +52,15 @@ function ensurePopListener(): void {
 }
 
 /**
+ * Run `fn` once every back a closing sheet asked for has landed. Navigate
+ * through this after closing a sheet: a push made before the pop arrives is
+ * the entry that pop consumes, which would bounce straight back here.
+ */
+export function afterSheetHistorySettles(fn: () => void): void {
+  whenSettled(fn);
+}
+
+/**
  * While `open` is true, keep one history entry on the stack so the Android
  * back button closes this sheet (via `close`) instead of leaving the page.
  * Closing by button or backdrop gives that entry back.
