@@ -483,9 +483,16 @@ async function executeTool(
       icon: icon(args["icon"]),
     });
     ctx.logged++;
-    // Event-only achievement: eaten-time within 10 min of the capture being
-    // resolved means the meal was logged in the moment, not backfilled.
-    if (Math.abs(Date.now() - new Date(time).getTime()) <= 10 * 60_000) {
+    // Event-only achievement: a meal photographed within 10 min of when it
+    // was eaten — logged in the moment, not backfilled. Measured against when
+    // the capture was taken, not when the agent got round to it, and only for
+    // photos: a bare note with no time in it resolves to "now" and would hand
+    // this out for every text capture.
+    if (
+      ctx.capture.photo_path &&
+      Math.abs(new Date(ctx.capture.created_at).getTime() - new Date(time).getTime()) <=
+        10 * 60_000
+    ) {
       void unlockAchievement("quick_draw");
     }
     notifyDiaryChanged();

@@ -24,6 +24,7 @@ import {
 import { useUnreadCheckin } from "../lib/coachInbox";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
+import AchievementToast from "../components/AchievementToast";
 
 /**
  * Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type
@@ -152,7 +153,11 @@ export default function App() {
     const offAssistant = installAssistantLifecycle();
     const offDocuments = installDocumentLifecycle();
     const offCoach = onAppResume(() => void runCoachCheckin());
+    // A running fast crosses its 16/24/48h marks while the app sits in the
+    // background, with no diary change to notice it — check on the way back.
+    const offScan = onAppResume(() => void scanAchievements().catch(() => {}));
     return () => {
+      offScan();
       offCoach();
       offDocuments();
       offAssistant();
@@ -206,6 +211,7 @@ export default function App() {
           </Link>
         ))}
       </nav>
+      <AchievementToast />
     </div>
   );
 }

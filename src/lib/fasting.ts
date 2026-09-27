@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { Fast } from "./types";
 import { getActiveFast, getLastMealAt, insertFast, markFastEnded } from "./db";
+import { scanAchievements } from "./achievements";
 
 /** Notification id for the scheduled "fast complete" alert. */
 const FAST_DONE_ID = 4218;
@@ -228,6 +229,9 @@ export async function startFast(goalHours: number): Promise<Fast> {
   const { startedAt } = await resolveFastStart(goalHours);
   const fast = await insertFast(goalHours, startedAt.toISOString());
   const end = fastEnd(fast);
+  // A fast isn't a diary change, so nothing else would re-check the badges
+  // (and the day it covers now counts toward the streak).
+  void scanAchievements().catch(() => {});
 
   const granted = await ensureNotificationPermission();
   if (granted) {
@@ -258,6 +262,8 @@ export async function startFast(goalHours: number): Promise<Fast> {
  */
 export async function endFast(fast: Fast, endedAt = new Date()): Promise<void> {
   await markFastEnded(fast.id, endedAt.toISOString());
+  // Fasting badges are judged on the finished fast; see startFast.
+  void scanAchievements().catch(() => {});
   try {
     await invoke("plugin:fasting|stop_countdown");
   } catch (e) {

@@ -551,4 +551,10 @@ export const StreakStateSchema = z.object({
     .catch([])
     .transform((a) => a.filter((d): d is string => typeof d === "string")),
   lastEarnedStreak: nonNegInt,
+  /**
+   * Longest streak ever seen. Kept because it can't be recomputed: freezes
+   * that bridged an old streak are pruned once it ends, so re-deriving it
+   * from the diary would split that run at its frozen days.
+   */
+  best: nonNegInt,
 });

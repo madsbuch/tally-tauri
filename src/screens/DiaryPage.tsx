@@ -65,7 +65,6 @@ import { analyzeSupplement } from "../lib/openrouter";
 import { compressImage, savePhoto } from "../lib/photos";
 import { MacroChips } from "../components/NutrientTable";
 import AchievementsSheet from "../components/AchievementsSheet";
-import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
@@ -1445,7 +1444,6 @@ export default function DiaryPage() {
   const [refresh, setRefresh] = useState(0);
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   const [showAchievements, setShowAchievements] = useState(false);
-  const [unlockToast, setUnlockToast] = useState<string | null>(null);
 
   // True when `day` was "today" at the time it was selected. Used to snap the
   // page forward after an overnight resume so new entries aren't stamped
@@ -1493,24 +1491,6 @@ export default function DiaryPage() {
       alive = false;
     };
   }, [refresh]);
-
-  // Toast newly unlocked achievements (from the background agent or scans).
-  useEffect(
-    () =>
-      onAchievementsUnlocked((keys) => {
-        const lastKey = keys[keys.length - 1];
-        const def = lastKey ? ACHIEVEMENTS_BY_KEY.get(lastKey) : undefined;
-        if (!def) return;
-        const extra = keys.length > 1 ? ` (+${keys.length - 1} more)` : "";
-        setUnlockToast(`${def.emoji} Achievement unlocked: ${def.title}${extra}`);
-      }),
-    [],
-  );
-  useEffect(() => {
-    if (unlockToast === null) return;
-    const id = window.setTimeout(() => setUnlockToast(null), 4500);
-    return () => window.clearTimeout(id);
-  }, [unlockToast]);
 
   // Day whose data is currently on screen. Background refreshes of the same
   // day keep stale rows visible (no full-page spinner) until fresh data lands.
@@ -2311,11 +2291,6 @@ export default function DiaryPage() {
       )}
       {showAchievements && (
         <AchievementsSheet streak={streak} onClose={() => setShowAchievements(false)} />
-      )}
-      {unlockToast && (
-        <div className="toast" role="status">
-          {unlockToast}
-        </div>
       )}
     </div>
   );

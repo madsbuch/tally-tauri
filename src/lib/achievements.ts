@@ -1,8 +1,8 @@
 /**
  * Achievements engine.
  *
- * 30 achievements over the data Tally already collects: diary logging,
- * AI captures, fasting, nutrition quality, workouts and Garmin-synced body
+ * Achievements over the data Tally already collects: diary logging, AI
+ * captures, fasting, nutrition quality, workouts and Garmin-synced body
  * metrics. Deliberately NO daily-calorie-budget achievements — fasting two
  * days and eating the calories later in the week is a valid pattern here.
  *
@@ -10,6 +10,10 @@
  * from the database, so history counts and nothing is lost if a scan is
  * missed. A few (marked event-only) can only be detected the moment they
  * happen — the diary agent calls `unlockAchievement()` directly for those.
+ *
+ * Counting badges come in tier families (7/30/90… day streaks): each tier is
+ * its own achievement with its own unlock, but they share one `measure`, so
+ * the sheet can show a family as a single row climbing toward its next tier.
  */
 import {
   insertAchievement,
@@ -22,7 +26,7 @@ import {
   listUnlockedAchievements,
   todayStr,
 } from "./db";
-import { dayOf as stampedDayOf } from "./daystamp";
+import { dayOf as stampedDayOf, timeOf } from "./daystamp";
 import { REFERENCE_INTAKES, nutrientDef, scaleNutrients, sumNutrients } from "./nutrients";
 import { getStreakInfo } from "./streak";
 import type { StreakInfo } from "./streak";
@@ -64,6 +68,35 @@ export interface AchievementDef {
   category: AchievementCategory;
   /** Absent = event-only: unlocked via unlockAchievement() at the moment it happens. */
   check?: (ctx: ScanContext) => Promise<boolean>;
+  /** Tier family this belongs to; its tiers share `measure` (see tiered()). */
+  family?: string;
+  /** The family's measured value — the tier unlocks once it reaches `target`. */
+  measure?: (ctx: ScanContext) => Promise<number>;
+  target?: number;
+}
+
+interface Tier {
+  key: string;
+  emoji: string;
+  title: string;
+  description: string;
+  target: number;
+}
+
+/** One achievement per tier, all unlocked by the same measured value. */
+function tiered(
+  family: string,
+  category: AchievementCategory,
+  measure: (ctx: ScanContext) => Promise<number>,
+  tiers: Tier[],
+): AchievementDef[] {
+  return tiers.map((t) => ({
+    ...t,
+    category,
+    family,
+    measure,
+    check: async (ctx) => (await measure(ctx)) >= t.target,
+  }));
 }
 
 const HOUR_MS = 3_600_000;
@@ -181,16 +214,102 @@ async function someDay(
   return false;
 }
 
+/** Longest single fast, in hours (an active one counts up to now). */
+async function longestFastHours(ctx: ScanContext): Promise<number> {
+  return (await ctx.fasts()).reduce((best, f) => Math.max(best, fastHours(f)), 0);
+}
+
+/** Completed fasts that reached their goal. */
+async function fastGoalsReached(ctx: ScanContext): Promise<number> {
+  return (await ctx.fasts()).filter(
+    (f) => f.ended_at != null && fastHours(f) >= f.goal_hours - 1 / 3600,
+  ).length;
+}
+
+async function lifetimeFastHours(ctx: ScanContext): Promise<number> {
+  return (await ctx.fasts()).reduce((acc, f) => acc + fastHours(f), 0);
+}
+
+async function lifetimeSteps(ctx: ScanContext): Promise<number> {
+  return (await ctx.metrics()).reduce((acc, m) => acc + (m.steps ?? 0), 0);
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   // -- Logging habit --------------------------------------------------------
-  {
-    key: "first_log",
-    emoji: "🌱",
-    title: "First Bite",
-    description: "Log your first diary item.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).totalDaysLogged >= 1,
-  },
+  ...tiered("days_logged", "logging", async (ctx) => (await ctx.streak()).totalDaysLogged, [
+    {
+      key: "first_log",
+      emoji: "🌱",
+      title: "First Bite",
+      description: "Log your first diary item.",
+      target: 1,
+    },
+    {
+      key: "days_30",
+      emoji: "📒",
+      title: "Regular",
+      description: "Log on 30 different days.",
+      target: 30,
+    },
+    {
+      key: "days_100",
+      emoji: "💯",
+      title: "Century of Days",
+      description: "Log on 100 different days.",
+      target: 100,
+    },
+    {
+      key: "days_365",
+      emoji: "📚",
+      title: "A Year in the Books",
+      description: "Log on 365 different days.",
+      target: 365,
+    },
+    {
+      key: "days_1000",
+      emoji: "🏔️",
+      title: "Thousand Days",
+      description: "Log on 1,000 different days.",
+      target: 1000,
+    },
+  ]),
+  ...tiered("streak", "logging", async (ctx) => (await ctx.streak()).best, [
+    {
+      key: "streak_7",
+      emoji: "🔥",
+      title: "One Week Wonder",
+      description: "Keep a 7-day logging streak.",
+      target: 7,
+    },
+    {
+      key: "streak_30",
+      emoji: "🗓️",
+      title: "Habit Formed",
+      description: "Keep a 30-day logging streak.",
+      target: 30,
+    },
+    {
+      key: "streak_90",
+      emoji: "🏛️",
+      title: "Quarter Club",
+      description: "Keep a 90-day logging streak.",
+      target: 90,
+    },
+    {
+      key: "streak_180",
+      emoji: "🌗",
+      title: "Half-Year Hero",
+      description: "Keep a 180-day logging streak.",
+      target: 180,
+    },
+    {
+      key: "streak_365",
+      emoji: "👑",
+      title: "Unbroken Year",
+      description: "Keep a 365-day logging streak.",
+      target: 365,
+    },
+  ]),
   {
     key: "first_photo",
     emoji: "📸",
@@ -205,46 +324,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       );
     },
   },
-  {
-    key: "streak_7",
-    emoji: "🔥",
-    title: "One Week Wonder",
-    description: "Keep a 7-day logging streak.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).best >= 7,
-  },
-  {
-    key: "streak_30",
-    emoji: "🗓️",
-    title: "Habit Formed",
-    description: "Keep a 30-day logging streak.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).best >= 30,
-  },
-  {
-    key: "streak_90",
-    emoji: "🏛️",
-    title: "Quarter Club",
-    description: "Keep a 90-day logging streak.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).best >= 90,
-  },
-  {
-    key: "days_100",
-    emoji: "💯",
-    title: "Century of Days",
-    description: "Log on 100 different days.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).totalDaysLogged >= 100,
-  },
-  {
-    key: "days_365",
-    emoji: "📚",
-    title: "A Year in the Books",
-    description: "Log on 365 different days.",
-    category: "logging",
-    check: async (ctx) => (await ctx.streak()).totalDaysLogged >= 365,
-  },
 
   // -- Smart captures (event-only: captures dissolve once resolved) ---------
   {
@@ -258,7 +337,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     key: "quick_draw",
     emoji: "⚡",
     title: "Hot off the Plate",
-    description: "Capture a meal within 10 minutes of eating it.",
+    description: "Photograph a meal within 10 minutes of eating it.",
     category: "capture",
   },
   {
@@ -285,58 +364,89 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
 
   // -- Fasting --------------------------------------------------------------
-  {
-    key: "fast_16",
-    emoji: "⏳",
-    title: "First Fast",
-    description: "Fast for 16 hours.",
-    category: "fasting",
-    check: async (ctx) => (await ctx.fasts()).some((f) => fastHours(f) >= 16),
-  },
-  {
-    key: "fast_24",
-    emoji: "🕛",
-    title: "Around the Clock",
-    description: "Fast for a full 24 hours.",
-    category: "fasting",
-    check: async (ctx) => (await ctx.fasts()).some((f) => fastHours(f) >= 24),
-  },
-  {
-    key: "fast_48",
-    emoji: "♻️",
-    title: "Deep Cleanse",
-    description: "Fast for 48 hours — deep autophagy territory.",
-    category: "fasting",
-    check: async (ctx) => (await ctx.fasts()).some((f) => fastHours(f) >= 48),
-  },
-  {
-    key: "fast_72",
-    emoji: "🧬",
-    title: "Renewal",
-    description: "Fast for 72 hours — the renewal stage.",
-    category: "fasting",
-    check: async (ctx) => (await ctx.fasts()).some((f) => fastHours(f) >= 72),
-  },
-  {
-    key: "fast_goal_10",
-    emoji: "🤝",
-    title: "Promise Keeper",
-    description: "Reach your fasting goal 10 times.",
-    category: "fasting",
-    check: async (ctx) =>
-      (await ctx.fasts()).filter(
-        (f) => f.ended_at != null && fastHours(f) >= f.goal_hours - 1 / 3600,
-      ).length >= 10,
-  },
-  {
-    key: "fast_hours_500",
-    emoji: "⌛",
-    title: "Five Hundred Hours",
-    description: "Accumulate 500 lifetime fasting hours.",
-    category: "fasting",
-    check: async (ctx) =>
-      (await ctx.fasts()).reduce((acc, f) => acc + fastHours(f), 0) >= 500,
-  },
+  ...tiered("longest_fast", "fasting", longestFastHours, [
+    {
+      key: "fast_16",
+      emoji: "⏳",
+      title: "First Fast",
+      description: "Fast for 16 hours.",
+      target: 16,
+    },
+    {
+      key: "fast_24",
+      emoji: "🕛",
+      title: "Around the Clock",
+      description: "Fast for a full 24 hours.",
+      target: 24,
+    },
+    {
+      key: "fast_48",
+      emoji: "♻️",
+      title: "Deep Cleanse",
+      description: "Fast for 48 hours — deep autophagy territory.",
+      target: 48,
+    },
+    {
+      key: "fast_72",
+      emoji: "🧬",
+      title: "Renewal",
+      description: "Fast for 72 hours — the renewal stage.",
+      target: 72,
+    },
+  ]),
+  ...tiered("fast_goals", "fasting", fastGoalsReached, [
+    {
+      key: "fast_goal_10",
+      emoji: "🤝",
+      title: "Promise Keeper",
+      description: "Reach your fasting goal 10 times.",
+      target: 10,
+    },
+    {
+      key: "fast_goal_50",
+      emoji: "📜",
+      title: "True to Your Word",
+      description: "Reach your fasting goal 50 times.",
+      target: 50,
+    },
+    {
+      key: "fast_goal_100",
+      emoji: "🗿",
+      title: "Unshakeable",
+      description: "Reach your fasting goal 100 times.",
+      target: 100,
+    },
+  ]),
+  ...tiered("fast_hours", "fasting", lifetimeFastHours, [
+    {
+      key: "fast_hours_100",
+      emoji: "⏱️",
+      title: "Hundred Hours",
+      description: "Accumulate 100 lifetime fasting hours.",
+      target: 100,
+    },
+    {
+      key: "fast_hours_500",
+      emoji: "⌛",
+      title: "Five Hundred Hours",
+      description: "Accumulate 500 lifetime fasting hours.",
+      target: 500,
+    },
+    {
+      key: "fast_hours_1000",
+      emoji: "🪷",
+      title: "Thousand Hours",
+      description: "Accumulate 1,000 lifetime fasting hours.",
+      target: 1000,
+    },
+    {
+      key: "fast_hours_2500",
+      emoji: "🧘",
+      title: "Fasting Sage",
+      description: "Accumulate 2,500 lifetime fasting hours.",
+      target: 2500,
+    },
+  ]),
 
   // -- Nutrition ------------------------------------------------------------
   {
@@ -415,14 +525,36 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
 
   // -- Training -------------------------------------------------------------
-  {
-    key: "first_workout",
-    emoji: "🏃",
-    title: "Warming Up",
-    description: "Log your first workout.",
-    category: "training",
-    check: async (ctx) => (await ctx.workouts()).length >= 1,
-  },
+  ...tiered("workouts", "training", async (ctx) => (await ctx.workouts()).length, [
+    {
+      key: "first_workout",
+      emoji: "🏃",
+      title: "Warming Up",
+      description: "Log your first workout.",
+      target: 1,
+    },
+    {
+      key: "workouts_10",
+      emoji: "💪",
+      title: "Getting Going",
+      description: "Log 10 workouts.",
+      target: 10,
+    },
+    {
+      key: "workouts_50",
+      emoji: "🏋️",
+      title: "Regular Mover",
+      description: "Log 50 workouts.",
+      target: 50,
+    },
+    {
+      key: "workouts_250",
+      emoji: "🏆",
+      title: "Iron Habit",
+      description: "Log 250 workouts.",
+      target: 250,
+    },
+  ]),
   {
     key: "garmin_synced",
     emoji: "⌚",
@@ -473,8 +605,9 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     title: "Early Bird",
     description: "Log a workout that started before 7 in the morning.",
     category: "training",
+    // Read on the clock where it happened, not wherever the phone is now.
     check: async (ctx) =>
-      (await ctx.workouts()).some((w) => new Date(w.performed_at).getHours() < 7),
+      (await ctx.workouts()).some((w) => timeOf(w.performed_at, w.tz_offset_min) < "07:00"),
   },
 
   // -- Body & recovery (Garmin / Health Connect) ----------------------------
@@ -486,15 +619,29 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     category: "body",
     check: async (ctx) => (await ctx.metrics()).some((m) => (m.steps ?? 0) >= 15_000),
   },
-  {
-    key: "steps_million",
-    emoji: "🚶",
-    title: "Million Steps",
-    description: "Accumulate 1,000,000 synced steps.",
-    category: "body",
-    check: async (ctx) =>
-      (await ctx.metrics()).reduce((acc, m) => acc + (m.steps ?? 0), 0) >= 1_000_000,
-  },
+  ...tiered("steps", "body", lifetimeSteps, [
+    {
+      key: "steps_million",
+      emoji: "🚶",
+      title: "Million Steps",
+      description: "Accumulate 1,000,000 synced steps.",
+      target: 1_000_000,
+    },
+    {
+      key: "steps_5m",
+      emoji: "🥾",
+      title: "Five Million Steps",
+      description: "Accumulate 5,000,000 synced steps.",
+      target: 5_000_000,
+    },
+    {
+      key: "steps_10m",
+      emoji: "🌍",
+      title: "Ten Million Steps",
+      description: "Accumulate 10,000,000 synced steps — roughly 7,500 km.",
+      target: 10_000_000,
+    },
+  ]),
   {
     key: "sleep_week",
     emoji: "😴",
@@ -542,6 +689,24 @@ export async function unlockAchievement(key: string): Promise<void> {
   } catch (e) {
     console.warn(`Could not unlock achievement "${key}"`, e);
   }
+}
+
+/**
+ * Current measured value of every tier family, keyed by family — what the
+ * sheet shows as progress toward each family's next tier.
+ */
+export async function measureFamilies(): Promise<Map<string, number>> {
+  const ctx = new ScanContext();
+  const out = new Map<string, number>();
+  for (const def of ACHIEVEMENTS) {
+    if (!def.family || !def.measure || out.has(def.family)) continue;
+    try {
+      out.set(def.family, await def.measure(ctx));
+    } catch (e) {
+      console.warn(`Measuring "${def.family}" failed`, e);
+    }
+  }
+  return out;
 }
 
 let scanInFlight: Promise<string[]> | null = null;

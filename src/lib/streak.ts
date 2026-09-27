@@ -52,6 +52,8 @@ interface StreakState {
   frozenDays: string[];
   /** Streak length at which a freeze was last earned (resets on break). */
   lastEarnedStreak: number;
+  /** Longest streak ever seen — only ever grows (see StreakStateSchema). */
+  best: number;
 }
 
 const DEFAULT_STATE: StreakState = {
@@ -59,6 +61,7 @@ const DEFAULT_STATE: StreakState = {
   freezes: 0,
   frozenDays: [],
   lastEarnedStreak: 0,
+  best: 0,
 };
 
 function parseState(raw: string | null): StreakState {
@@ -210,6 +213,9 @@ export async function getStreakInfo(): Promise<StreakInfo> {
   }
 
   state.current = current;
+  // Measured over `frozen`, which still holds the days the prune above just
+  // dropped — the run that ended today is counted whole one last time.
+  state.best = Math.max(state.best, current, bestStreak(days, frozen));
 
   if (JSON.stringify(state) !== before) {
     await setSetting(SETTING_KEYS.streakState, JSON.stringify(state)).catch(() => {
@@ -219,7 +225,7 @@ export async function getStreakInfo(): Promise<StreakInfo> {
 
   return {
     current,
-    best: Math.max(current, bestStreak(days, new Set(state.frozenDays))),
+    best: state.best,
     freezes: state.freezes,
     frozenDays: state.frozenDays,
     todayLogged,
