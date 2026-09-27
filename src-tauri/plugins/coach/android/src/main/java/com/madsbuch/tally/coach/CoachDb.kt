@@ -59,6 +59,19 @@ internal object CoachDb {
     private fun hhmm(shiftedMs: Long): String =
         utcParser("HH:mm").format(Date(shiftedMs))
 
+    /** Whether a "yyyy-MM-dd" day is a Sunday, the last day of a Mon–Sun week. */
+    fun isSunday(day: String): Boolean {
+        val parts = day.split("-")
+        val cal = Calendar.getInstance()
+        cal.set(
+            parts.getOrNull(0)?.toIntOrNull() ?: 1970,
+            (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1,
+            parts.getOrNull(2)?.toIntOrNull() ?: 1,
+            12, 0, 0,
+        )
+        return cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
+    }
+
     fun shiftDay(day: String, delta: Int): String {
         val parts = day.split("-")
         val cal = Calendar.getInstance()

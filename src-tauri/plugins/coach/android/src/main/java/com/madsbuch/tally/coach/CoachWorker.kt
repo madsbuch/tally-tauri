@@ -42,6 +42,7 @@ internal object CoachWorker {
     )
 
     private val TRIGGERS = listOf(
+        Trigger("weekly_review", "Weekly review", 55, 6, true, 19, null),
         Trigger("follow_up_due", "Following up", 50, 1, true, null, null),
         Trigger("target_drift", "Target looks wrong", 40, 7, true, null, 300.0),
         Trigger("sleep_debt", "Sleep debt building", 35, 5, true, null, 7.0),
@@ -74,6 +75,18 @@ internal object CoachWorker {
         config: JSONObject?,
         due: List<CoachDb.DueFollowUp>,
     ): String? = when (t.key) {
+        "weekly_review" ->
+            // Sunday only: the digest's rolling week is then exactly Mon–Sun.
+            if (!CoachDb.isSunday(d.day) || hour < hourOf(config, t) ||
+                (d.daysLogged == 0 && d.workouts == 0)
+            ) {
+                null
+            } else {
+                "The week ends today — \"last 7 days\" in the digest is exactly this Monday-to-Sunday week, " +
+                    "with ${d.daysLogged} of 7 days logged. Give a short weekly review: what went " +
+                    "well, what slipped, and one concrete thing to focus on next week. Draw on the week's " +
+                    "numbers, not just today's."
+            }
         "follow_up_due" ->
             if (due.isEmpty()) {
                 null

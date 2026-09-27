@@ -28,6 +28,7 @@ import { SETTING_KEYS } from "./types";
 import type { CoachDigest } from "./coach";
 
 export type TriggerKey =
+  | "weekly_review"
   | "follow_up_due"
   | "daily_closeout"
   | "protein_short"
@@ -92,7 +93,41 @@ export interface TriggerDef {
 /** Enough logged days for an average to mean anything. */
 const MIN_DAYS_FOR_TREND = 3;
 
+/** Whether a "YYYY-MM-DD" day is a Sunday — the last day of a Mon–Sun week. */
+function isSunday(day: string): boolean {
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay() === 0;
+}
+
 export const TRIGGERS: TriggerDef[] = [
+  {
+    key: "weekly_review",
+    kind: "occasion",
+    title: "Weekly review",
+    help: "Sunday evening, a look back at the week that's ending: what went well, what slipped, and one thing to focus on next week. The full numbers are in the week's recap on the Diary.",
+    defaults: { enabled: true, hour: 19 },
+    hourLabel: "Not before",
+    // Top of the order, even above follow-ups: it has one evening a week to
+    // happen, while a due follow-up keeps until tomorrow. Whatever else is
+    // true on a Sunday becomes material for the review instead.
+    salience: 55,
+    // Once per week; any shorter and a Sunday could repeat, any longer and
+    // next Sunday would still be cooling down.
+    cooldownDays: 6,
+    evaluate: ({ digest, hour, config }) => {
+      // Sunday only: that's the one day the digest's rolling "last 7 days"
+      // is exactly the calendar week the recap shows, so no extra numbers
+      // are needed — and the same check stays trivial to mirror in Kotlin.
+      if (!isSunday(digest.day) || hour < (config.hour ?? 19)) return null;
+      if (digest.week.daysLogged === 0 && digest.week.workouts === 0) return null;
+      return (
+        `The week ends today — "last 7 days" in the digest is exactly this Monday-to-Sunday week, ` +
+        `with ${digest.week.daysLogged} of 7 days logged. Give a short weekly review: what went ` +
+        `well, what slipped, and one concrete thing to focus on next week. Draw on the week's ` +
+        `numbers, not just today's.`
+      );
+    },
+  },
   {
     key: "follow_up_due",
     kind: "occasion",
