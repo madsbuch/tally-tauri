@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import { sanitizeNutrients } from "./nutrients";
+import type { FoodEntry, Workout } from "./types";
 
 /** The one sanctioned `JSON.parse` — always feed the result to a schema. */
 export function parseJson(text: string): unknown {
@@ -185,26 +186,146 @@ export const WorkoutAnalysisSchema = z.object({
 });
 
 /**
- * A correction to an entry that already exists ("the cheese block was 7 g, not
- * 3 g"). The model returns the whole corrected entry rather than a patch: a
- * portion change moves every nutrient with it, and asking for a patch invites
- * half of them to be left behind.
+ * One turn of the conversation on an entry's page.
+ *
+ * `reply` is what gets said back and is always there. `entry` is the whole
+ * corrected entry, present only when the message actually changed what was
+ * eaten or done — "why is this so high?" is a question, and answering it must
+ * not move a single number. The whole entry rather than a patch: a portion
+ * change moves every nutrient with it, and asking for a patch invites half of
+ * them to be left behind.
  */
-export const MealRevisionSchema = z.object({
-  title: looseTitle("Meal"),
-  description: looseDescription,
-  nutrients: NutrientsField,
-  /** One line for the user: what this changed. */
-  note: looseDescription,
+/**
+ * A field the model may simply not mention.
+ *
+ * Absent has to mean "unchanged", and that must survive parsing. The analysis
+ * schemas above default a missing title to "Meal" and missing nutrients to {},
+ * which is right when the model is describing a photo from nothing — but here
+ * it would turn a correction the model chose to write as a patch into an entry
+ * wipe: a renamed meal, a wiped set of nutrients, a workout burning 0 kcal. So
+ * these parse to `undefined` when the key isn't there, and the caller keeps
+ * what the entry already had.
+ */
+const keptText = z
+  .unknown()
+  .optional()
+  .transform((v) => (typeof v === "string" && v.trim() ? v.trim() : undefined));
+
+const keptNutrients = z
+  .unknown()
+  .optional()
+  .transform((v) => (v !== null && typeof v === "object" ? sanitizeNutrients(v) : undefined));
+
+const keptKcal = z.unknown().optional().transform((v) => {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return typeof n === "number" && isFinite(n) && n >= 0 ? Math.round(n) : undefined;
 });
 
-export const WorkoutRevisionSchema = z.object({
-  title: looseTitle("Workout"),
-  description: looseDescription,
-  calories_burned: looseKcal,
-  duration_min: looseMinutes,
-  note: looseDescription,
+/** Absent leaves the duration alone; sent-but-empty says there isn't one. */
+const keptMinutes = z.unknown().optional().transform((v) => {
+  if (v === undefined) return undefined;
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return typeof n === "number" && isFinite(n) && n > 0 ? Math.round(n) : null;
 });
+
+const MealEntryFields = z.object({
+  title: keptText,
+  description: keptText,
+  nutrients: keptNutrients,
+});
+
+const WorkoutEntryFields = z.object({
+  title: keptText,
+  description: keptText,
+  calories_burned: keptKcal,
+  duration_min: keptMinutes,
+});
+
+/**
+ * The corrected entry, or null for a turn that only talked.
+ *
+ * A model saying "nothing changed" often says it as `"entry": {}` — or as
+ * `"entry": "no"` — and an entry carrying nothing recognisable is not a
+ * revision. Saying so here beats letting an empty object travel on as one.
+ */
+function revisedEntry<T extends z.ZodObject>(fields: T) {
+  const keys = Object.keys(fields.shape);
+  return z
+    .unknown()
+    .optional()
+    .transform((v) => {
+      if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+      if (!keys.some((k) => k in v)) return null;
+      const r = fields.safeParse(v);
+      return r.success ? r.data : null;
+    });
+}
+
+export const MealChatSchema = z.object({
+  reply: looseDescription,
+  entry: revisedEntry(MealEntryFields),
+});
+
+export const WorkoutChatSchema = z.object({
+  reply: looseDescription,
+  entry: revisedEntry(WorkoutEntryFields),
+});
+
+// ---------------------------------------------------------------------------
+// Per-entry threads (the `entry_messages` table)
+// ---------------------------------------------------------------------------
+
+/** The change lines stored with a message ("Calories: 48 kcal -> 112 kcal"). */
+export function parseEntryChanges(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string" && v.length > 0);
+}
+
+/**
+ * The entry a message rewrote, kept so undo outlives the visit.
+ *
+ * Strict, and deliberately so: this is our own row, written from a typed
+ * entry, and a snapshot we cannot read back exactly is one we must not write
+ * back over a good entry. Unreadable means the undo is gone — never that a
+ * half-restored entry gets saved.
+ */
+const FoodEntrySnapshotSchema = z.object({
+  id: z.number(),
+  eaten_at: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  photo_path: z.string().nullable(),
+  nutrients: z.unknown().transform((v) => sanitizeNutrients(v)),
+  model_id: z.string().nullable(),
+  icon: z.string().nullable(),
+  day: z.string().nullable(),
+  tz_offset_min: z.number().nullable(),
+});
+
+const WorkoutSnapshotSchema = z.object({
+  id: z.number(),
+  performed_at: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  photo_path: z.string().nullable(),
+  calories_burned: z.number(),
+  duration_min: z.number().nullable(),
+  model_id: z.string().nullable(),
+  icon: z.string().nullable(),
+  source: z.string().nullable(),
+  external_id: z.string().nullable(),
+  day: z.string().nullable(),
+  tz_offset_min: z.number().nullable(),
+});
+
+/** A stored `before_entry` column; null when there is nothing to undo to. */
+export function parseEntrySnapshot(raw: unknown): FoodEntry | Workout | null {
+  if (raw == null) return null;
+  const meal = FoodEntrySnapshotSchema.safeParse(raw);
+  if (meal.success) return meal.data;
+  const workout = WorkoutSnapshotSchema.safeParse(raw);
+  return workout.success ? workout.data : null;
+}
 
 export const SupplementAnalysisSchema = z.object({
   nutrients: NutrientsField,

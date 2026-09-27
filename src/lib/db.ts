@@ -9,6 +9,7 @@ import {
   coachRuns,
   dayGoalAdjustments,
   documents,
+  entryMessages,
   fasts,
   foodEntries,
   healthMetrics,
@@ -24,6 +25,8 @@ import type {
   CoachMemory,
   CoachRun,
   DayGoalAdjustment,
+  EntryKind,
+  EntryMessage,
   LibraryDocument,
   Fast,
   FoodEntry,
@@ -42,6 +45,8 @@ import {
   parseChatTranscript,
   parseDocumentPages,
   parseDocumentValues,
+  parseEntryChanges,
+  parseEntrySnapshot,
   parseJson,
 } from "./schemas";
 
@@ -177,6 +182,7 @@ export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
 
 export async function deleteFoodEntry(id: number): Promise<void> {
   await db.delete(foodEntries).where(eq(foodEntries.id, id));
+  await deleteEntryMessages("meal", id);
 }
 
 export async function listFoodEntriesForDay(day: string): Promise<FoodEntry[]> {
@@ -366,6 +372,7 @@ export async function getWorkout(id: number): Promise<Workout | null> {
 
 export async function deleteWorkout(id: number): Promise<void> {
   await db.delete(workouts).where(eq(workouts.id, id));
+  await deleteEntryMessages("workout", id);
 }
 
 export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
@@ -1365,6 +1372,65 @@ export async function listAllSupplementLogs(): Promise<SupplementLogWithSuppleme
 export async function listAllCaptures(): Promise<Capture[]> {
   const rows = await db.select().from(captures);
   return rows.map(toCapture);
+}
+
+// ---------------------------------------------------------------------------
+// Per-entry threads
+// ---------------------------------------------------------------------------
+
+/** The conversation on one entry, oldest first. */
+export async function listEntryMessages(
+  kind: EntryKind,
+  entryId: number,
+): Promise<EntryMessage[]> {
+  const rows = await db
+    .select()
+    .from(entryMessages)
+    .where(and(eq(entryMessages.entryKind, kind), eq(entryMessages.entryId, entryId)))
+    .orderBy(entryMessages.id);
+  return rows.map((r) => ({
+    id: r.id,
+    role: r.role === "user" ? "user" : "assistant",
+    text: r.text,
+    changes: parseEntryChanges(r.changes),
+    before: parseEntrySnapshot(r.beforeEntry),
+    created_at: r.createdAt,
+  }));
+}
+
+export async function addEntryMessage(m: {
+  kind: EntryKind;
+  entryId: number;
+  role: "user" | "assistant";
+  text: string;
+  /** What it changed, already worded for display. */
+  changes?: string[];
+  /** The entry as it stood before it, when it rewrote one. */
+  before?: FoodEntry | Workout | null;
+}): Promise<void> {
+  await db.insert(entryMessages).values({
+    entryKind: m.kind,
+    entryId: m.entryId,
+    role: m.role,
+    text: m.text,
+    changes: m.changes ?? [],
+    beforeEntry: m.before ?? null,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Forget an entry's conversation — called when the entry itself goes, since a
+ * thread about a meal that no longer exists is unreachable anyway, and ids get
+ * reused by AUTOINCREMENT's absence of promises.
+ */
+export async function deleteEntryMessages(
+  kind: EntryKind,
+  entryId: number,
+): Promise<void> {
+  await db
+    .delete(entryMessages)
+    .where(and(eq(entryMessages.entryKind, kind), eq(entryMessages.entryId, entryId)));
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ import { NUTRIENT_DEFS } from "./nutrients";
 import {
   DocumentAnalysisSchema,
   FoodAnalysisSchema,
-  MealRevisionSchema,
-  WorkoutRevisionSchema,
+  MealChatSchema,
+  WorkoutChatSchema,
   PhotoAnalysisSchema,
   SupplementAnalysisSchema,
   WorkoutAnalysisSchema,
@@ -471,66 +471,73 @@ export async function analyzeDocument(
   return DocumentAnalysisSchema.parse(extractJsonObject(content));
 }
 
-export interface ReviseEntryOptions {
+export interface EntryChatOptions {
   apiKey: string;
   model: string;
-  /** The entry as it stands, as the user sees it. */
+  /** The entry as it stands right now, as the user sees it. */
   current: Record<string, unknown>;
-  /** What the user says is wrong with it, in their own words. */
-  instruction: string;
+  /** What has already been said about this entry, oldest first. */
+  history: { role: "user" | "assistant"; text: string }[];
+  /** What they just said, in their own words. */
+  message: string;
   /** The entry's own photo, when it has one — the best evidence there is. */
   imageDataUrl?: string | undefined;
 }
 
-const REVISION_RULES = [
-  "You are correcting ONE entry in someone's diary. You are given the entry exactly as it stands and a correction from the person who logged it.",
+/**
+ * The conversation on an entry's page.
+ *
+ * The hard part isn't the estimating, it's telling apart the two things people
+ * say to an estimate. "Why is that so high?" and "the cheese block was 7 g"
+ * arrive in the same box and read alike, but one wants an explanation and the
+ * other wants the numbers rewritten — and answering a question by quietly
+ * re-estimating the meal is the one outcome that makes the diary untrustworthy.
+ * So the rules spend their length on that distinction, and the entry comes back
+ * only when the message actually carried new information about the food.
+ */
+const ENTRY_CHAT_RULES = [
+  "You are talking with someone about ONE entry in their own diary, which you are given exactly as it stands.",
   "Respond with a SINGLE JSON object and nothing else - no markdown, no code fences.",
-  "Apply the correction and carry it through the whole entry: if the portion changes, every nutrient changes with it, proportionally unless you have reason to think otherwise.",
-  "Change nothing the correction doesn't bear on. If the title is still right, return it unchanged.",
-  "The correction is the authority — they were there and you weren't. A photo, when given, is this entry's own: use it to re-estimate what the correction asks about, not to argue with them.",
-  "`note`: one short sentence, to them, saying what you changed and why. No preamble.",
+  "Two kinds of message arrive here. They look alike, so read what is meant:",
+  '- A QUESTION about the entry ("why is that so high?", "does that include the oil?", "does this look right to you?"). Answer it and leave the entry alone: omit `entry` entirely. Explaining an estimate must never move it.',
+  '- A CORRECTION: new information about what was actually eaten or done ("the cheese block was 7 g", "I only did half of it"). Apply it, and return the WHOLE corrected entry in `entry`.',
+  "When a message is both - a question that also tells you something new - answer it and correct the entry.",
+  "Carry a correction through the whole entry: if the portion changes, every nutrient changes with it, proportionally unless you have reason to think otherwise. Change nothing the correction does not bear on; if the title is still right, return it unchanged.",
+  "The correction is the authority - they were there and you were not. A photo, when given, is this entry's own: use it to re-estimate what they ask about, not to argue with them.",
+  "`reply`: speak to them directly, a few sentences at most, no preamble. When you changed the entry, say what you changed and why. When you did not, answer the question properly: where the number came from, what it assumes, and how wrong it could be.",
+  "These are estimates and you may be the one who is wrong. Say so plainly when the honest answer is that a number is a guess, and say when it looks off to you even if they did not ask.",
+  "The first message holds the entry as it stands RIGHT NOW. It already includes every change made earlier in this conversation and every edit they made by hand, so never re-apply an earlier correction.",
+  "Your own earlier replies appear as plain text. Answer with the JSON object regardless.",
 ];
 
-/**
- * Re-estimate an entry from a plain-language correction — "the cheese block
- * was 7 g, not 3 g", "this was a double espresso".
- *
- * The whole corrected entry comes back rather than a patch: a portion change
- * moves every nutrient with it, and a patch would leave half of them stale.
- */
-export async function reviseMealEntry(
-  opts: ReviseEntryOptions,
-): Promise<z.infer<typeof MealRevisionSchema>> {
+export async function askAboutMealEntry(
+  opts: EntryChatOptions,
+): Promise<z.infer<typeof MealChatSchema>> {
   const system = [
-    ...REVISION_RULES,
-    `Schema: {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}, "note": string}`,
+    ...ENTRY_CHAT_RULES,
+    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}}}`,
+    "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
     "Nutrients are TOTALS for the whole portion as corrected. Include every key you can reasonably estimate; omit the rest rather than guessing zeros.",
   ].join("\n");
-  return MealRevisionSchema.parse(extractJsonObject(await askForRevision(opts, system)));
+  return MealChatSchema.parse(extractJsonObject(await askAboutEntry(opts, system)));
 }
 
-export async function reviseWorkoutEntry(
-  opts: ReviseEntryOptions,
-): Promise<z.infer<typeof WorkoutRevisionSchema>> {
+export async function askAboutWorkoutEntry(
+  opts: EntryChatOptions,
+): Promise<z.infer<typeof WorkoutChatSchema>> {
   const system = [
-    ...REVISION_RULES,
-    `Schema: {"title": string (short, max 5 words), "description": string (1-2 sentences), "calories_burned": number (kcal), "duration_min": number (minutes, omit if unknown), "note": string}`,
+    ...ENTRY_CHAT_RULES,
+    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences), "calories_burned": number (kcal), "duration_min": number (minutes, omit if unknown)}}`,
+    "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
   ].join("\n");
-  return WorkoutRevisionSchema.parse(
-    extractJsonObject(await askForRevision(opts, system)),
-  );
+  return WorkoutChatSchema.parse(extractJsonObject(await askAboutEntry(opts, system)));
 }
 
-function askForRevision(opts: ReviseEntryOptions, system: string): Promise<string> {
+function askAboutEntry(opts: EntryChatOptions, system: string): Promise<string> {
   const parts: ContentPart[] = [
     {
       type: "text",
-      text: [
-        "The entry as it stands:",
-        JSON.stringify(opts.current),
-        "",
-        `Their correction: ${opts.instruction}`,
-      ].join("\n"),
+      text: ["The entry as it stands:", JSON.stringify(opts.current)].join("\n"),
     },
   ];
   if (opts.imageDataUrl) {
@@ -539,6 +546,8 @@ function askForRevision(opts: ReviseEntryOptions, system: string): Promise<strin
   return chat(opts.apiKey, opts.model, [
     { role: "system", content: system },
     { role: "user", content: parts },
+    ...opts.history.map((m) => ({ role: m.role, content: m.text })),
+    { role: "user", content: opts.message },
   ]);
 }
 

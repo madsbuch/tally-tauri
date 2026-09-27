@@ -6,7 +6,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { Nutrients } from "../lib/types";
+import type { FoodEntry, Nutrients, Workout } from "../lib/types";
 import type { ChatMessage, DocumentValue } from "../lib/schemas";
 
 export const settings = sqliteTable("settings", {
@@ -320,3 +320,35 @@ export const achievements = sqliteTable("achievements", {
   key: text("key").primaryKey(),
   unlockedAt: text("unlocked_at").notNull(),
 });
+
+/**
+ * The conversation attached to one diary entry.
+ *
+ * An estimate is a claim, and the honest response to a claim is often a
+ * question — "why is that so high?", "does that include the oil?" — before it
+ * is a correction. Questions and corrections arrive in the same words and are
+ * told apart by what they mean, so they live in the same thread. The thread is
+ * kept, with what each message changed and the entry it changed it from, so a
+ * number can always be traced back to the sentence that moved it.
+ */
+export const entryMessages = sqliteTable(
+  "entry_messages",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** "meal" | "workout" — which table `entryId` points into. */
+    entryKind: text("entry_kind").notNull(),
+    entryId: integer("entry_id").notNull(),
+    /** "user" | "assistant". */
+    role: text("role").notNull(),
+    text: text("text").notNull(),
+    /** What this message changed, worded for display; empty = it only talked. */
+    changes: text("changes", { mode: "json" }).$type<string[]>().notNull().default([]),
+    /**
+     * The entry as it stood before this message rewrote it, so undo outlives
+     * the visit. Null on every message that changed nothing.
+     */
+    beforeEntry: text("before_entry", { mode: "json" }).$type<FoodEntry | Workout>(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("idx_entry_messages_entry").on(t.entryKind, t.entryId)],
+);

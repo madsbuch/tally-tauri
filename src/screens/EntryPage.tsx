@@ -54,7 +54,7 @@ import {
 } from "../components/EntryBits";
 import { entryGlyph } from "../lib/icons";
 import { useSheetHistory } from "../lib/sheetHistory";
-import EntryReviseBox from "../components/EntryReviseBox";
+import EntryChat from "../components/EntryChat";
 
 type Kind = "meal" | "workout" | "supplement" | "sleep";
 
@@ -292,6 +292,9 @@ export default function EntryPage() {
 
   // -- the three shapes, reduced to what the page draws --------------------
   const photo = meal?.photo_path ?? workout?.photo_path ?? null;
+  // Meals and workouts were estimated, and an estimate can be argued with. A
+  // dose and a night of sleep are measurements — there is nothing to discuss.
+  const estimate = meal ?? workout;
   // A night is placed by the morning it ended on, which is also the day it is
   // filed under (see lib/daystamp.ts).
   const when =
@@ -438,15 +441,6 @@ export default function EntryPage() {
       {night && <SleepStages night={night} />}
 
       {(meal || workout) && (
-        <EntryReviseBox
-          kind={meal ? "meal" : "workout"}
-          meal={meal}
-          workout={workout}
-          onApplied={() => void afterChange()}
-        />
-      )}
-
-      {(meal || workout) && (
         <>
           <div className="section-title">Notes</div>
           <div className="list">
@@ -458,6 +452,8 @@ export default function EntryPage() {
           </div>
         </>
       )}
+
+      {estimate && <EntryChat entry={estimate} onChanged={() => void afterChange()} />}
 
       <p className="faint small" style={{ margin: "18px 2px 0" }}>
         {(meal?.model_id ?? workout?.model_id)

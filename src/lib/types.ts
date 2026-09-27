@@ -164,6 +164,26 @@ export interface Workout {
   tz_offset_min: number | null;
 }
 
+/** The kinds of entry you can hold a conversation with. */
+export type EntryKind = "meal" | "workout";
+
+/**
+ * One message in the conversation on an entry's page.
+ *
+ * `changes` is what that message did to the entry, worded for reading months
+ * later — the thread is the only record of why a number moved. It is empty for
+ * every message that only asked or only answered, which is most of them.
+ */
+export interface EntryMessage {
+  id: number;
+  role: "user" | "assistant";
+  text: string;
+  changes: string[];
+  /** The entry as it stood before this message, when it rewrote one. */
+  before: FoodEntry | Workout | null;
+  created_at: string;
+}
+
 /** A night of sleep synced from Health Connect (written by e.g. Garmin). */
 export interface SleepSession {
   id: number;

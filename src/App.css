@@ -759,8 +759,9 @@ textarea.input {
   background: var(--warn);
 }
 
-/* Correcting an estimate in words rather than numbers. */
-.revise-box {
+/* The conversation on an entry (see components/EntryChat.tsx). Bubbles come
+   from the assistant chat above; only the frame and the change lines are new. */
+.entry-chat {
   margin-top: 20px;
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -768,25 +769,29 @@ textarea.input {
   background: color-mix(in srgb, var(--accent) 6%, var(--card));
 }
 
-textarea.revise-input {
-  min-height: 52px;
+/* The ⓘ rides next to the heading rather than under it. */
+.entry-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 0;
 }
 
-.revise-result {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.revise-note {
-  margin: 0 0 8px;
-}
-
-.revise-changes {
+.chat-empty {
   margin: 0;
+}
+
+/* What a message did to the entry, under the message that did it. */
+.chat-changes {
+  margin: 6px 0 0;
   padding-left: 18px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+textarea.entry-chat-input {
+  min-height: 52px;
 }
 
 /* Library document pages.
