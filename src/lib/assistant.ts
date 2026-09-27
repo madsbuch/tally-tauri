@@ -694,6 +694,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */)
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
+- state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;

@@ -6,6 +6,7 @@ import type {
   NutrientKey,
   Nutrients,
   SleepSession,
+  StateLog,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -30,6 +31,7 @@ import {
 } from "../components/EntryBits";
 import { useSheetHistory } from "../lib/sheetHistory";
 import InfoButton from "../components/InfoButton";
+import StateSheet from "../components/StateSheet";
 import {
   addFoodEntry,
   addSupplement,
@@ -43,6 +45,7 @@ import {
   listFoodEntriesForRange,
   listHealthMetricsForRange,
   listSleepForRange,
+  listStateLogsForDay,
   listSupplementLogsForDay,
   listSupplementLogsForRange,
   listSupplements,
@@ -66,6 +69,7 @@ import { ACHIEVEMENTS_BY_KEY, onAchievementsUnlocked } from "../lib/achievements
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
+import { stateGlyph } from "../lib/states";
 import {
   MAX_MANUAL_ADJUSTMENT,
   getDayGoal,
@@ -1380,6 +1384,7 @@ type TimelineItem =
   | { kind: "meal"; ts: string; entry: FoodEntry }
   | { kind: "workout"; ts: string; workout: Workout }
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
+  | { kind: "state"; ts: string; state: StateLog }
   | { kind: "capture"; ts: string; capture: Capture };
 
 /** Where an entry's own page lives. */
@@ -1388,7 +1393,14 @@ function entryPath(item: TimelineItem): string {
   if (item.kind === "meal") return `/entry/meal/${item.entry.id}`;
   if (item.kind === "workout") return `/entry/workout/${item.workout.id}`;
   if (item.kind === "supp") return `/entry/supplement/${item.log.id}`;
+  if (item.kind === "state") return `/entry/state/${item.state.id}`;
   return "/";
+}
+
+/** A note cut to one line of timeline, with an ellipsis when it was longer. */
+function shorten(text: string, max = 60): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t;
 }
 
 /** Short row title for a capture: its note, truncated, or "Photo". */
@@ -1398,7 +1410,7 @@ function captureTitle(c: Capture): string {
   return note.length > 48 ? `${note.slice(0, 48).trimEnd()}…` : note;
 }
 
-type SheetKind = "add" | "supp";
+type SheetKind = "add" | "supp" | "state";
 
 export default function DiaryPage() {
   const [day, setDay] = useState(() => todayStr());
@@ -1406,6 +1418,7 @@ export default function DiaryPage() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [captures, setCaptures] = useState<Capture[] | null>(null);
+  const [states, setStates] = useState<StateLog[]>([]);
   const [sleep, setSleep] = useState<SleepSession[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [period, setPeriod] = useState<TotalsPeriod>("day");
@@ -1459,6 +1472,7 @@ export default function DiaryPage() {
   useSheetHistory(detail !== null, () => setDetail(null));
   useSheetHistory(sheet === "add", () => setSheet(null));
   useSheetHistory(sheet === "supp", () => setSheet(null));
+  useSheetHistory(sheet === "state", () => setSheet(null));
   useSheetHistory(showAchievements, () => setShowAchievements(false));
 
   // Refresh whenever the background agent changes diary data — this is how a
@@ -1519,8 +1533,9 @@ export default function DiaryPage() {
       // A night is filed under the morning it ended on, so it belongs to this
       // day's timeline even though most of it happened yesterday.
       listSleepForRange(day, day).catch(() => [] as SleepSession[]),
+      listStateLogsForDay(day).catch(() => [] as StateLog[]),
     ])
-      .then(([e, w, s, c, sl]) => {
+      .then(([e, w, s, c, sl, st]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
@@ -1528,6 +1543,7 @@ export default function DiaryPage() {
         setSuppLogs(s);
         setCaptures(c);
         setSleep(sl);
+        setStates(st);
       })
       .catch((err) => {
         if (alive) setLoadError(errMsg(err));
@@ -1690,10 +1706,11 @@ export default function DiaryPage() {
         ts: c.created_at,
         capture: c,
       })),
+      ...states.map((st) => ({ kind: "state" as const, ts: st.logged_at, state: st })),
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs, captures, sleep]);
+  }, [entries, workouts, suppLogs, captures, sleep, states]);
 
   const today = todayStr();
   const isToday = day === today;
@@ -2170,6 +2187,32 @@ export default function DiaryPage() {
                     </div>
                   );
                 }
+                if (item.kind === "state") {
+                  const st = item.state;
+                  return (
+                    <div
+                      key={`state-${st.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => openItem(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") openItem(item);
+                      }}
+                    >
+                      <GlyphThumb glyph={stateGlyph(st.icon)} />
+                      <div className="row-main">
+                        <div className="row-title">{st.label}</div>
+                        <div className="row-sub">
+                          {timeOf(st.logged_at, st.tz_offset_min)}
+                          {st.note ? ` · ${shorten(st.note)}` : ""}
+                        </div>
+                      </div>
+                      <div className="row-end">›</div>
+                    </div>
+                  );
+                }
                 const l = item.log;
                 return (
                   <div
@@ -2206,14 +2249,16 @@ export default function DiaryPage() {
       {/* One-hand actions: fixed in the thumb zone above the tabbar. Open
           sheets cover them with their z-100 backdrop, so no hiding logic. */}
       <div className="fab-stack">
-        <button
-          className="fab fab-secondary"
-          onClick={() => setSheet("supp")}
-          aria-label="Log supplement"
-          title="Log supplement"
-        >
-          💊
-        </button>
+        {/* The quick logs: things with no photo to take and nothing to
+            estimate, which would be a slow trip through the capture flow. */}
+        <div className="fab-row">
+          <button className="fab fab-secondary" onClick={() => setSheet("state")}>
+            <span aria-hidden="true">💭</span> Feeling
+          </button>
+          <button className="fab fab-secondary" onClick={() => setSheet("supp")}>
+            <span aria-hidden="true">💊</span> Supplement
+          </button>
+        </div>
         <button className="fab" onClick={() => setSheet("add")}>
           ＋ Add
         </button>
@@ -2228,6 +2273,16 @@ export default function DiaryPage() {
           day={day}
           onClose={() => setSheet(null)}
           onSaved={() => {
+            setSheet(null);
+            bump();
+          }}
+        />
+      )}
+      {sheet === "state" && (
+        <StateSheet
+          day={day}
+          onClose={() => setSheet(null)}
+          onLogged={() => {
             setSheet(null);
             bump();
           }}

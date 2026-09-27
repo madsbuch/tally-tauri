@@ -14,14 +14,17 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   deleteFoodEntry,
   deletePhotoIfUnused,
+  deleteStateLog,
   deleteSupplementLog,
   deleteWorkout,
   getFoodEntry,
   getSleepSession,
+  getStateLog,
   getSupplementLog,
   getWorkout,
   todayStr,
   updateFoodEntry,
+  updateStateLog,
   updateSupplementLog,
   updateWorkout,
 } from "../lib/db";
@@ -32,6 +35,7 @@ import type {
   FoodEntry,
   Nutrients,
   SleepSession,
+  StateLog,
   SupplementLogWithSupplement,
   Workout,
 } from "../lib/types";
@@ -53,16 +57,23 @@ import {
   workoutGlyph,
 } from "../components/EntryBits";
 import { entryGlyph } from "../lib/icons";
+import { stateGlyph } from "../lib/states";
 import { useSheetHistory } from "../lib/sheetHistory";
 import EntryChat from "../components/EntryChat";
 
-type Kind = "meal" | "workout" | "supplement" | "sleep";
+type Kind = "meal" | "workout" | "supplement" | "sleep" | "state";
 
 /** Nutrients shown without asking; the rest hide behind "all nutrients". */
 const BASE_KEYS: NutrientKey[] = ["calories", "protein_g", "carbs_g", "fat_g"];
 
 function isKind(v: string | undefined): v is Kind {
-  return v === "meal" || v === "workout" || v === "supplement" || v === "sleep";
+  return (
+    v === "meal" ||
+    v === "workout" ||
+    v === "supplement" ||
+    v === "sleep" ||
+    v === "state"
+  );
 }
 
 function longDate(day: string): string {
@@ -192,6 +203,7 @@ export default function EntryPage() {
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [dose, setDose] = useState<SupplementLogWithSupplement | null>(null);
   const [night, setNight] = useState<SleepSession | null>(null);
+  const [felt, setFelt] = useState<StateLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -217,6 +229,10 @@ export default function EntryPage() {
         const l = await getSupplementLog(id);
         setDose(l);
         setGone(l === null);
+      } else if (kind === "state") {
+        const st = await getStateLog(id);
+        setFelt(st);
+        setGone(st === null);
       } else {
         const n = await getSleepSession(id);
         setNight(n);
@@ -241,7 +257,7 @@ export default function EntryPage() {
   }
 
   async function remove() {
-    const what = meal?.title ?? workout?.title ?? dose?.name ?? "this entry";
+    const what = meal?.title ?? workout?.title ?? dose?.name ?? felt?.label ?? "this entry";
     if (!window.confirm(`Delete "${what}"? This cannot be undone.`)) return;
     try {
       if (meal) {
@@ -252,6 +268,8 @@ export default function EntryPage() {
         await deletePhotoIfUnused(workout.photo_path);
       } else if (dose) {
         await deleteSupplementLog(dose.id);
+      } else if (felt) {
+        await deleteStateLog(felt.id);
       }
       notifyDiaryChanged();
       back();
@@ -270,7 +288,7 @@ export default function EntryPage() {
     );
   }
 
-  if (gone || (!meal && !workout && !dose && !night)) {
+  if (gone || (!meal && !workout && !dose && !night && !felt)) {
     return (
       <div className="page">
         <header className="page-header">
@@ -298,18 +316,26 @@ export default function EntryPage() {
   // A night is placed by the morning it ended on, which is also the day it is
   // filed under (see lib/daystamp.ts).
   const when =
-    meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? night?.ended_at ?? "";
+    meal?.eaten_at ??
+    workout?.performed_at ??
+    dose?.taken_at ??
+    night?.ended_at ??
+    felt?.logged_at ??
+    "";
   const offset =
     meal?.tz_offset_min ??
     workout?.tz_offset_min ??
     dose?.tz_offset_min ??
     night?.tz_offset_min ??
+    felt?.tz_offset_min ??
     null;
-  const day = meal?.day ?? workout?.day ?? dose?.day ?? night?.day ?? dayOf(when, offset);
+  const day =
+    meal?.day ?? workout?.day ?? dose?.day ?? night?.day ?? felt?.day ?? dayOf(when, offset);
   const title =
     meal?.title ??
     workout?.title ??
     dose?.name ??
+    felt?.label ??
     (night ? (fmtDuration(night.duration_min) ?? "Sleep") : "");
   const glyph = meal
     ? entryGlyph(meal.icon, meal.title, "meal")
@@ -317,7 +343,9 @@ export default function EntryPage() {
       ? workoutGlyph(workout)
       : night
         ? "😴"
-        : "💊";
+        : felt
+          ? stateGlyph(felt.icon)
+          : "💊";
 
   return (
     <div className="page entry-page">
@@ -335,7 +363,7 @@ export default function EntryPage() {
 
       {night ? (
         <div className="entry-title">Slept {title}</div>
-      ) : meal || workout ? (
+      ) : meal || workout || felt ? (
         <button className="entry-title" onClick={() => setEditing({ field: "title" })}>
           {title}
           <span className="entry-title-edit">✎</span>
@@ -440,13 +468,13 @@ export default function EntryPage() {
 
       {night && <SleepStages night={night} />}
 
-      {(meal || workout) && (
+      {(meal || workout || felt) && (
         <>
-          <div className="section-title">Notes</div>
+          <div className="section-title">{felt ? "What was going on" : "Notes"}</div>
           <div className="list">
             <InfoRow
-              label="Description"
-              value={meal?.description ?? workout?.description ?? "—"}
+              label={felt ? "Note" : "Description"}
+              value={meal?.description ?? workout?.description ?? felt?.note ?? "—"}
               onClick={() => setEditing({ field: "description" })}
             />
           </div>
@@ -488,6 +516,7 @@ export default function EntryPage() {
           meal={meal}
           workout={workout}
           dose={dose}
+          felt={felt}
           onClose={() => setEditing(null)}
           onSaved={() => void afterChange()}
         />
@@ -555,6 +584,7 @@ function FieldEditor({
   meal,
   workout,
   dose,
+  felt,
   onClose,
   onSaved,
 }: {
@@ -562,23 +592,29 @@ function FieldEditor({
   meal: FoodEntry | null;
   workout: Workout | null;
   dose: SupplementLogWithSupplement | null;
+  felt: StateLog | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const when = meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? "";
+  const when =
+    meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? felt?.logged_at ?? "";
   const offset =
-    meal?.tz_offset_min ?? workout?.tz_offset_min ?? dose?.tz_offset_min ?? null;
+    meal?.tz_offset_min ??
+    workout?.tz_offset_min ??
+    dose?.tz_offset_min ??
+    felt?.tz_offset_min ??
+    null;
 
   const [text, setText] = useState(
     () =>
       (editing.field === "title"
-        ? (meal?.title ?? workout?.title ?? "")
+        ? (meal?.title ?? workout?.title ?? felt?.label ?? "")
         : editing.field === "description"
-          ? (meal?.description ?? workout?.description ?? "")
+          ? (meal?.description ?? workout?.description ?? felt?.note ?? "")
           : "") as string,
   );
   const [date, setDate] = useState(
-    () => meal?.day ?? workout?.day ?? dose?.day ?? dayOf(when, offset),
+    () => meal?.day ?? workout?.day ?? dose?.day ?? felt?.day ?? dayOf(when, offset),
   );
   const [time, setTime] = useState(() => timeOf(when, offset));
   const [icon, setIcon] = useState<string | null>(meal?.icon ?? workout?.icon ?? null);
@@ -661,6 +697,18 @@ function FieldEditor({
       const amount =
         editing.field === "amount" ? Math.max(0.5, parseNum(true) ?? 1) : dose.amount;
       await updateSupplementLog(dose.id, amount, at, dose.tz_offset_min);
+    } else if (felt) {
+      const patch: StateLog = { ...felt };
+      if (editing.field === "title") {
+        const t = text.trim();
+        if (!t) throw new Error("Say what it was.");
+        patch.label = t;
+      } else if (editing.field === "description") {
+        patch.note = text.trim() || null;
+      } else if (editing.field === "when") {
+        patch.logged_at = at;
+      }
+      await updateStateLog(patch);
     }
     onSaved();
   }
@@ -677,10 +725,14 @@ function FieldEditor({
             : editing.field === "amount"
               ? "Doses"
               : editing.field === "title"
-                ? "Title"
+                ? felt
+                  ? "What you felt"
+                  : "Title"
                 : editing.field === "icon"
                   ? "Icon"
-                  : "Description";
+                  : felt
+                    ? "Note"
+                    : "Description";
 
   const unit =
     editing.field === "nutrient"
@@ -707,7 +759,7 @@ function FieldEditor({
           className="input"
           rows={3}
           value={text}
-          placeholder="What it is, portion size…"
+          placeholder={felt ? "What was going on…" : "What it is, portion size…"}
           onChange={(e) => setText(e.target.value)}
         />
       )}

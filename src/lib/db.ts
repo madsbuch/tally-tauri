@@ -15,6 +15,7 @@ import {
   healthMetrics,
   settings,
   sleepSessions,
+  stateLogs,
   supplementLogs,
   supplements,
   workouts,
@@ -32,6 +33,7 @@ import type {
   FoodEntry,
   HealthMetric,
   SleepSession,
+  StateLog,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -1372,6 +1374,111 @@ export async function listAllSupplementLogs(): Promise<SupplementLogWithSuppleme
 export async function listAllCaptures(): Promise<Capture[]> {
   const rows = await db.select().from(captures);
   return rows.map(toCapture);
+}
+
+// ---------------------------------------------------------------------------
+// States — how they felt, with a time on it
+// ---------------------------------------------------------------------------
+
+type StateRow = typeof stateLogs.$inferSelect;
+
+const toStateLog = (r: StateRow): StateLog => ({
+  id: r.id,
+  logged_at: r.loggedAt,
+  label: r.label,
+  icon: r.icon,
+  note: r.note,
+  day: r.day,
+  tz_offset_min: r.tzOffsetMin,
+});
+
+export async function addStateLog(log: {
+  label: string;
+  icon?: string | null;
+  note?: string | null;
+  /** ISO instant; defaults to now. */
+  loggedAt?: string;
+}): Promise<number> {
+  const loggedAt = log.loggedAt ?? new Date().toISOString();
+  const stamp = stampOf(loggedAt);
+  const rows = await db
+    .insert(stateLogs)
+    .values({
+      loggedAt,
+      label: log.label,
+      icon: log.icon ?? null,
+      note: log.note?.trim() || null,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+    })
+    .returning({ id: stateLogs.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function getStateLog(id: number): Promise<StateLog | null> {
+  const rows = await db.select().from(stateLogs).where(eq(stateLogs.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toStateLog(row) : null;
+}
+
+export async function updateStateLog(log: StateLog): Promise<void> {
+  await db
+    .update(stateLogs)
+    .set({
+      loggedAt: log.logged_at,
+      label: log.label,
+      icon: log.icon,
+      note: log.note,
+      // Re-stamped from the (possibly edited) time in the offset it already
+      // carries, so retiming a state logged abroad keeps it where it was.
+      day: dayOf(log.logged_at, log.tz_offset_min),
+      tzOffsetMin: log.tz_offset_min,
+    })
+    .where(eq(stateLogs.id, log.id));
+}
+
+export async function deleteStateLog(id: number): Promise<void> {
+  await db.delete(stateLogs).where(eq(stateLogs.id, id));
+}
+
+export async function listStateLogsForDay(day: string): Promise<StateLog[]> {
+  return listStateLogsForRange(day, day);
+}
+
+/** States logged on local days `startDay`..`endDay`, newest first. */
+export async function listStateLogsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<StateLog[]> {
+  const rows = await db
+    .select()
+    .from(stateLogs)
+    .where(and(gte(stateLogs.day, startDay), lte(stateLogs.day, endDay)))
+    .orderBy(desc(stateLogs.loggedAt));
+  return rows.map(toStateLog);
+}
+
+/**
+ * The states they have actually logged, most recent first — the chips that
+ * matter more than the built-in ones, since a state someone typed once is
+ * usually a state they will type again.
+ */
+export async function listRecentStateLabels(
+  limit = 8,
+): Promise<{ label: string; icon: string | null }[]> {
+  const rows = await db
+    .select({ label: stateLogs.label, icon: stateLogs.icon })
+    .from(stateLogs)
+    .orderBy(desc(stateLogs.loggedAt))
+    .limit(200);
+  const seen = new Map<string, { label: string; icon: string | null }>();
+  for (const r of rows) {
+    const key = r.label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.set(key, { label: r.label, icon: r.icon });
+    if (seen.size >= limit) break;
+  }
+  return [...seen.values()];
 }
 
 // ---------------------------------------------------------------------------

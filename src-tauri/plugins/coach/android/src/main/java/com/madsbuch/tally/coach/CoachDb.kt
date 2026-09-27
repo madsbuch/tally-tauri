@@ -51,6 +51,14 @@ internal object CoachDb {
 
     fun today(): String = localDay(System.currentTimeMillis())
 
+    /**
+     * Wall-clock "HH:mm" of an instant already shifted into its own offset —
+     * the same trick timeOf() uses on the JS side, and the only way to render
+     * a clock the phone isn't currently set to.
+     */
+    private fun hhmm(shiftedMs: Long): String =
+        utcParser("HH:mm").format(Date(shiftedMs))
+
     fun shiftDay(day: String, delta: Int): String {
         val parts = day.split("-")
         val cal = Calendar.getInstance()
@@ -285,6 +293,45 @@ internal object CoachDb {
             }
         }
 
+        // How they said they felt. Today's in order with whatever they wrote,
+        // and the week as a tally — grouped case-insensitively, since a chip
+        // writes "Bloated" and the capture agent may write "bloated".
+        val todayStates = ArrayList<String>()
+        val stateCounts = LinkedHashMap<String, Pair<String, Int>>()
+        // A check-in can fire after an app update but before the app has been
+        // opened, against a database whose newest migration hasn't run yet.
+        // Missing the states beats missing the check-in.
+        try {
+            db.rawQuery(
+                "SELECT day, logged_at, tz_offset_min, label, note FROM state_logs " +
+                    "WHERE day BETWEEN ? AND ? ORDER BY logged_at",
+                arrayOf(weekStart, day),
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val stamped = c.getString(0)
+                    val label = c.getString(3) ?: ""
+                    if (label.isEmpty()) continue
+                    val key = label.trim().lowercase(Locale.US)
+                    val seen = stateCounts[key]
+                    stateCounts[key] =
+                        if (seen == null) Pair(label, 1) else Pair(seen.first, seen.second + 1)
+                    if (stamped == day) {
+                        val at = parseIso(c.getString(1))
+                        val time = if (at == null) "" else hhmm(at + c.getLong(2) * 60_000L)
+                        val note = c.getString(4)
+                        todayStates.add(
+                            "$label $time" + (if (note.isNullOrBlank()) "" else " — $note"),
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // No state_logs table yet.
+        }
+        val weekStates = stateCounts.values
+            .sortedByDescending { it.second }
+            .map { "${it.first} ×${it.second}" }
+
         // Only the newest document, and only its title: the prompt prefix the
         // frontend caches already carries the full library index, so this is
         // just so a check-in can mention a result that landed since.
@@ -323,6 +370,8 @@ internal object CoachDb {
             fastHours = fastHours,
             fastGoalHours = fastGoal,
             latestDocument = latestDocument,
+            todayStates = todayStates,
+            weekStates = weekStates,
         )
     }
 
@@ -415,6 +464,8 @@ internal object CoachDb {
         val fastHours: Double?,
         val fastGoalHours: Double?,
         val latestDocument: String?,
+        val todayStates: List<String>,
+        val weekStates: List<String>,
     ) {
         private fun num(v: Double?): String =
             if (v == null) "no data" else if (v == Math.floor(v)) v.toLong().toString() else v.toString()
@@ -447,6 +498,14 @@ internal object CoachDb {
             }
             if (latestDocument != null) {
                 lines.add("Most recent document in their library — $latestDocument.")
+            }
+            if (todayStates.isNotEmpty()) {
+                lines.add("Felt today: " + todayStates.joinToString("; ") + ".")
+            }
+            if (weekStates.isNotEmpty()) {
+                lines.add(
+                    "States logged in the last 7 days: " + weekStates.joinToString(", ") + ".",
+                )
             }
             return lines.joinToString("\n")
         }

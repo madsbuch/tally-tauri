@@ -23,12 +23,13 @@ import {
   listFoodEntriesForRange,
   listHealthMetricsForRange,
   listSleepForRange,
+  listStateLogsForRange,
   listWorkoutsForRange,
   setSetting,
   todayStr,
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
-import { dayOf, offsetLabel, offsetMinOf } from "./daystamp";
+import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
 import { getDayGoal } from "./goals";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
@@ -124,6 +125,15 @@ export interface CoachDigest {
   weight: { latestKg: number; change7dKg: number | null; change30dKg: number | null } | null;
   streak: { current: number; best: number; todayLogged: boolean };
   fast: { hoursElapsed: number; goalHours: number } | null;
+  /**
+   * How they said they felt — the half of a day the numbers don't hold.
+   * Today's with the time and whatever they wrote, and the week as a tally,
+   * which is what turns one bad afternoon into something worth mentioning.
+   */
+  states: {
+    today: { label: string; time: string; note: string | null }[];
+    week: { label: string; count: number }[];
+  };
 }
 
 function shiftDay(day: string, delta: number): string {
@@ -156,15 +166,37 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal] = await Promise.all([
-    listFoodEntriesForRange(weekStart, day),
-    listWorkoutsForRange(weekStart, day),
-    listSleepForRange(weekStart, day).catch(() => []),
-    listHealthMetricsForRange(monthStart, day).catch(() => []),
-    getStreakInfo().catch(() => null),
-    getActiveFast().catch(() => null),
-    getDayGoal(day).catch(() => null),
-  ]);
+  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs] =
+    await Promise.all([
+      listFoodEntriesForRange(weekStart, day),
+      listWorkoutsForRange(weekStart, day),
+      listSleepForRange(weekStart, day).catch(() => []),
+      listHealthMetricsForRange(monthStart, day).catch(() => []),
+      getStreakInfo().catch(() => null),
+      getActiveFast().catch(() => null),
+      getDayGoal(day).catch(() => null),
+      listStateLogsForRange(weekStart, day).catch(() => []),
+    ]);
+
+  // Chronological for today (a day reads forwards), and tallied for the week.
+  // Grouped case-insensitively: a chip writes "Bloated" and the capture agent
+  // may write "bloated", and they are plainly the same thing.
+  const todayStates = stateLogs
+    .filter((st) => st.day === day)
+    .map((st) => ({
+      label: st.label,
+      time: timeOf(st.logged_at, st.tz_offset_min),
+      note: st.note,
+    }))
+    .reverse();
+  const stateCounts = new Map<string, { label: string; count: number }>();
+  for (const st of stateLogs) {
+    const k = st.label.trim().toLowerCase();
+    const seen = stateCounts.get(k);
+    if (seen) seen.count++;
+    else stateCounts.set(k, { label: st.label, count: 1 });
+  }
+  const weekStates = [...stateCounts.values()].sort((a, b) => b.count - a.count);
 
   const todayEntries = entries.filter((e) => dayOfRow(e, e.eaten_at) === day);
   const todayWorkouts = workouts.filter((w) => dayOfRow(w, w.performed_at) === day);
@@ -254,6 +286,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
           goalHours: fast.goal_hours,
         }
       : null,
+    states: { today: todayStates, week: weekStates },
   };
 }
 
@@ -283,6 +316,22 @@ export function renderCoachDigest(d: CoachDigest): string {
   );
   if (d.fast) {
     lines.push(`Fasting right now: ${d.fast.hoursElapsed} h of a ${d.fast.goalHours} h goal.`);
+  }
+  if (d.states.today.length > 0) {
+    lines.push(
+      "Felt today: " +
+        d.states.today
+          .map((st) => `${st.label} ${st.time}` + (st.note ? ` — ${st.note}` : ""))
+          .join("; ") +
+        ".",
+    );
+  }
+  if (d.states.week.length > 0) {
+    lines.push(
+      "States logged in the last 7 days: " +
+        d.states.week.map((st) => `${st.label} ×${st.count}`).join(", ") +
+        ".",
+    );
   }
   return lines.join("\n");
 }

@@ -164,6 +164,26 @@ export interface Workout {
   tz_offset_min: number | null;
 }
 
+/**
+ * A state that was logged: how they felt, when.
+ *
+ * `label` is what it's called — a preset's wording or their own words — and
+ * `icon` is the preset key behind it (see lib/states.ts), null for a state
+ * they typed. The note is whatever else they wanted to say about it.
+ */
+export interface StateLog {
+  id: number;
+  /** ISO 8601 UTC timestamp. */
+  logged_at: string;
+  label: string;
+  icon: string | null;
+  note: string | null;
+  /** Local day it happened on, stamped where it happened. */
+  day: string;
+  /** Minutes east of UTC at that moment. */
+  tz_offset_min: number;
+}
+
 /** The kinds of entry you can hold a conversation with. */
 export type EntryKind = "meal" | "workout";
 

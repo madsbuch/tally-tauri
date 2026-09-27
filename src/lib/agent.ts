@@ -12,6 +12,7 @@
 import {
   addCapture,
   addFoodEntry,
+  addStateLog,
   addSupplement,
   addSupplementLog,
   addWorkout,
@@ -36,6 +37,7 @@ import { unlockAchievement } from "./achievements";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
+import { statePresetKeys } from "./states";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
@@ -173,6 +175,41 @@ const DIARY_TOOLS: ToolDef[] = [
           time: { type: "string", description: TIME_DESC },
         },
         required: ["name", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_state",
+      description:
+        "Record how they FEEL — a symptom, a mood, a state of body or mind: \"bloated\", " +
+        "\"depressive thoughts since this morning\", \"headache\", \"wired and can't sleep\". " +
+        "Nothing was eaten or done here, so nothing is estimated: this is the note itself, " +
+        "kept with a time so it can be read next to the day's food and sleep later. " +
+        "Use one call per distinct state (tired AND bloated is two calls).",
+      parameters: {
+        type: "object",
+        properties: {
+          label: {
+            type: "string",
+            description:
+              "What it is, in 1-3 words, as they'd say it: \"Bloated\", \"Depressive thoughts\".",
+          },
+          icon: {
+            type: "string",
+            enum: statePresetKeys(),
+            description: "Closest match, for the glyph; omit when none of them fits.",
+          },
+          note: {
+            type: "string",
+            description:
+              "Anything else they said about it — how bad, how long, what it followed. Their words, not yours.",
+          },
+          time: { type: "string", description: TIME_DESC },
+        },
+        required: ["label", "time"],
         additionalProperties: false,
       },
     },
@@ -338,7 +375,7 @@ function buildSystemPrompt(
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
-    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement.",
+    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state.",
     "- Branded/packaged products (wrappers, bottles, cans, labels): look them up with search_packaged_food first and base the nutrients on the best match, scaled to the portion actually consumed. The database often lacks micronutrients — estimate missing keys yourself. Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
@@ -529,6 +566,21 @@ async function executeTool(
     ctx.logged++;
     notifyDiaryChanged();
     return `Logged ${amount} × "${supp.name}" at ${time}.`;
+  }
+
+  if (name === "log_state") {
+    const label = str(args["label"]);
+    if (!label) return "Error: label is required.";
+    const icon = str(args["icon"]);
+    await addStateLog({
+      label,
+      icon: icon && statePresetKeys().includes(icon) ? icon : null,
+      note: str(args["note"]) || null,
+      loggedAt: time,
+    });
+    ctx.logged++;
+    notifyDiaryChanged();
+    return `Logged "${label}" at ${time}.`;
   }
 
   return `Error: unknown tool "${name}".`;

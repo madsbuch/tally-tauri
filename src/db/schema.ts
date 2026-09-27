@@ -352,3 +352,35 @@ export const entryMessages = sqliteTable(
   },
   (t) => [index("idx_entry_messages_entry").on(t.entryKind, t.entryId)],
 );
+
+/**
+ * How you felt, with a time on it: "bloated", "depressive thoughts", "wired".
+ *
+ * The rest of the diary records what went in and what was burned. This records
+ * what it was like — the half of a day people are usually tracking the other
+ * half *for*. Kept as one row per state rather than a mood score, because
+ * "bloated at 13:40" can be lined up against what was eaten at 12:15 and a
+ * number out of ten can't.
+ *
+ * `label` is free text (a preset's wording, or their own); `icon` is a preset
+ * key looked up in lib/states.ts, null for something they typed.
+ */
+export const stateLogs = sqliteTable(
+  "state_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    loggedAt: text("logged_at").notNull(),
+    label: text("label").notNull(),
+    icon: text("icon"),
+    /** Whatever else they wanted to say about it. */
+    note: text("note"),
+    /** Local day it happened on, stamped where it happened (lib/daystamp.ts). */
+    day: text("day").notNull(),
+    /** Minutes east of UTC at that moment, so the time reads as it was lived. */
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+  },
+  (t) => [
+    index("idx_state_logs_day").on(t.day),
+    index("idx_state_logs_logged_at").on(t.loggedAt),
+  ],
+);
