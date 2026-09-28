@@ -1640,3 +1640,72 @@ textarea.chat-input {
     opacity: 1;
   }
 }
+
+/* Rules for living ------------------------------------------------------- */
+
+/* A rule is a sentence someone lives by, so it is shown whole — wrapped, not
+   cut to one line like an entry title. */
+.rule-text {
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rule-text-lead {
+  margin-bottom: 14px;
+}
+
+button.rule-row {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rule-row-on {
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+  border-color: var(--accent);
+}
+
+.rule-spark {
+  flex: 0 0 auto;
+}
+
+.rule-spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rule-section {
+  margin: 16px 2px 8px;
+}
+
+.rule-suggestion {
+  border-style: dashed;
+}
+
+.rule-suggestion-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rule-belief-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rule-belief-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.rule-belief-value {
+  color: var(--accent);
+  font-weight: 700;
+}

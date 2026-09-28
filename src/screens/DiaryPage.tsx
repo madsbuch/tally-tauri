@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import type {
   Capture,
   FoodEntry,
+  LifeRule,
+  LifeRuleLog,
   NutrientKey,
   Nutrients,
   SleepSession,
@@ -32,11 +34,17 @@ import {
 import { afterSheetHistorySettles, useSheetHistory } from "../lib/sheetHistory";
 import InfoButton from "../components/InfoButton";
 import StateSheet from "../components/StateSheet";
+import RuleSheet, {
+  RuleEditSheet,
+  RuleLogSheet,
+  RuleSuggestionButtons,
+} from "../components/RuleSheet";
 import {
   addFoodEntry,
   addSupplement,
   addSupplementLog,
   addWorkout,
+  deleteLifeRule,
   deletePhotoIfUnused,
   deleteSupplement,
   getSetting,
@@ -44,6 +52,8 @@ import {
   listFoodEntriesForDay,
   listFoodEntriesForRange,
   listHealthMetricsForRange,
+  listLifeRuleLogsForDay,
+  listLifeRulesCreatedOn,
   listSleepForRange,
   listStateLogsForDay,
   listSupplementLogsForDay,
@@ -53,11 +63,13 @@ import {
   listWorkoutsForRange,
   setDayGoalAdjustment,
   todayStr,
+  updateLifeRule,
   updateSupplement,
 } from "../lib/db";
 import {
   discardCapture,
   enqueueCapture,
+  notifyDiaryChanged,
   onDiaryChanged,
   retryCapture,
 } from "../lib/agent";
@@ -79,6 +91,7 @@ import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
 import { stateGlyph } from "../lib/states";
+import { ACTED_ON_LABEL, RULE_GLYPH } from "../lib/lifeRules";
 import {
   MAX_MANUAL_ADJUSTMENT,
   getDayGoal,
@@ -1394,6 +1407,8 @@ type TimelineItem =
   | { kind: "workout"; ts: string; workout: Workout }
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
   | { kind: "state"; ts: string; state: StateLog }
+  | { kind: "rule"; ts: string; log: LifeRuleLog }
+  | { kind: "rule_new"; ts: string; rule: LifeRule }
   | { kind: "capture"; ts: string; capture: Capture };
 
 /** Where an entry's own page lives. */
@@ -1419,7 +1434,55 @@ function captureTitle(c: Capture): string {
   return note.length > 48 ? `${note.slice(0, 48).trimEnd()}…` : note;
 }
 
-type SheetKind = "add" | "supp" | "state";
+type SheetKind = "add" | "supp" | "state" | "rule";
+
+/**
+ * A rule written down that day, on the timeline. A suggestion carries its
+ * Keep / Dismiss right on the row: it is a question the diary is asking, and
+ * the answer shouldn't be a sheet away.
+ */
+function NewRuleRow({ rule, onOpen }: { rule: LifeRule; onOpen: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const suggested = rule.status === "suggested";
+  async function act(keep: boolean) {
+    setBusy(true);
+    try {
+      if (keep) await updateLifeRule(rule.id, { status: "kept" });
+      else await deleteLifeRule(rule.id);
+      notifyDiaryChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className={`list-row${suggested ? " rule-suggestion" : ""}`}
+      role="button"
+      tabIndex={0}
+      style={{ cursor: "pointer" }}
+      onClick={onOpen}
+      onKeyDown={(ev) => {
+        if (ev.key === "Enter") onOpen();
+      }}
+    >
+      <GlyphThumb glyph={RULE_GLYPH} />
+      <div className="row-main">
+        <div className="rule-text">“{rule.text}”</div>
+        <div className="row-sub">
+          {timeOf(rule.created_at, rule.tz_offset_min)} ·{" "}
+          {suggested ? "Sounds like a rule — is it one of yours?" : "New rule written down"}
+        </div>
+        {suggested && (
+          <RuleSuggestionButtons
+            busy={busy}
+            onKeep={() => void act(true)}
+            onDismiss={() => void act(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function DiaryPage() {
   const [day, setDay] = useState(() => todayStr());
@@ -1428,6 +1491,8 @@ export default function DiaryPage() {
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [captures, setCaptures] = useState<Capture[] | null>(null);
   const [states, setStates] = useState<StateLog[]>([]);
+  const [ruleLogs, setRuleLogs] = useState<LifeRuleLog[]>([]);
+  const [newRules, setNewRules] = useState<LifeRule[]>([]);
   const [sleep, setSleep] = useState<SleepSession[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [period, setPeriod] = useState<TotalsPeriod>("day");
@@ -1447,7 +1512,9 @@ export default function DiaryPage() {
   const navigate = useNavigate();
   /** An entry has a page of its own now; only a failed capture opens a sheet. */
   const openItem = (item: TimelineItem) => {
-    if (item.kind === "capture") setDetail(item);
+    if (item.kind === "capture" || item.kind === "rule" || item.kind === "rule_new") {
+      setDetail(item);
+    }
     else navigate(entryPath(item));
   };
   const [sheet, setSheet] = useState<SheetKind | null>(null);
@@ -1487,6 +1554,7 @@ export default function DiaryPage() {
   useSheetHistory(sheet === "add", () => setSheet(null));
   useSheetHistory(sheet === "supp", () => setSheet(null));
   useSheetHistory(sheet === "state", () => setSheet(null));
+  useSheetHistory(sheet === "rule", () => setSheet(null));
   useSheetHistory(showAchievements, () => setShowAchievements(false));
   useSheetHistory(recapOpen !== null, () => setRecapOpen(null));
 
@@ -1555,8 +1623,10 @@ export default function DiaryPage() {
       // day's timeline even though most of it happened yesterday.
       listSleepForRange(day, day).catch(() => [] as SleepSession[]),
       listStateLogsForDay(day).catch(() => [] as StateLog[]),
+      listLifeRuleLogsForDay(day).catch(() => [] as LifeRuleLog[]),
+      listLifeRulesCreatedOn(day).catch(() => [] as LifeRule[]),
     ])
-      .then(([e, w, s, c, sl, st]) => {
+      .then(([e, w, s, c, sl, st, rl, nr]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
@@ -1565,6 +1635,8 @@ export default function DiaryPage() {
         setCaptures(c);
         setSleep(sl);
         setStates(st);
+        setRuleLogs(rl);
+        setNewRules(nr);
       })
       .catch((err) => {
         if (alive) setLoadError(errMsg(err));
@@ -1728,10 +1800,12 @@ export default function DiaryPage() {
         capture: c,
       })),
       ...states.map((st) => ({ kind: "state" as const, ts: st.logged_at, state: st })),
+      ...ruleLogs.map((l) => ({ kind: "rule" as const, ts: l.logged_at, log: l })),
+      ...newRules.map((r) => ({ kind: "rule_new" as const, ts: r.created_at, rule: r })),
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs, captures, sleep, states]);
+  }, [entries, workouts, suppLogs, captures, sleep, states, ruleLogs, newRules]);
 
   const today = todayStr();
   const isToday = day === today;
@@ -2241,6 +2315,51 @@ export default function DiaryPage() {
                     </div>
                   );
                 }
+                if (item.kind === "rule_new") {
+                  return (
+                    <NewRuleRow
+                      key={`rule-new-${item.rule.id}`}
+                      rule={item.rule}
+                      onOpen={() => openItem(item)}
+                    />
+                  );
+                }
+                if (item.kind === "rule") {
+                  const l = item.log;
+                  return (
+                    <div
+                      key={`rule-${l.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => openItem(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") openItem(item);
+                      }}
+                    >
+                      <GlyphThumb glyph={RULE_GLYPH} />
+                      <div className="row-main">
+                        <div className="rule-text">“{shorten(l.rule_text, 90)}”</div>
+                        <div className="row-sub">
+                          {timeOf(l.logged_at, l.tz_offset_min)}
+                          {l.situation ? ` · ${shorten(l.situation)}` : " · came up"}
+                        </div>
+                        {(l.belief !== null || l.acted_on !== null) && (
+                          <div className="chips" style={{ marginTop: 6 }}>
+                            {l.belief !== null && (
+                              <span className="chip">{l.belief}% true</span>
+                            )}
+                            {l.acted_on !== null && (
+                              <span className="chip">{ACTED_ON_LABEL[l.acted_on]}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="row-end">›</div>
+                    </div>
+                  );
+                }
                 if (item.kind === "state") {
                   const st = item.state;
                   return (
@@ -2308,6 +2427,14 @@ export default function DiaryPage() {
         <div className="fab-row">
           <button
             className="fab fab-secondary"
+            onClick={() => setSheet("rule")}
+            aria-label="Log a rule for living"
+            title="A rule came up"
+          >
+            {RULE_GLYPH}
+          </button>
+          <button
+            className="fab fab-secondary"
             onClick={() => setSheet("state")}
             aria-label="Log how you feel"
             title="How do you feel?"
@@ -2331,6 +2458,12 @@ export default function DiaryPage() {
       {detail?.kind === "capture" && (
         <CaptureErrorSheet capture={detail.capture} onClose={() => setDetail(null)} />
       )}
+      {detail?.kind === "rule" && (
+        <RuleLogSheet log={detail.log} onClose={() => setDetail(null)} onChanged={bump} />
+      )}
+      {detail?.kind === "rule_new" && (
+        <RuleEditSheet rule={detail.rule} onClose={() => setDetail(null)} onChanged={bump} />
+      )}
 
       {sheet === "add" && (
         <AddSheet
@@ -2344,6 +2477,16 @@ export default function DiaryPage() {
       )}
       {sheet === "state" && (
         <StateSheet
+          day={day}
+          onClose={() => setSheet(null)}
+          onLogged={() => {
+            setSheet(null);
+            bump();
+          }}
+        />
+      )}
+      {sheet === "rule" && (
+        <RuleSheet
           day={day}
           onClose={() => setSheet(null)}
           onLogged={() => {

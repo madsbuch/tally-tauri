@@ -6,6 +6,9 @@
  */
 import {
   addCoachMemory,
+  addLifeRule,
+  findLifeRuleByText,
+  updateLifeRule,
   deleteCoachMemory,
   getDb,
   getSetting,
@@ -156,6 +159,29 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     },
   },
   FOOD_FACTS_TOOL,
+  {
+    type: "function",
+    function: {
+      name: "add_rule",
+      description:
+        "Add a rule for living (\"leveregel\") to their list — a standing belief like \"I must always do things perfectly\". ONLY once they have agreed to the exact wording: if you helped put it into words, read the sentence back and wait for a yes before calling this. It is saved verbatim as theirs, so never paraphrase what they agreed to.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "The rule, word for word as they agreed to it, in their language.",
+          },
+          alternative: {
+            type: "string",
+            description: "The rule they want to practise instead, if they named one. Omit otherwise.",
+          },
+        },
+        required: ["text"],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -625,6 +651,26 @@ export async function executeAssistantTool(
     return executeFoodFactsSearch(args);
   }
 
+  if (name === "add_rule") {
+    const text = typeof args["text"] === "string" ? args["text"].trim() : "";
+    if (!text) throw new Error("text is required");
+    const alternative =
+      typeof args["alternative"] === "string" && args["alternative"].trim()
+        ? args["alternative"].trim()
+        : null;
+    const known = await findLifeRuleByText(text);
+    if (known) {
+      // Agreed to in this conversation, so it is theirs whatever it was before.
+      await updateLifeRule(known.id, {
+        status: "kept",
+        ...(alternative ? { alternative } : {}),
+      });
+      return JSON.stringify({ already_on_list: known.id, text: known.text });
+    }
+    const rule = await addLifeRule({ text, alternative, status: "kept" });
+    return JSON.stringify({ added_rule: rule.id, text: rule.text });
+  }
+
   if (name === "remember") {
     const kind = args["kind"];
     const text = typeof args["text"] === "string" ? args["text"].trim() : "";
@@ -695,6 +741,8 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 - state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
+- life_rules(id, text /* a rule for living in their exact words: "I must always do things perfectly" */, alternative /* the rule they practise instead, or NULL */, status /* "kept" | "suggested" (the diary heard it, they haven't confirmed) | "archived" */, created_at, day, tz_offset_min)
+- life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */) — the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;

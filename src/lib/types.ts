@@ -194,6 +194,44 @@ export interface StateLog {
   tz_offset_min: number;
 }
 
+/** Where a rule for living stands (see lib/lifeRules.ts). */
+export type LifeRuleStatus = "suggested" | "kept" | "archived";
+
+/** Did they do what the rule said, the time it came up? */
+export type RuleActedOn = "yes" | "partly" | "no";
+
+/** A rule for living, in their words. */
+export interface LifeRule {
+  id: number;
+  text: string;
+  /** The rule they are practising instead, if they have one yet. */
+  alternative: string | null;
+  status: LifeRuleStatus;
+  created_at: string;
+  updated_at: string;
+  /** Local day it was first written down. */
+  day: string;
+  tz_offset_min: number;
+}
+
+/**
+ * A time a rule came up. `rule_text` is the wording it had then, copied
+ * rather than looked up, so rewording the rule later doesn't rewrite the day.
+ */
+export interface LifeRuleLog {
+  id: number;
+  rule_id: number;
+  rule_text: string;
+  /** ISO 8601 UTC timestamp. */
+  logged_at: string;
+  day: string;
+  tz_offset_min: number;
+  situation: string | null;
+  /** 0–100; null when they didn't rate it. */
+  belief: number | null;
+  acted_on: RuleActedOn | null;
+}
+
 /** The kinds of entry you can hold a conversation with. */
 export type EntryKind = "meal" | "workout";
 
