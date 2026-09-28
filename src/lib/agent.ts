@@ -4,7 +4,8 @@
  * A capture (photo and/or note) is stored instantly and resolved in the
  * background: the model sees the current time, the supplement catalog and the
  * diary around this day, then records entries exclusively through tool calls
- * (log_meal / repeat_meal / log_workout / log_supplement), so phrases like
+ * (log_meal / repeat_meal / log_workout / log_supplement / log_state /
+ * add_rule / log_rule), so phrases like
  * "ate this earlier today" get a concrete timestamp and "one more of those"
  * gets the same numbers as the first one. Successful captures are deleted;
  * failures stay visible in the timeline with a retry.
@@ -12,17 +13,22 @@
 import {
   addCapture,
   addFoodEntry,
+  addLifeRule,
+  addLifeRuleLog,
   addStateLog,
   addSupplement,
   addSupplementLog,
   addWorkout,
   deleteCapture,
   deletePhotoIfUnused,
+  findLifeRuleByText,
   getCapture,
+  getLifeRule,
   getFoodEntry,
   getSetting,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
+  listLifeRules,
   listPendingCaptures,
   listStateCategories,
   listSupplementLogsForDay,
@@ -30,6 +36,7 @@ import {
   listWorkoutsForDay,
   setCaptureStatus,
   todayStr,
+  updateLifeRule,
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
@@ -39,6 +46,7 @@ import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { stateKey } from "./states";
+import { clampBelief, isActedOn } from "./lifeRules";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
@@ -46,6 +54,7 @@ import { shiftDay, timeOf } from "./daystamp";
 import type {
   Capture,
   FoodEntry,
+  LifeRule,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -108,6 +117,28 @@ function nutrientsSchema(): Record<string, unknown> {
     additionalProperties: false,
   };
 }
+
+/** What a rule coming up is recorded with; shared by add_rule and log_rule. */
+const RULE_MOMENT_PROPS: Record<string, unknown> = {
+  situation: {
+    type: "string",
+    description:
+      "What was going on when it came up, in their words. Omit when the note only states the rule.",
+  },
+  belief: {
+    type: "number",
+    description:
+      "0-100: how much they believed it in that moment. ONLY when they gave a rating " +
+      "(\"80%\", \"half-believe it\" ≈ 50); never guess one.",
+  },
+  acted_on: {
+    type: "string",
+    enum: ["yes", "partly", "no"],
+    description:
+      "Whether they did what the rule said. Only when the note says so.",
+  },
+  time: { type: "string", description: TIME_DESC },
+};
 
 const DIARY_TOOLS: ToolDef[] = [
   {
@@ -239,6 +270,58 @@ const DIARY_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "add_rule",
+      description:
+        "Write down a RULE FOR LIVING (\"leveregel\"): a standing belief about how they must be " +
+        "or what they are — \"I must always do things perfectly\", \"I'm a man, so I'm dangerous\", " +
+        "\"if I rest, I'm lazy\". Not a passing feeling (that is log_state): a rule is general and " +
+        "they live by it. If the rule is already on their list, use log_rule instead. " +
+        "Pass `situation` when the note also says when or why it came up, so that moment is logged too.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description:
+              "The rule in THEIR exact words, copied from the note character for character — same " +
+              "language, same wording. Never translate, shorten, soften, correct or rephrase it. " +
+              "Drop only a lead-in like \"new rule:\" / \"ny leveregel:\".",
+          },
+          explicit: {
+            type: "boolean",
+            description:
+              "true when they SAID this is a rule (\"new rule: …\", \"ny leveregel: …\", \"a rule I " +
+              "have is …\"). false when you recognised a rule in what they wrote without them calling " +
+              "it one — it is then saved as a suggestion they confirm or dismiss.",
+          },
+          ...RULE_MOMENT_PROPS,
+        },
+        required: ["text", "explicit", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_rule",
+      description:
+        "Record that one of their rules for living (listed by #id in your instructions) came up: " +
+        "it showed up in a situation, they caught themselves following it, or they pushed against it.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "Rule id (the #number) from your instructions" },
+          ...RULE_MOMENT_PROPS,
+        },
+        required: ["id", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
   FOOD_FACTS_TOOL,
 ];
 
@@ -269,6 +352,8 @@ interface DiaryContext {
    * when the day being added to is still empty.
    */
   recentMeals: FoodEntry[];
+  /** Their rules for living, suggestions included, archived ones not. */
+  rules: LifeRule[];
 }
 
 const RECENT_DAYS = 7;
@@ -276,12 +361,14 @@ const MAX_RECENT = 10;
 
 async function loadDiaryContext(day: string): Promise<DiaryContext> {
   const before = shiftDay(day, -RECENT_DAYS);
-  const [meals, workouts, supplements, week] = await Promise.all([
+  const [meals, workouts, supplements, week, allRules] = await Promise.all([
     listFoodEntriesForDay(day).catch(() => []),
     listWorkoutsForDay(day).catch(() => []),
     listSupplementLogsForDay(day).catch(() => []),
     listFoodEntriesForRange(before, shiftDay(day, -1)).catch(() => []),
+    listLifeRules().catch(() => [] as LifeRule[]),
   ]);
+  const rules = allRules.filter((r) => r.status !== "archived");
 
   // One line per distinct food, newest first: a week of repeats would
   // otherwise crowd out everything else.
@@ -294,7 +381,7 @@ async function loadDiaryContext(day: string): Promise<DiaryContext> {
     recentMeals.push(m);
     if (recentMeals.length >= MAX_RECENT) break;
   }
-  return { meals, workouts, supplements, recentMeals };
+  return { meals, workouts, supplements, recentMeals, rules };
 }
 
 const kcalOf = (e: FoodEntry): number => Math.round(e.nutrients.calories ?? 0);
@@ -336,6 +423,15 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
           .join(", "),
     );
   }
+
+  if (ctx.rules.length === 0) {
+    lines.push("Rules for living they have written down: none yet.");
+  } else {
+    lines.push("Rules for living they have written down (for log_rule):");
+    for (const r of ctx.rules) {
+      lines.push(`  #${r.id} "${r.text}"${r.status === "suggested" ? " (suggested, not confirmed yet)" : ""}`);
+    }
+  }
   return lines.join("\n");
 }
 
@@ -371,7 +467,9 @@ function buildSystemPrompt(
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
-    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state.",
+    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
+    "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
+    "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
     "- Branded/packaged products (wrappers, bottles, cans, labels): look them up with search_packaged_food first and base the nutrients on the best match, scaled to the portion actually consumed. The database often lacks micronutrients — estimate missing keys yourself. Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
@@ -591,6 +689,54 @@ async function executeTool(
     return `Logged "${label}" at ${time}.`;
   }
 
+  if (name === "add_rule" || name === "log_rule") {
+    const situation = str(args["situation"]);
+    const belief = clampBelief(args["belief"]);
+    const acted = args["acted_on"];
+    const actedOn = isActedOn(acted) ? acted : null;
+
+    let rule: LifeRule | null;
+    let isNew = false;
+    if (name === "log_rule") {
+      const id = num(args["id"]);
+      rule = id === null ? null : await getLifeRule(id);
+      if (!rule) return `Error: no rule #${args["id"]}. Use an id from your instructions, or add_rule.`;
+    } else {
+      const text = str(args["text"]);
+      if (!text) return "Error: text is required.";
+      const explicit = args["explicit"] === true;
+      rule = await findLifeRuleByText(text);
+      if (rule) {
+        // Said again in so many words: a rule they had put away is back, and
+        // one they now call a rule is no longer just our suggestion.
+        if (rule.status === "archived" || (explicit && rule.status === "suggested")) {
+          await updateLifeRule(rule.id, { status: explicit ? "kept" : "suggested" });
+        }
+      } else {
+        rule = await addLifeRule({
+          text,
+          status: explicit ? "kept" : "suggested",
+          createdAt: time,
+        });
+        isNew = true;
+      }
+    }
+
+    // A rule written down fresh with nothing about the moment is just the
+    // rule. Anything else — one already on the list, or a when/why — is a
+    // time it came up.
+    const moment = !isNew || situation !== null || belief !== null || actedOn !== null;
+    if (moment) {
+      await addLifeRuleLog({ rule, situation, belief, actedOn, loggedAt: time });
+    }
+    ctx.logged++;
+    notifyDiaryChanged();
+    if (isNew) {
+      return `Wrote down rule #${rule.id} "${rule.text}"${rule.status === "suggested" ? " as a suggestion for them to confirm" : ""}${moment ? `, and logged it coming up at ${time}` : ""}.`;
+    }
+    return `Logged rule #${rule.id} "${rule.text}" coming up at ${time}.`;
+  }
+
   return `Error: unknown tool "${name}".`;
 }
 
@@ -673,8 +819,9 @@ async function runCapture(capture: Capture): Promise<void> {
           role: "user",
           content:
             "Nothing has been recorded yet. If the capture shows any food, drink, " +
-            "exercise, or supplement, record it NOW by calling the matching tool " +
-            "(log_meal / log_workout / log_supplement) — a rough estimate is better " +
+            "exercise, supplement, feeling or rule for living, record it NOW by calling the " +
+            "matching tool (log_meal / log_workout / log_supplement / log_state / add_rule / " +
+            "log_rule) — a rough estimate is better " +
             "than nothing. Only reply in plain text if there is truly nothing to " +
             "record, and say why.",
         });

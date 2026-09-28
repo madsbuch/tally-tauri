@@ -113,6 +113,13 @@
       "when": 1790528397280,
       "tag": "0015_state_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790597943264,
+      "tag": "0016_life_rules",
+      "breakpoints": true
     }
   ]
 }

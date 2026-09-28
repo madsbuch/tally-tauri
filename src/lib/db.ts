@@ -13,6 +13,8 @@ import {
   fasts,
   foodEntries,
   healthMetrics,
+  lifeRuleLogs,
+  lifeRules,
   settings,
   sleepSessions,
   stateCategories,
@@ -33,6 +35,10 @@ import type {
   Fast,
   FoodEntry,
   HealthMetric,
+  LifeRule,
+  LifeRuleLog,
+  LifeRuleStatus,
+  RuleActedOn,
   SleepSession,
   StateCategory,
   StateLog,
@@ -45,6 +51,7 @@ import { FAST_BREAK_KCAL } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
 import { stateKey } from "./states";
+import { isActedOn, isRuleStatus, ruleKey } from "./lifeRules";
 import { deletePhoto } from "./photos";
 import {
   parseChatTranscript,
@@ -1505,6 +1512,198 @@ export async function addStateCategory(
  */
 export async function deleteStateCategory(id: number): Promise<void> {
   await db.delete(stateCategories).where(eq(stateCategories.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Rules for living — in their words, and the times they came up
+// ---------------------------------------------------------------------------
+
+type LifeRuleRow = typeof lifeRules.$inferSelect;
+type LifeRuleLogRow = typeof lifeRuleLogs.$inferSelect;
+
+// Our own data, so a status we never wrote is corruption and says so.
+const toLifeRule = (r: LifeRuleRow): LifeRule => {
+  if (!isRuleStatus(r.status)) throw new Error(`Rule #${r.id} has status "${r.status}"`);
+  return {
+    id: r.id,
+    text: r.text,
+    alternative: r.alternative,
+    status: r.status,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+  };
+};
+
+const toLifeRuleLog = (r: LifeRuleLogRow): LifeRuleLog => {
+  const actedOn = r.actedOn;
+  if (actedOn !== null && !isActedOn(actedOn)) {
+    throw new Error(`Rule log #${r.id} has acted_on "${actedOn}"`);
+  }
+  return {
+    id: r.id,
+    rule_id: r.ruleId,
+    rule_text: r.ruleText,
+    logged_at: r.loggedAt,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+    situation: r.situation,
+    belief: r.belief,
+    acted_on: actedOn,
+  };
+};
+
+/** Every rule, archived ones included, in the order they were written down. */
+export async function listLifeRules(): Promise<LifeRule[]> {
+  const rows = await db.select().from(lifeRules).orderBy(lifeRules.id);
+  return rows.map(toLifeRule);
+}
+
+export async function getLifeRule(id: number): Promise<LifeRule | null> {
+  const rows = await db.select().from(lifeRules).where(eq(lifeRules.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toLifeRule(row) : null;
+}
+
+/**
+ * The rule with these words, if one is written down already — a live one
+ * before an archived one, so a rule that came back finds itself.
+ */
+export async function findLifeRuleByText(text: string): Promise<LifeRule | null> {
+  const key = ruleKey(text);
+  if (!key) return null;
+  const matches = (await listLifeRules()).filter((r) => ruleKey(r.text) === key);
+  return matches.find((r) => r.status !== "archived") ?? matches[0] ?? null;
+}
+
+/** Write one down. `text` is stored as given, apart from the edges. */
+export async function addLifeRule(rule: {
+  text: string;
+  status: LifeRuleStatus;
+  alternative?: string | null;
+  /** ISO instant; defaults to now. */
+  createdAt?: string;
+}): Promise<LifeRule> {
+  const text = rule.text.trim();
+  if (!text) throw new Error("A rule needs its words.");
+  const createdAt = rule.createdAt ?? new Date().toISOString();
+  const stamp = stampOf(createdAt);
+  const values = {
+    text,
+    alternative: rule.alternative?.trim() || null,
+    status: rule.status,
+    createdAt,
+    updatedAt: createdAt,
+    day: stamp.day,
+    tzOffsetMin: stamp.tz_offset_min,
+  };
+  const rows = await db.insert(lifeRules).values(values).returning({ id: lifeRules.id });
+  return toLifeRule({ id: rows[0]?.id ?? 0, ...values });
+}
+
+export async function updateLifeRule(
+  id: number,
+  patch: { text?: string; alternative?: string | null; status?: LifeRuleStatus },
+): Promise<void> {
+  const set: Partial<typeof lifeRules.$inferInsert> = {
+    updatedAt: new Date().toISOString(),
+  };
+  if (patch.text !== undefined) {
+    const text = patch.text.trim();
+    if (!text) throw new Error("A rule needs its words.");
+    set.text = text;
+  }
+  if (patch.alternative !== undefined) set.alternative = patch.alternative?.trim() || null;
+  if (patch.status !== undefined) set.status = patch.status;
+  await db.update(lifeRules).set(set).where(eq(lifeRules.id, id));
+}
+
+/**
+ * Remove a rule and every time it was logged. Only for a suggestion that is
+ * turned down — it was never theirs. A kept rule they're done with is
+ * archived instead, so its history stays.
+ */
+export async function deleteLifeRule(id: number): Promise<void> {
+  await db.delete(lifeRuleLogs).where(eq(lifeRuleLogs.ruleId, id));
+  await db.delete(lifeRules).where(eq(lifeRules.id, id));
+}
+
+/** Rules first written down on this local day, oldest first. */
+export async function listLifeRulesCreatedOn(day: string): Promise<LifeRule[]> {
+  const rows = await db
+    .select()
+    .from(lifeRules)
+    .where(eq(lifeRules.day, day))
+    .orderBy(lifeRules.createdAt);
+  return rows.map(toLifeRule);
+}
+
+export async function addLifeRuleLog(log: {
+  rule: LifeRule;
+  situation?: string | null;
+  belief?: number | null;
+  actedOn?: RuleActedOn | null;
+  /** ISO instant; defaults to now. */
+  loggedAt?: string;
+}): Promise<number> {
+  const loggedAt = log.loggedAt ?? new Date().toISOString();
+  const stamp = stampOf(loggedAt);
+  const rows = await db
+    .insert(lifeRuleLogs)
+    .values({
+      ruleId: log.rule.id,
+      ruleText: log.rule.text,
+      loggedAt,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+      situation: log.situation?.trim() || null,
+      belief: log.belief ?? null,
+      actedOn: log.actedOn ?? null,
+    })
+    .returning({ id: lifeRuleLogs.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function updateLifeRuleLog(log: LifeRuleLog): Promise<void> {
+  await db
+    .update(lifeRuleLogs)
+    .set({
+      loggedAt: log.logged_at,
+      situation: log.situation?.trim() || null,
+      belief: log.belief,
+      actedOn: log.acted_on,
+      // Re-stamped in the offset it already carries, as with states.
+      day: dayOf(log.logged_at, log.tz_offset_min),
+    })
+    .where(eq(lifeRuleLogs.id, log.id));
+}
+
+export async function deleteLifeRuleLog(id: number): Promise<void> {
+  await db.delete(lifeRuleLogs).where(eq(lifeRuleLogs.id, id));
+}
+
+/** Times rules came up on local days `startDay`..`endDay`, newest first. */
+export async function listLifeRuleLogsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<LifeRuleLog[]> {
+  const rows = await db
+    .select()
+    .from(lifeRuleLogs)
+    .where(and(gte(lifeRuleLogs.day, startDay), lte(lifeRuleLogs.day, endDay)))
+    .orderBy(desc(lifeRuleLogs.loggedAt));
+  return rows.map(toLifeRuleLog);
+}
+
+export async function listLifeRuleLogsForDay(day: string): Promise<LifeRuleLog[]> {
+  return listLifeRuleLogsForRange(day, day);
+}
+
+/** Every time any rule came up, oldest first — what the trends are drawn from. */
+export async function listAllLifeRuleLogs(): Promise<LifeRuleLog[]> {
+  const rows = await db.select().from(lifeRuleLogs).orderBy(lifeRuleLogs.loggedAt);
+  return rows.map(toLifeRuleLog);
 }
 
 // ---------------------------------------------------------------------------

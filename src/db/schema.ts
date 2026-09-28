@@ -407,3 +407,69 @@ export const stateCategories = sqliteTable(
   },
   (t) => [uniqueIndex("idx_state_categories_label").on(t.label)],
 );
+
+/**
+ * Rules for living — "I must always do things perfectly", "I'm a man, so I'm
+ * dangerous". The sentences someone runs their life by without having chosen
+ * them, kept in their own words (see lib/lifeRules.ts).
+ *
+ * `text` is stored exactly as they put it. A rule is only worth watching in
+ * the wording it actually has in their head, and a tidied-up version is a
+ * different rule. Rewording one later is part of the work, which is why each
+ * log below keeps the wording it was logged under.
+ */
+export const lifeRules = sqliteTable(
+  "life_rules",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    text: text("text").notNull(),
+    /** The rule they are practising instead, if they have one yet. */
+    alternative: text("alternative"),
+    /**
+     * "suggested" | "kept" | "archived". Suggested is one the diary agent
+     * heard in a note without being told it was a rule: it waits for a Keep
+     * before it counts as theirs. Archived ones stay so their history does.
+     */
+    status: text("status").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    /** Local day it was first written down, stamped where that happened. */
+    day: text("day").notNull(),
+    /** Minutes east of UTC at that moment. */
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+  },
+  (t) => [
+    index("idx_life_rules_status").on(t.status),
+    index("idx_life_rules_day").on(t.day),
+  ],
+);
+
+/**
+ * A time a rule came up: what set it off, how true it felt right then, and
+ * whether they did what it said. Belief is the usual 0–100% — the number that
+ * is supposed to move over months of noticing.
+ */
+export const lifeRuleLogs = sqliteTable(
+  "life_rule_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ruleId: integer("rule_id")
+      .notNull()
+      .references(() => lifeRules.id),
+    /** The rule's wording when this was logged; rewording must not rewrite it. */
+    ruleText: text("rule_text").notNull(),
+    loggedAt: text("logged_at").notNull(),
+    day: text("day").notNull(),
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+    /** What was going on, in their words. */
+    situation: text("situation"),
+    /** 0–100: how much they believed it in that moment. Null = not rated. */
+    belief: integer("belief"),
+    /** "yes" | "partly" | "no" — did they do what the rule said? */
+    actedOn: text("acted_on"),
+  },
+  (t) => [
+    index("idx_life_rule_logs_day").on(t.day),
+    index("idx_life_rule_logs_rule").on(t.ruleId),
+  ],
+);
