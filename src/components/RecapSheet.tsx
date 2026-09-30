@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import AssistantChart from "./AssistantChart";
 import {
   buildRecap,
@@ -11,6 +11,7 @@ import {
 import type { Recap, RecapPeriod, RecapRange, RecapStats } from "../lib/recap";
 import { todayStr } from "../lib/db";
 import { shiftDay } from "../lib/daystamp";
+import { getAssistantState, subscribeAssistant } from "../lib/assistantRunner";
 
 function hm(min: number): string {
   return `${Math.floor(min / 60)}h ${String(Math.round(min % 60)).padStart(2, "0")}m`;
@@ -175,6 +176,10 @@ export default function RecapSheet({
   const [range, setRange] = useState<RecapRange>(initial);
   const [recap, setRecap] = useState<Recap | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // One turn at a time: while the coach is answering something else, a new
+  // conversation can't start, so say so rather than drop the recap.
+  const coachBusy =
+    useSyncExternalStore(subscribeAssistant, getAssistantState).status === "running";
   const today = todayStr();
 
   useEffect(() => {
@@ -341,8 +346,11 @@ export default function RecapSheet({
                 className="btn btn-block"
                 style={{ marginTop: 14 }}
                 onClick={() => onAskCoach(recap)}
+                disabled={coachBusy}
               >
-                💬 Talk it over with the coach
+                {coachBusy
+                  ? "The coach is answering something else…"
+                  : "💬 Talk it over with the coach"}
               </button>
             )}
           </>

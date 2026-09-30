@@ -14,3 +14,12 @@ pub struct ScheduleCheckinArgs {
     /// writes, and only Tauri's own path resolver knows where that is.
     pub db_path: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyCheckinArgs {
+    /// The chat the check-in was saved as; tapping the notification opens it.
+    pub chat_id: i64,
+    pub title: String,
+    pub body: String,
+}

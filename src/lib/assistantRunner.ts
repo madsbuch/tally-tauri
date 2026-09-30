@@ -15,9 +15,15 @@
  * lib/appLifecycle.ts) the turn parks as "interrupted" and resumes by itself
  * when the app comes back, instead of reporting an error the user has to
  * clear by hand.
+ *
+ * Which conversation is on screen is not decided here: that's the URL's job
+ * (/assistant/:chatId, see lib/navigation.ts). This holds whichever chat was
+ * last opened or started — the one a turn runs in, and the one the Coach tab
+ * goes back to.
  */
 import {
   createChat,
+  deleteChat,
   getChatMessages,
   updateChatMessages,
 } from "./db";
@@ -190,6 +196,14 @@ let inFlight: Promise<void> | null = null;
  * chat waits for the user to ask for it.
  */
 let autoResumable = false;
+/**
+ * Bumped by everything that changes which chat is held, so a load that was
+ * overtaken while it read the database drops its result instead of
+ * overwriting the newer choice.
+ */
+let openSeq = 0;
+/** Held across `startAssistantChat`'s save, so a double tap can't start two. */
+let starting = false;
 
 let snapshot: AssistantState = {
   chatId: null,
@@ -222,6 +236,15 @@ function endsOnUnansweredTurn(): boolean {
     if (role === "assistant") return false;
   }
   return false;
+}
+
+/**
+ * Whether a turn is running, read fresh. Needed after an await: a turn can
+ * start while one is pending (resuming an interrupted one on the way back
+ * into the app), which a check made before the await can't see.
+ */
+function isRunning(): boolean {
+  return status === "running";
 }
 
 function emit(): void {
@@ -373,7 +396,42 @@ async function refreshSystemPrompt(): Promise<void> {
   else transcript.unshift(system);
 }
 
-/** Send a message and run the turn. Never throws — failures land in state. */
+/**
+ * Start a new conversation with `text` and run its first turn.
+ *
+ * The chat is saved before the turn starts rather than after its first round,
+ * so it has an address from the first moment and can be navigated to while
+ * the coach is still thinking. Resolves to its id, or null when a turn is
+ * already running or the chat couldn't be saved. Never throws.
+ */
+export async function startAssistantChat(text: string): Promise<number | null> {
+  const trimmed = text.trim();
+  if (!trimmed || status === "running" || starting) return null;
+  starting = true;
+  try {
+    const opening: ChatMessage[] = [{ role: "user", content: trimmed }];
+    const id = await createChat(chatTitle(trimmed), opening);
+    if (id <= 0) return null;
+    if (isRunning()) {
+      // A turn resumed while this was saving; it keeps the runner.
+      await deleteChat(id).catch(() => {});
+      return null;
+    }
+    openSeq++;
+    transcript = opening;
+    chatId = id;
+    items = [{ kind: "user", text: trimmed }];
+    run();
+    return id;
+  } catch (e) {
+    console.error("Could not start chat", e);
+    return null;
+  } finally {
+    starting = false;
+  }
+}
+
+/** Reply in the open conversation. Never throws — failures land in state. */
 export function sendAssistantMessage(text: string): void {
   const trimmed = text.trim();
   if (!trimmed || status === "running") return;
@@ -390,9 +448,14 @@ export function retryAssistant(): void {
   run();
 }
 
-/** Back to the chat list. A running turn keeps going and stays reachable. */
+/**
+ * Let go of the open conversation, so the Coach tab stops going back to it.
+ * Refused while a turn runs: that chat stays held, and reachable, until the
+ * turn is done.
+ */
 export function closeAssistantChat(): void {
   if (status === "running") return;
+  openSeq++;
   transcript = [];
   chatId = null;
   items = [];
@@ -402,11 +465,19 @@ export function closeAssistantChat(): void {
   emit();
 }
 
-/** Open a saved chat. Returns false when it couldn't be read. */
-export async function openAssistantChat(id: number): Promise<boolean> {
-  if (status === "running") return false;
+/**
+ * Open a saved chat. "missing" when there's no such chat; "skipped" when a
+ * turn is running (it keeps the runner) or something else was opened while
+ * this one was being read.
+ */
+export async function openAssistantChat(
+  id: number,
+): Promise<"opened" | "missing" | "skipped"> {
+  if (status === "running") return "skipped";
+  const seq = ++openSeq;
   const saved = await getChatMessages(id);
-  if (!saved) return false;
+  if (seq !== openSeq || isRunning()) return "skipped";
+  if (!saved) return "missing";
   transcript = saved;
   chatId = id;
   items = transcriptToUi(saved);
@@ -423,31 +494,21 @@ export async function openAssistantChat(id: number): Promise<boolean> {
     error = null;
   }
   emit();
-  return true;
+  return "opened";
 }
 
 /**
- * Long enough away that the conversation you left open isn't where you are any
- * more — the Coach tab should greet you with the list (and anything the coach
- * has sent since) rather than a thread from yesterday.
- */
-const STALE_CHAT_MS = 30 * 60_000;
-
-/**
- * Resume an interrupted turn whenever the app returns to the foreground, and
- * let go of a long-abandoned conversation. Call once on app start; returns a
- * cleanup function.
+ * Resume an interrupted turn whenever the app returns to the foreground. Call
+ * once on app start; returns a cleanup function.
+ *
+ * Letting go of a long-abandoned conversation used to happen here too. It's a
+ * navigation now — the page showing it has to move — so it lives with the
+ * rest of navigation (see STALE_CHAT_MS in lib/navigation.ts).
  */
 export function installAssistantLifecycle(): () => void {
-  return onAppResume((awayMs) => {
+  return onAppResume(() => {
     if (status === "interrupted" && autoResumable && !inFlight) {
       retryAssistant();
-      return;
-    }
-    // Nothing is lost by closing it: the transcript is saved after every turn
-    // and the chat stays at the top of the list.
-    if (awayMs >= STALE_CHAT_MS && status === "idle" && !inFlight) {
-      closeAssistantChat();
     }
   });
 }

@@ -28,6 +28,18 @@ Note that drizzle's `.$type<T>()` on JSON columns is a compile-time claim only �
 runtime validation still happens through the schema helpers
 (e.g. `parseChatTranscript` for `chats.messages`).
 
+## Navigation rule
+
+What's on screen is the URL's to say: every screen has an address (a coach
+conversation is `/assistant/:chatId`), and anything that shows you something —
+the tab bar, a banner, a sheet handing off, a notification tap — gets there
+with `go()` from `src/lib/navigation.ts`. It keeps history in one shape: the
+tab, at most one of its pages, then any open sheets — so back from a page lands
+on its tab and back from a tab leaves the app. Don't push or replace around it
+(a plain `<Link>` from a tab into one of its own pages is fine); back buttons
+use `useUp()`. A new page goes under its tab's path (`/assistant/…`) — that's
+how `tabOf()` knows which tab it belongs to; the Diary, being `/`, owns the rest.
+
 ## Commands
 
 - `bun run dev` — Vite dev server

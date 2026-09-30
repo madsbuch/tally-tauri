@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import type {
   Capture,
   FoodEntry,
@@ -31,7 +30,8 @@ import {
   numToInput,
   workoutGlyph,
 } from "../components/EntryBits";
-import { afterSheetHistorySettles, useSheetHistory } from "../lib/sheetHistory";
+import { useSheetHistory } from "../lib/sheetHistory";
+import { chatPath, useGo } from "../lib/navigation";
 import InfoButton from "../components/InfoButton";
 import StateSheet from "../components/StateSheet";
 import RuleSheet, {
@@ -86,7 +86,7 @@ import {
   recapTitle,
 } from "../lib/recap";
 import type { RecapRange } from "../lib/recap";
-import { closeAssistantChat, sendAssistantMessage } from "../lib/assistantRunner";
+import { startAssistantChat } from "../lib/assistantRunner";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
@@ -1509,13 +1509,13 @@ export default function DiaryPage() {
   const [hasTarget, setHasTarget] = useState<boolean | null>(null);
   const [showAdjust, setShowAdjust] = useState(false);
   const [detail, setDetail] = useState<TimelineItem | null>(null);
-  const navigate = useNavigate();
+  const go = useGo();
   /** An entry has a page of its own now; only a failed capture opens a sheet. */
   const openItem = (item: TimelineItem) => {
     if (item.kind === "capture" || item.kind === "rule" || item.kind === "rule_new") {
       setDetail(item);
     }
-    else navigate(entryPath(item));
+    else go(entryPath(item));
   };
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -1525,8 +1525,6 @@ export default function DiaryPage() {
   const [recapOffer, setRecapOffer] = useState<RecapRange | null>(null);
   /** The recap sheet's opening range; null = closed. */
   const [recapOpen, setRecapOpen] = useState<RecapRange | null>(null);
-  /** Where to go once the recap sheet has given its history entry back. */
-  const [afterRecap, setAfterRecap] = useState<"/assistant" | null>(null);
 
   // True when `day` was "today" at the time it was selected. Used to snap the
   // page forward after an overnight resume so new entries aren't stamped
@@ -1573,14 +1571,6 @@ export default function DiaryPage() {
       alive = false;
     };
   }, [refresh, day]);
-
-  // "Talk it over with the coach": the sheet's close runs first (effect
-  // cleanups precede effects), so by now its back() is pending.
-  useEffect(() => {
-    if (recapOpen !== null || afterRecap === null) return;
-    afterSheetHistorySettles(() => navigate(afterRecap));
-    setAfterRecap(null);
-  }, [recapOpen, afterRecap, navigate]);
 
   // Refresh whenever the background agent changes diary data — this is how a
   // pending capture row appears instantly and later turns into real entries.
@@ -2521,11 +2511,13 @@ export default function DiaryPage() {
           initial={recapOpen}
           onClose={() => setRecapOpen(null)}
           onAskCoach={(r) => {
-            // A fresh conversation, so the recap isn't tacked onto an old one.
-            closeAssistantChat();
-            sendAssistantMessage(recapCoachPrompt(r));
             setRecapOpen(null);
-            setAfterRecap("/assistant");
+            // A fresh conversation, so the recap isn't tacked onto an old one,
+            // opened at its own address. `go` waits for the sheet to give its
+            // history entry back before it moves.
+            void startAssistantChat(recapCoachPrompt(r)).then((id) => {
+              if (id !== null) go(chatPath(id));
+            });
           }}
         />
       )}

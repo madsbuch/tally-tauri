@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { deleteChat, getSetting, listChats } from "../lib/db";
+import { deleteChat, getChatMessages, getSetting, listChats } from "../lib/db";
 import { SETTING_KEYS } from "../lib/types";
 import type { ChatSummary } from "../lib/types";
 import {
@@ -10,11 +11,14 @@ import {
   openAssistantChat,
   retryAssistant,
   sendAssistantMessage,
+  startAssistantChat,
   subscribeAssistant,
+  transcriptToUi,
 } from "../lib/assistantRunner";
 import type { UiItem } from "../lib/assistantRunner";
 import AssistantChart from "../components/AssistantChart";
 import { markCheckinRead, useUnreadCheckin } from "../lib/coachInbox";
+import { chatPath, parseChatId, useGo, useUp } from "../lib/navigation";
 import InfoButton from "../components/InfoButton";
 import { Link } from "../router";
 
@@ -55,38 +59,108 @@ function ActivityRow({ item }: { item: Extract<UiItem, { kind: "activity" }> }) 
 }
 
 export default function AssistantPage() {
-  // The run lives in lib/assistantRunner.ts, so leaving this page (or the app)
-  // doesn't touch it — this component only subscribes.
-  const state = useSyncExternalStore(subscribeAssistant, getAssistantState);
-  const { items, status, error, activeTool, canRetry } = state;
-  const busy = status === "running";
-  const chatOpen = items.length > 0;
+  // Which conversation is on screen is the URL's to say: /assistant is the
+  // list, /assistant/:chatId one conversation. The run itself lives in
+  // lib/assistantRunner.ts, so leaving this page (or the app) doesn't touch
+  // it — this component asks it for the chat in the URL and renders that.
+  const rawChatId = useParams()["chatId"];
+  const inChat = rawChatId !== undefined;
+  const chatId = parseChatId(rawChatId);
 
+  const state = useSyncExternalStore(subscribeAssistant, getAssistantState);
+  const { status, error, activeTool, canRetry } = state;
+  const busy = status === "running";
+  const runnerChat = state.chatId;
+  // The runner holds this very chat, so its thread, spinner and errors are
+  // this page's to show.
+  const live = chatId !== null && runnerChat === chatId;
+
+  const go = useGo();
+  const up = useUp();
   const unread = useUnreadCheckin();
 
   const [history, setHistory] = useState<ChatSummary[]>([]);
   const [input, setInput] = useState("");
   const [hasKey, setHasKey] = useState<boolean | null>(null);
+  /** This chat as saved, shown read-only while a turn runs in another one. */
+  const [snapshot, setSnapshot] = useState<{ id: number; items: UiItem[] } | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const composerHeight = useRef(0);
 
+  const items: UiItem[] | null = live
+    ? state.items
+    : snapshot !== null && snapshot.id === chatId
+      ? snapshot.items
+      : null;
+
   useEffect(() => {
     void getSetting(SETTING_KEYS.openrouterApiKey).then((k) => setHasKey(!!k));
   }, []);
 
+  // Load the chat in the URL into the runner. A turn running in another chat
+  // keeps the runner until it's done, and this runs again then.
   useEffect(() => {
-    if (!chatOpen) {
-      void listChats().then(setHistory).catch(console.error);
+    if (!inChat) return;
+    if (chatId === null) {
+      go("/assistant");
+      return;
     }
-  }, [chatOpen]);
+    if (live || busy) return;
+    let alive = true;
+    openAssistantChat(chatId)
+      .then((result) => {
+        // Deleted since — a stale notification, say. The list is where it was.
+        if (alive && result === "missing") go("/assistant");
+      })
+      .catch((e) => {
+        console.error("Could not open chat", e);
+        if (alive) go("/assistant");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [inChat, chatId, live, busy, go]);
 
   useEffect(() => {
-    if (chatOpen) {
+    if (chatId === null || live || !busy) return;
+    let alive = true;
+    getChatMessages(chatId)
+      .then((saved) => {
+        if (!alive) return;
+        if (saved) setSnapshot({ id: chatId, items: transcriptToUi(saved) });
+        else go("/assistant");
+      })
+      .catch((e) => console.error("Could not read chat", e));
+    return () => {
+      alive = false;
+    };
+  }, [chatId, live, busy, go]);
+
+  // Opening a check-in is reading it, however you got here: the banner, the
+  // list, or the notification that announced it.
+  useEffect(() => {
+    if (chatId !== null) void markCheckinRead(chatId);
+  }, [chatId]);
+
+  // Arriving at the list is leaving the conversation that was open, so the
+  // Coach tab stops going back to it. A turn still running keeps its chat.
+  useEffect(() => {
+    if (!inChat) closeAssistantChat();
+  }, [inChat]);
+
+  useEffect(() => {
+    if (!inChat) {
+      void listChats().then(setHistory).catch(console.error);
+    }
+  }, [inChat, status]);
+
+  useEffect(() => {
+    if (inChat) {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [items, status, activeTool, chatOpen]);
+  }, [items, status, activeTool, inChat]);
 
   // Grow the box with the message. A textarea doesn't do this on its own — it
   // scrolls inside a fixed height — which makes anything past the first line
@@ -105,9 +179,9 @@ export default function AssistantPage() {
     document.documentElement.style.setProperty("--composer-h", `${height}px`);
     if (height !== composerHeight.current) {
       composerHeight.current = height;
-      if (chatOpen) endRef.current?.scrollIntoView({ block: "end" });
+      if (inChat) endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [input, chatOpen]);
+  }, [input, inChat]);
 
   async function removeChat(id: number) {
     if (!window.confirm("Delete this chat?")) return;
@@ -115,17 +189,19 @@ export default function AssistantPage() {
     setHistory(await listChats());
   }
 
-  function openChat(id: number) {
-    void openAssistantChat(id)
-      .then(() => markCheckinRead(id))
-      .catch((e) => console.error("Could not open chat", e));
-  }
-
   function send(textRaw?: string) {
     const text = (textRaw ?? input).trim();
-    if (!text || busy) return;
+    if (!text || busy || (inChat && !live)) return;
     setInput("");
-    sendAssistantMessage(text);
+    if (inChat) {
+      sendAssistantMessage(text);
+      return;
+    }
+    // From the list, a new conversation — at its own address.
+    void startAssistantChat(text).then((id) => {
+      if (id !== null) go(chatPath(id));
+      else setInput((current) => current || text);
+    });
   }
 
   return (
@@ -146,23 +222,15 @@ export default function AssistantPage() {
             </p>
           </InfoButton>
         </h1>
-        {chatOpen && (
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={closeAssistantChat}
-            disabled={busy}
-          >
+        {inChat && (
+          <button className="btn btn-ghost btn-sm" onClick={up}>
             ‹ Chats
           </button>
         )}
       </header>
 
-      {unread && (
-        <button
-          className="coach-unread"
-          onClick={() => openChat(unread.id)}
-          disabled={busy}
-        >
+      {unread && unread.id !== chatId && (
+        <button className="coach-unread" onClick={() => go(chatPath(unread.id))}>
           <span className="coach-unread-icon">🔔</span>
           <span className="coach-unread-main">
             <span className="coach-unread-title">Your coach checked in</span>
@@ -182,9 +250,26 @@ export default function AssistantPage() {
         </div>
       )}
 
-      {!chatOpen && hasKey !== false && (
+      {!inChat && hasKey !== false && (
         <>
-          <Link to="/library" className="list-row" style={{ marginBottom: 12 }}>
+          {/* A turn keeps going after you step out of its conversation; this
+              is the way back to it. */}
+          {busy && runnerChat !== null && (
+            <button
+              className="list-row chat-suggestion"
+              style={{ marginBottom: 12, width: "100%" }}
+              onClick={() => go(chatPath(runnerChat))}
+            >
+              <div className="row-main">
+                <div className="row-title">💬 The coach is answering</div>
+                <div className="row-sub">
+                  {activeTool ? `Checking ${activeTool}…` : "Thinking…"}
+                </div>
+              </div>
+              <div className="row-end">›</div>
+            </button>
+          )}
+          <Link to="/assistant/library" className="list-row" style={{ marginBottom: 12 }}>
             <div className="row-main">
               <div className="row-title">🗄 Library</div>
               <div className="row-sub">
@@ -220,7 +305,7 @@ export default function AssistantPage() {
                     <button
                       className="chat-suggestion row-main"
                       style={{ background: "none", border: "none", padding: 0 }}
-                      onClick={() => openChat(c.id)}
+                      onClick={() => go(chatPath(c.id))}
                     >
                       <div className="row-title" style={{ whiteSpace: "normal" }}>
                         {c.title}
@@ -242,7 +327,13 @@ export default function AssistantPage() {
         </>
       )}
 
-      {chatOpen && (
+      {inChat && items === null && (
+        <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+          <span className="spinner" />
+        </div>
+      )}
+
+      {inChat && items !== null && (
         <div className="chat-thread">
           {items.map((item, i) => {
             if (item.kind === "activity") return <ActivityRow key={i} item={item} />;
@@ -275,7 +366,7 @@ export default function AssistantPage() {
               </div>
             );
           })}
-          {busy && (
+          {live && busy && (
             <div className="chat-msg chat-msg-assistant">
               <div className="chat-bubble chat-thinking">
                 <div className="spinner" />
@@ -287,7 +378,7 @@ export default function AssistantPage() {
           )}
           {/* An interruption is the OS suspending us, not a failure — it says
               so and resumes by itself, but the button is there to force it. */}
-          {(status === "error" || status === "interrupted") && error && (
+          {live && (status === "error" || status === "interrupted") && error && (
             <div
               className={`chat-msg chat-msg-assistant${
                 status === "error" ? " chat-msg-error" : ""
@@ -307,6 +398,25 @@ export default function AssistantPage() {
               </div>
             </div>
           )}
+          {!live && busy && (
+            <div className="chat-msg chat-msg-assistant">
+              <div className="chat-bubble">
+                <div className="muted small">
+                  The coach is answering in another conversation — you can reply
+                  here once it&apos;s done.
+                </div>
+                {runnerChat !== null && (
+                  <button
+                    className="btn btn-sm"
+                    style={{ marginTop: 10 }}
+                    onClick={() => go(chatPath(runnerChat))}
+                  >
+                    Go to it
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <div ref={endRef} />
         </div>
       )}
@@ -317,7 +427,7 @@ export default function AssistantPage() {
           className="input chat-input"
           rows={1}
           enterKeyHint="enter"
-          placeholder={chatOpen ? "Reply…" : "Ask about your data…"}
+          placeholder={inChat ? "Reply…" : "Ask about your data…"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -330,13 +440,13 @@ export default function AssistantPage() {
               send();
             }
           }}
-          disabled={busy || hasKey !== true}
+          disabled={busy || hasKey !== true || (inChat && !live)}
         />
         <button
           className="btn btn-primary"
           style={{ flex: "0 0 auto" }}
           onClick={() => send()}
-          disabled={busy || !input.trim() || hasKey !== true}
+          disabled={busy || !input.trim() || hasKey !== true || (inChat && !live)}
         >
           Send
         </button>

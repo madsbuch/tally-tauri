@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
-use crate::models::ScheduleCheckinArgs;
+use crate::models::{NotifyCheckinArgs, ScheduleCheckinArgs};
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
     _app: &AppHandle<R>,
@@ -21,5 +21,15 @@ impl<R: Runtime> Coach<R> {
 
     pub fn cancel_checkin(&self) -> crate::Result<()> {
         Ok(())
+    }
+
+    /// No notification here carries a chat, so none was ever tapped.
+    pub fn take_opened_checkin(&self) -> crate::Result<Option<i64>> {
+        Ok(None)
+    }
+
+    /// Not posted: the frontend falls back to a plain notification.
+    pub fn notify_checkin(&self, _args: NotifyCheckinArgs) -> crate::Result<bool> {
+        Ok(false)
     }
 }

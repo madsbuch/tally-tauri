@@ -1,6 +1,6 @@
 use tauri::{command, AppHandle, Manager, Runtime};
 
-use crate::models::ScheduleCheckinArgs;
+use crate::models::{NotifyCheckinArgs, ScheduleCheckinArgs};
 use crate::CoachExt;
 use crate::{Error, Result};
 
@@ -30,4 +30,27 @@ pub(crate) async fn schedule_checkin<R: Runtime>(
 #[command]
 pub(crate) async fn cancel_checkin<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     app.coach().cancel_checkin()
+}
+
+/// The chat whose check-in notification was tapped since the last call, if
+/// any. Each tap is handed out once.
+#[command]
+pub(crate) async fn take_opened_checkin<R: Runtime>(app: AppHandle<R>) -> Result<Option<i64>> {
+    app.coach().take_opened_checkin()
+}
+
+/// Post a check-in notification that opens `chat_id` when tapped. False when
+/// it wasn't posted (notifications off, or not on Android).
+#[command]
+pub(crate) async fn notify_checkin<R: Runtime>(
+    app: AppHandle<R>,
+    chat_id: i64,
+    title: String,
+    body: String,
+) -> Result<bool> {
+    app.coach().notify_checkin(NotifyCheckinArgs {
+        chat_id,
+        title,
+        body,
+    })
 }

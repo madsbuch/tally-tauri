@@ -1,6 +1,7 @@
-//! The daily coach check-in, scheduled so it runs with the app closed.
+//! The daily coach check-in, scheduled so it runs with the app closed, and the
+//! notification that announces a check-in and opens its chat when tapped.
 //!
-//! This plugin only schedules. The check-in itself is done in Kotlin (see
+//! This plugin only schedules and relays. The check-in itself is done in Kotlin (see
 //! `android/…/CoachWorker.kt`), for a structural reason: the alarm arrives in
 //! Kotlin, and Tauri's mobile plugin bridge runs Rust → Kotlin, not back. A
 //! Rust worker would need a JNI entry point of its own; a Kotlin one can open
@@ -48,7 +49,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("coach")
         .invoke_handler(tauri::generate_handler![
             commands::schedule_checkin,
-            commands::cancel_checkin
+            commands::cancel_checkin,
+            commands::take_opened_checkin,
+            commands::notify_checkin
         ])
         .setup(|app, api| {
             #[cfg(target_os = "android")]

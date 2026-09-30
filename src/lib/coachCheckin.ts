@@ -61,9 +61,19 @@ function shortDate(day: string): string {
   });
 }
 
-async function notify(title: string, body: string): Promise<void> {
+async function notify(chatId: number, title: string, body: string): Promise<void> {
   try {
     if (!(await ensureNotificationPermission())) return;
+    // On Android the coach plugin posts it — the same notification the
+    // scheduled check-in posts with the app closed, carrying the chat's id so
+    // a tap opens this conversation.
+    const posted = await invoke<boolean>("plugin:coach|notify_checkin", {
+      chatId,
+      title,
+      body,
+    }).catch(() => false);
+    if (posted) return;
+    // Elsewhere a plain one: there's no tap to route.
     await invoke("plugin:notification|notify", {
       options: { id: NOTIFICATION_ID, title, body },
     });
@@ -142,8 +152,8 @@ export async function runCoachCheckin(
     const chatId = await createChat(title, saved);
 
     await recordTriggerRun(winner.key, today, chatId);
-    // What makes it findable: the notification can't say which chat it means,
-    // so the app asks this on the way back in.
+    // What keeps it findable when the notification is swiped away unread:
+    // the app asks this on the way back in, and marks the Coach tab.
     await markCheckinUnread(chatId).catch(() => {
       /* the chat is saved either way; it just won't announce itself */
     });
@@ -155,7 +165,7 @@ export async function runCoachCheckin(
         /* it will simply be raised again */
       });
     }
-    await notify(def?.title ?? "Your coach", firstMessage.replace(/[*_`#]/g, ""));
+    await notify(chatId, def?.title ?? "Your coach", firstMessage.replace(/[*_`#]/g, ""));
     return { sent: true, reason: "ok", chatId };
   } catch (e) {
     console.warn("Coach check-in failed", e);

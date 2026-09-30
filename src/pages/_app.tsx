@@ -1,8 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { JSX } from "react";
-import { Outlet, useLocation } from "react-router-dom";
-import { Link } from "../router";
-import type { Path } from "../router";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { getDb } from "../lib/db";
 import { resyncFastNotification } from "../lib/fasting";
 import {
@@ -17,27 +15,34 @@ import { runCoachCheckin } from "../lib/coachCheckin";
 import { syncCoachSchedule } from "../lib/coachTriggers";
 import { cacheCoachPromptPrefix } from "../lib/coach";
 import {
+  closeAssistantChat,
   getAssistantState,
   installAssistantLifecycle,
   subscribeAssistant,
 } from "../lib/assistantRunner";
-import { useUnreadCheckin } from "../lib/coachInbox";
+import {
+  onCheckinTapped,
+  takeOpenedCheckin,
+  tookCheckinThisVisit,
+  useUnreadCheckin,
+} from "../lib/coachInbox";
+import { STALE_CHAT_MS, chatIdOf, chatPath, tabOf, useGo } from "../lib/navigation";
+import type { TabRoot } from "../lib/navigation";
 import { syncHealthConnect } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 import AchievementToast from "../components/AchievementToast";
 
 /**
- * Bottom tab bar — `to` is generouted's typed Path, so a dead link is a type
- * error. Parameterised routes (an entry's own page) are excluded: they need
- * params, and nothing here links to one.
+ * Bottom tab bar. `to` is one of the tab roots in lib/navigation.ts, which are
+ * checked against generouted's typed Path, so a dead link is a type error.
  *
- * The links REPLACE rather than push. A tab bar is not a trail: pushing meant
- * that after a few minutes of moving between tabs, leaving the app took a
- * dozen presses of back, replaying every tab you had looked at.
+ * A tab bar is not a trail: pushing meant that after a few minutes of moving
+ * between tabs, leaving the app took a dozen presses of back, replaying every
+ * tab you had looked at. So a tab goes through `go`, which unwinds to the
+ * bottom of the history and puts the tab there — back from a tab leaves the
+ * app, even when you left from one of another tab's pages.
  */
-type TabPath = Exclude<Path, `${string}:${string}`>;
-
-const TABS: { to: TabPath; label: string; icon: JSX.Element }[] = [
+const TABS: { to: TabRoot; label: string; icon: JSX.Element }[] = [
   {
     to: "/",
     label: "Diary",
@@ -107,12 +112,14 @@ const TABS: { to: TabPath; label: string; icon: JSX.Element }[] = [
 
 export default function App() {
   const { pathname } = useLocation();
+  const currentTab = tabOf(pathname);
+  const go = useGo();
+  const assistant = useSyncExternalStore(subscribeAssistant, getAssistantState);
   // The assistant keeps working after you leave its tab, so say so — otherwise
   // a turn running in the background is invisible.
-  const assistantBusy =
-    useSyncExternalStore(subscribeAssistant, getAssistantState).status === "running";
-  // A check-in the user hasn't opened: findable from any tab, since the
-  // notification that announced it can't point at anything.
+  const assistantBusy = assistant.status === "running";
+  // A check-in the user hasn't opened: findable from any tab, for when its
+  // notification was swiped away or never seen.
   const unreadCheckin = useUnreadCheckin();
 
   useEffect(() => {
@@ -182,6 +189,39 @@ export default function App() {
     };
   }, []);
 
+  // A check-in notification was tapped: go straight to its conversation.
+  // Asked at launch (the tap that started the app), on every return (the tap
+  // that brought it back) and when the plugin says so (a tap while the app was
+  // already in front). Each tap is handed out once, so asking again is safe.
+  useEffect(() => {
+    const follow = async (): Promise<void> => {
+      const chatId = await takeOpenedCheckin();
+      if (chatId !== null) go(chatPath(chatId));
+    };
+    void follow();
+    const offTap = onCheckinTapped(() => void follow());
+    const offResume = onAppResume((awayMs) => {
+      void follow().then(() => {
+        if (awayMs < STALE_CHAT_MS) return;
+        // A return fires this twice (visibility, then focus), and the tap
+        // that caused it can be taken by either call or by the plugin's event
+        // before both. Whichever took it, a tap since coming back is where
+        // you are — not something to tidy away.
+        if (tookCheckinThisVisit()) return;
+        // Long enough away that the open conversation isn't where you are
+        // any more. Nothing is lost: the transcript is saved after every turn
+        // and the chat stays at the top of the list.
+        if (getAssistantState().status !== "idle") return;
+        if (chatIdOf(window.location.pathname) !== null) go("/assistant");
+        else closeAssistantChat();
+      });
+    });
+    return () => {
+      offTap();
+      offResume();
+    };
+  }, [go]);
+
   return (
     <div className="app">
       <div className="statusbar-scrim" aria-hidden="true" />
@@ -189,27 +229,38 @@ export default function App() {
         <Outlet />
       </main>
       <nav className="tabbar">
-        {TABS.map((t) => (
-          <Link
-            key={t.to}
-            to={t.to}
-            replace
-            className={`tab ${pathname === t.to ? "tab-active" : ""}`}
-          >
-            <span className="tab-icon">
-              {t.icon}
-              {t.to === "/assistant" && (assistantBusy || unreadCheckin) && (
-                <span
-                  className={`tab-dot${assistantBusy ? "" : " tab-dot-unread"}`}
-                  aria-label={
-                    assistantBusy ? "Coach is working" : "Your coach checked in"
-                  }
-                />
-              )}
-            </span>
-            <span className="tab-label">{t.label}</span>
-          </Link>
-        ))}
+        {TABS.map((t) => {
+          // The Coach tab goes back to the conversation you left open. The
+          // tab you're already in goes back to its top.
+          const to =
+            t.to === "/assistant" && currentTab !== t.to && assistant.chatId !== null
+              ? chatPath(assistant.chatId)
+              : t.to;
+          return (
+            <Link
+              key={t.to}
+              to={to}
+              onClick={(e) => {
+                e.preventDefault();
+                go(to);
+              }}
+              className={`tab ${currentTab === t.to ? "tab-active" : ""}`}
+            >
+              <span className="tab-icon">
+                {t.icon}
+                {t.to === "/assistant" && (assistantBusy || unreadCheckin) && (
+                  <span
+                    className={`tab-dot${assistantBusy ? "" : " tab-dot-unread"}`}
+                    aria-label={
+                      assistantBusy ? "Coach is working" : "Your coach checked in"
+                    }
+                  />
+                )}
+              </span>
+              <span className="tab-label">{t.label}</span>
+            </Link>
+          );
+        })}
       </nav>
       <AchievementToast />
     </div>

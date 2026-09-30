@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -70,7 +69,7 @@ class CoachCheckinService : Service() {
             } finally {
                 val r = result
                 if (r != null && r.sent && r.message != null) {
-                    postCheckin(r.title ?: "Your coach", r.message)
+                    CheckinNotification.post(this, r.chatId, r.title ?: "Your coach", r.message)
                 }
                 stopSelf()
             }
@@ -105,27 +104,6 @@ class CoachCheckinService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         contentIntent()?.let { b.setContentIntent(it) }
         return b.build()
-    }
-
-    /** The check-in itself — the one notification the user should actually see. */
-    private fun postCheckin(title: String, message: String) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        val plain = message.replace(Regex("[*_`#]"), "")
-        val b = NotificationCompat.Builder(this, CHECKIN_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
-            .setContentTitle(title)
-            .setContentText(plain)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(plain))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        contentIntent()?.let { b.setContentIntent(it) }
-        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        mgr.notify(CHECKIN_NOTIFICATION_ID, b.build())
     }
 }
 

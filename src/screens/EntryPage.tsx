@@ -10,7 +10,7 @@
  * until you ask it to be.
  */
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   deleteFoodEntry,
   deletePhotoIfUnused,
@@ -59,6 +59,7 @@ import {
 import { entryGlyph } from "../lib/icons";
 import { stateGlyph } from "../lib/states";
 import { useSheetHistory } from "../lib/sheetHistory";
+import { useUp } from "../lib/navigation";
 import EntryChat from "../components/EntryChat";
 
 type Kind = "meal" | "workout" | "supplement" | "sleep" | "state";
@@ -195,7 +196,8 @@ type Editing =
 
 export default function EntryPage() {
   const params = useParams();
-  const navigate = useNavigate();
+  // Back to the Diary: the page it was opened from, which is right beneath it.
+  const back = useUp();
   const kind = isKind(params["kind"]) ? params["kind"] : null;
   const id = Number(params["id"]);
 
@@ -248,8 +250,6 @@ export default function EntryPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const back = () => navigate(-1);
 
   async function afterChange() {
     notifyDiaryChanged();

@@ -1,5 +1,12 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = "Allows scheduling and cancelling the daily coach check-in"
-permissions = ["allow-schedule-checkin", "allow-cancel-checkin"]
+description = "Allows scheduling the daily coach check-in, posting check-ins, and following a tapped one to its chat"
+permissions = [
+  "allow-schedule-checkin",
+  "allow-cancel-checkin",
+  "allow-take-opened-checkin",
+  "allow-notify-checkin",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

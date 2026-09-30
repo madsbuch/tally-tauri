@@ -25,6 +25,7 @@ import { updateDocument } from "../lib/db";
 import { compressImage, photoSrc } from "../lib/photos";
 import { MAX_PDF_PAGES, isPdf, pdfToImages } from "../lib/pdf";
 import InfoButton from "../components/InfoButton";
+import { useUp } from "../lib/navigation";
 
 const KIND_LABELS: Record<LibraryDocument["kind"], string> = {
   lab: "Lab result",
@@ -463,6 +464,7 @@ export default function LibraryPage() {
   const [detail, setDetail] = useState<LibraryDocument | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const up = useUp();
 
   useEffect(() => {
     let alive = true;
@@ -501,6 +503,9 @@ export default function LibraryPage() {
             </p>
           </InfoButton>
         </h1>
+        <button className="btn btn-ghost btn-sm" onClick={up}>
+          ‹ Coach
+        </button>
       </header>
 
       {loadError && <div className="error-text">{loadError}</div>}

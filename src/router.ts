@@ -6,13 +6,15 @@ import { components, hooks, utils } from '@generouted/react-router/client'
 export type Path =
   | `/`
   | `/assistant`
+  | `/assistant/:chatId`
+  | `/assistant/library`
   | `/entry/:kind/:id`
   | `/fasting`
-  | `/library`
   | `/nutrients`
   | `/settings`
 
 export type Params = {
+  '/assistant/:chatId': { chatId: string }
   '/entry/:kind/:id': { kind: string; id: string }
 }
 

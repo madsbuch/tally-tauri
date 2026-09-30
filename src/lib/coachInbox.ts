@@ -1,20 +1,23 @@
 /**
- * Knowing the coach has said something.
+ * Knowing the coach has said something, and getting to it.
  *
  * A check-in is saved as an ordinary chat, which was the whole problem: the
- * chat list only shows when no conversation is open, and the Coach tab keeps
- * whatever conversation you last had open for as long as Android keeps the
- * process alive. So a check-in could sit there for days, announced by a
- * notification that — tapped — just resumed the app into that stale thread.
+ * Coach tab keeps whatever conversation you last had open, so a check-in could
+ * sit unseen for days, announced by a notification that — tapped — just
+ * resumed the app into that stale thread.
  *
- * Both paths that produce a check-in now leave the chat's id in `settings`:
- * the in-app run (lib/coachCheckin.ts) and the Android worker, which writes it
- * with no JavaScript running at all. That single row is what lets the app say
- * "your coach checked in" on the next launch, whatever launched it.
+ * Two things fix that. The notification carries its chat's id: tapping it
+ * hands the id to the app (`takeOpenedCheckin`), which navigates straight to
+ * /assistant/:chatId. And both paths that produce a check-in — the in-app run
+ * (lib/coachCheckin.ts) and the Android worker, which runs with no JavaScript
+ * at all — leave the chat's id in `settings`, so a check-in whose notification
+ * was swiped away still shows as unread on the next launch.
  */
 import { useEffect, useState } from "react";
+import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import type { PluginListener } from "@tauri-apps/api/core";
 import { getChatSummary, getSetting, setSetting } from "./db";
-import { onAppResume } from "./appLifecycle";
+import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { SETTING_KEYS } from "./types";
 
 const CHANGED_EVENT = "tally:coach-inbox";
@@ -63,6 +66,55 @@ export async function clearUnreadCheckin(): Promise<void> {
 export async function markCheckinRead(chatId: number): Promise<void> {
   const unread = await getUnreadCheckin();
   if (unread?.id === chatId) await clearUnreadCheckin();
+}
+
+/** When `takeOpenedCheckin` last handed a tap out; 0 before the first. */
+let lastTakenAt = 0;
+
+/**
+ * The check-in whose notification was tapped since this was last asked, if
+ * any — each tap is handed out once. Null everywhere but Android, where there
+ * are no taps to hand over.
+ */
+export async function takeOpenedCheckin(): Promise<number | null> {
+  try {
+    const id = await invoke<number | null>("plugin:coach|take_opened_checkin");
+    if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
+    lastTakenAt = Date.now();
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a tapped check-in has been handed out since the app last came to
+ * the foreground — by any caller, since several ask on the way back in.
+ */
+export function tookCheckinThisVisit(): boolean {
+  return lastTakenAt > 0 && !wasSuspendedSince(lastTakenAt);
+}
+
+/**
+ * Call `fn` when a check-in notification is tapped while the app is running,
+ * as it happens — a tap with the app already in front needn't register as a
+ * return to the foreground. Returns an unsubscribe function.
+ */
+export function onCheckinTapped(fn: () => void): () => void {
+  let listener: PluginListener | null = null;
+  let cancelled = false;
+  addPluginListener("coach", "checkinOpened", fn)
+    .then((l) => {
+      if (cancelled) void l.unregister();
+      else listener = l;
+    })
+    .catch(() => {
+      /* not Android: nothing will ever be tapped */
+    });
+  return () => {
+    cancelled = true;
+    void listener?.unregister();
+  };
 }
 
 /**
