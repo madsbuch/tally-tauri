@@ -772,6 +772,26 @@ textarea.state-note {
   color: var(--text);
 }
 
+/* What went in and what was burned, under the Diary's calorie bar. */
+.energy-split {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+}
+
+.energy-split-ruled {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.energy-split-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The day's watch figures, side by side under the calorie card. They wrap to
    two lines rather than shrinking when a week's numbers get long. */
 .day-stats {

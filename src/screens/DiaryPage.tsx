@@ -230,6 +230,39 @@ function fmtDelta(n: number): string {
   return r < 0 ? `−${-r}` : `+${r}`;
 }
 
+/**
+ * What the totals are made of: what was eaten and what workouts burned — the
+ * two the calorie bar nets out — and, when a watch syncs one, everything
+ * burned that day, resting included.
+ */
+function EnergySplit({
+  eaten,
+  burned,
+  watchBurn,
+  ruled,
+}: {
+  eaten: number;
+  burned: number;
+  watchBurn: number | null;
+  ruled?: boolean;
+}) {
+  const cells = [
+    { label: "Eaten", value: eaten },
+    { label: "Workouts", value: burned },
+    ...(watchBurn != null ? [{ label: "Total burn", value: watchBurn }] : []),
+  ];
+  return (
+    <div className={`energy-split${ruled ? " energy-split-ruled" : ""}`}>
+      {cells.map((c) => (
+        <div key={c.label}>
+          <div className="energy-split-value">{Math.round(c.value)} kcal</div>
+          <div className="stat-label">{c.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Accent fill on --bg-elev track; turns warn-colored when over budget. */
 function MeterBar({ pct, warn }: { pct: number; warn?: boolean }) {
   // Cap at 100%; keep a sliver visible for tiny non-zero values.
@@ -1731,22 +1764,28 @@ export default function DiaryPage() {
     };
   }, [day, rangeKey, refresh]);
 
-  // Steps for the shown day/period, synced from Health Connect. Null when no
-  // day in the scope has step data (nothing synced) — the line is hidden then.
+  // Steps and the watch's whole-day burn for the shown day/period, synced from
+  // Health Connect. Each is null when no day in the scope has it (nothing
+  // synced) — it's hidden then rather than shown as a zero.
   const [steps, setSteps] = useState<number | null>(null);
+  const [watchBurn, setWatchBurn] = useState<number | null>(null);
   useEffect(() => {
     const [start = day, end = day] = rangeKey ? rangeKey.split("..") : [day, day];
     let alive = true;
+    const sumOf = (vals: (number | null)[]): number | null => {
+      const known = vals.filter((v): v is number => v != null);
+      return known.length ? known.reduce((a, b) => a + b, 0) : null;
+    };
     listHealthMetricsForRange(start, end)
       .then((ms) => {
         if (!alive) return;
-        const vals = ms
-          .map((m) => m.steps)
-          .filter((s): s is number => s != null);
-        setSteps(vals.length ? vals.reduce((a, b) => a + b, 0) : null);
+        setSteps(sumOf(ms.map((m) => m.steps)));
+        setWatchBurn(sumOf(ms.map((m) => m.calories_total)));
       })
       .catch(() => {
-        if (alive) setSteps(null);
+        if (!alive) return;
+        setSteps(null);
+        setWatchBurn(null);
       });
     return () => {
       alive = false;
@@ -2028,7 +2067,15 @@ export default function DiaryPage() {
                       <InfoButton title="Calorie target">
                         <p>
                           The bar is <strong>net kcal</strong> — what you ate minus
-                          what you burned — against your daily target from Settings.
+                          what your workouts burned — against your daily target from
+                          Settings.
+                        </p>
+                        <p>
+                          <strong>Total burn</strong>, when your watch syncs it, is
+                          everything you burned, resting included — today's keeps
+                          counting until midnight. It's there to set against what
+                          you ate; the bar doesn't take it off, since your target
+                          already covers an ordinary day.
                         </p>
                         <p>
                           Over a week or a month the budget is simply that target
@@ -2061,6 +2108,12 @@ export default function DiaryPage() {
                       <span className="faint"> / {Math.round(periodTarget)} kcal</span>
                     </span>
                   </div>
+                  <EnergySplit
+                    eaten={eaten}
+                    burned={burned}
+                    watchBurn={watchBurn}
+                    ruled
+                  />
                   {dayGoal && dayGoal.manual !== 0 && (
                     <div className="faint small" style={{ marginTop: 8 }}>
                       {Math.round(dayGoal.base)} base · {fmtDelta(dayGoal.manual)}{" "}
@@ -2097,9 +2150,18 @@ export default function DiaryPage() {
                 </div>
               )}
               {hasTarget === false && (
-                <div className="faint small" style={{ margin: "8px 2px 0" }}>
-                  Set a daily calorie target in Settings to track your budget here.
-                </div>
+                <>
+                  <div className="card" style={{ marginTop: 0, marginBottom: 0 }}>
+                    <EnergySplit
+                      eaten={eaten}
+                      burned={burned}
+                      watchBurn={watchBurn}
+                    />
+                  </div>
+                  <div className="faint small" style={{ margin: "8px 2px 0" }}>
+                    Set a daily calorie target in Settings to track your budget here.
+                  </div>
+                </>
               )}
               {(steps != null || sleepMin != null) && (
                 <div className="day-stats muted small">
