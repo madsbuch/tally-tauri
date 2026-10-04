@@ -28,7 +28,7 @@ import {
 } from "../lib/coachInbox";
 import { STALE_CHAT_MS, chatIdOf, chatPath, tabOf, useGo } from "../lib/navigation";
 import type { TabRoot } from "../lib/navigation";
-import { syncHealthConnect } from "../lib/healthConnect";
+import { syncHealthConnect, syncHealthConnectIfStale } from "../lib/healthConnect";
 import { scanAchievements } from "../lib/achievements";
 import AchievementToast from "../components/AchievementToast";
 
@@ -163,7 +163,15 @@ export default function App() {
     // A running fast crosses its 16/24/48h marks while the app sits in the
     // background, with no diary change to notice it — check on the way back.
     const offScan = onAppResume(() => void scanAchievements().catch(() => {}));
+    // The watch kept counting while the app was away; read it again.
+    const offHealth = onAppResume(
+      () =>
+        void syncHealthConnectIfStale().catch((e) =>
+          console.warn("Health Connect sync failed", e),
+        ),
+    );
     return () => {
+      offHealth();
       offScan();
       offCoach();
       offDocuments();

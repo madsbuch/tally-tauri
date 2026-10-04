@@ -153,13 +153,39 @@ export interface HealthConnectSyncResult {
 const num = (v: number | null | undefined): number | null =>
   typeof v === "number" && isFinite(v) ? v : null;
 
+/** Returns to the foreground closer together than this don't read again. */
+const RESUME_SYNC_MIN_MS = 5 * 60_000;
+let lastSyncStartedAt = 0;
+let syncInFlight: Promise<HealthConnectSyncResult> | null = null;
+
 /**
  * Pull workouts, sleep, and daily wellness metrics from Health Connect.
  * Safe to call on every app start: no-ops quickly when Health Connect is
  * unavailable or permissions haven't been granted, and re-syncing is
  * idempotent (workouts/sleep keyed on the record UID, metrics on the day).
+ * A call while one is running joins it rather than reading twice.
  */
-export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
+export function syncHealthConnect(): Promise<HealthConnectSyncResult> {
+  syncInFlight ??= runSync().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+/**
+ * The same, on the way back to the foreground. Today's steps and total burn
+ * keep climbing while the app sits in the background, and a cold start — the
+ * only other automatic sync — can be a day away while Android keeps the
+ * process alive, so the Diary showed the afternoon's burn at midnight. Null
+ * when the last read was too recent to bother.
+ */
+export async function syncHealthConnectIfStale(): Promise<HealthConnectSyncResult | null> {
+  if (Date.now() - lastSyncStartedAt < RESUME_SYNC_MIN_MS) return null;
+  return syncHealthConnect();
+}
+
+async function runSync(): Promise<HealthConnectSyncResult> {
+  lastSyncStartedAt = Date.now();
   const status = await getHealthConnectStatus();
   if (status.availability !== "available" || !status.permissionsGranted) {
     return { status, workouts: 0, sleep: 0, days: 0 };
@@ -265,6 +291,7 @@ export async function syncHealthConnect(): Promise<HealthConnectSyncResult> {
     await setSetting(SETTING_KEYS.healthConnectHistorySynced, "1");
   }
   await setSetting(SETTING_KEYS.healthConnectResyncVersion, RESYNC_VERSION);
-  if (workoutCount > 0) notifyDiaryChanged();
+  // Day metrics count too: the Diary's steps and total burn come from them.
+  if (workoutCount > 0 || sleepCount > 0 || dayCount > 0) notifyDiaryChanged();
   return { status, workouts: workoutCount, sleep: sleepCount, days: dayCount };
 }
