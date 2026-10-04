@@ -162,6 +162,24 @@ export default function AssistantPage() {
     }
   }, [items, status, activeTool, inChat]);
 
+  // The keyboard takes its room from the bottom of the screen, but a scroller
+  // that gets shorter keeps its distance from the top — so the newest message
+  // dropped out of sight just as you went to answer it. Hold the bottom where
+  // it was instead.
+  useEffect(() => {
+    if (!inChat) return;
+    const scroller = document.querySelector<HTMLElement>(".app-main");
+    if (!scroller) return;
+    let height = scroller.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const next = scroller.clientHeight;
+      if (next < height) scroller.scrollTop += height - next;
+      height = next;
+    });
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [inChat]);
+
   // Grow the box with the message. A textarea doesn't do this on its own — it
   // scrolls inside a fixed height — which makes anything past the first line
   // invisible while you write it. The CSS caps it; past that it scrolls.
