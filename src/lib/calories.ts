@@ -29,7 +29,7 @@ import {
   todayStr,
 } from "./db";
 import { dayOf, shiftDay } from "./daystamp";
-import { dayTarget, getPeriodGoal, loadGoalSettings } from "./goals";
+import { dayTarget, loadGoalSettings, periodTarget } from "./goals";
 
 export type CalorieFamily = "in" | "out" | "budget" | "balance";
 
@@ -104,11 +104,12 @@ export function describeCalorieFigures(): string {
 }
 
 export const CALORIES_TOOL_DESCRIPTION = [
-  "Every calorie figure Tally holds, per day and over a day range. Use it for any calorie question (eaten, burned, net, budget left, deficit) rather than adding up meals and workouts yourself. The figures, which are the only calorie names to use (never call two different ones \"burned\"):",
+  "Every calorie figure Tally holds, summed over a day range and broken down by day, week or month. Use it for any calorie question (eaten, burned, net, budget left, deficit) rather than adding up meals and workouts yourself. The figures, which are the only calorie names to use (never call two different ones \"burned\"):",
   describeCalorieFigures(),
   "Each day row also has meals (food entries logged). A day with meals: 0 is usually untracked rather than a day without food, so it has no eaten, net, remaining or energy_balance. Today's row is marked in_progress; days after today are marked upcoming and carry only their target.",
   "totals: the range as the Diary's week/month card adds it up. target is base × days (a correction moves kcal between days, it doesn't change the total) and remaining is that target − net. burned_total sums the days the watch synced; energy_balance sums the days with both food and a watch total.",
   "averages: per finished day, so today (partial) is left out. eaten, burned_workouts, target, net and remaining are averaged over days with meals; burned_total over days the watch synced; energy_balance over days with both.",
+  "group_by week (Monday to Sunday, as on the Diary) or month (calendar months) gives periods instead of day rows: each period has its own totals, averages and coverage, worked out the same way. The first and last period are cut to the range and marked clipped, and the one holding today is in_progress, so compare those by their averages, not their totals. For a rolling stretch (\"the last 7 days\", \"the last 30 days\") pass that range and read its totals and averages.",
 ].join("\n");
 
 export function isCalorieFigure(x: unknown): x is CalorieFigure {
@@ -138,13 +139,46 @@ const MAX_RANGE_DAYS = 366;
 /** Day rows past about a quarter cost more tokens than they're worth. */
 const MAX_DAY_ROWS = 92;
 
+/** How a range is broken up: a row per day, or per week or month. */
+export type CalorieGrouping = "day" | "week" | "month";
+
+export const CALORIE_GROUPINGS: readonly CalorieGrouping[] = ["day", "week", "month"];
+
+/** The `group_by` tool argument: absent means a row per day. */
+export function parseCalorieGrouping(raw: unknown): CalorieGrouping {
+  if (raw == null) return "day";
+  if (raw === "day" || raw === "week" || raw === "month") return raw;
+  throw new Error(`group_by must be one of: ${CALORIE_GROUPINGS.join(", ")}`);
+}
+
+interface Coverage {
+  days: number;
+  with_meals: number;
+  with_watch_total: number;
+}
+
+/** One week or month of the range, summed up as the range itself is. */
+export interface CaloriePeriod {
+  start_day: string;
+  end_day: string;
+  in_progress?: true;
+  upcoming?: true;
+  /** Cut short by the range, so fewer days than a whole week or month. */
+  clipped?: true;
+  totals: FigureValues;
+  averages?: FigureValues;
+  coverage: Coverage;
+}
+
 export interface CalorieReading {
   start_day: string;
   end_day: string;
+  group_by: CalorieGrouping;
   days?: Record<string, unknown>[];
+  periods?: CaloriePeriod[];
   totals: FigureValues;
   averages: FigureValues;
-  coverage: { days: number; with_meals: number; with_watch_total: number };
+  coverage: Coverage;
   notes?: string[];
 }
 
@@ -175,14 +209,97 @@ function avgOf(days: Figures[], key: CalorieFigure): number | undefined {
   return vs.length > 0 ? sum(vs) / vs.length : undefined;
 }
 
+/** The Monday of the Monday-to-Sunday week `day` falls in, as on the Diary. */
+function mondayOf(day: string): string {
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+  return shiftDay(day, -((new Date(y, m - 1, d).getDay() + 6) % 7));
+}
+
+/** One day's figures; `base` is the Settings target, null when none is set. */
+function dayFigures(t: DayTally, base: number | null, today: string): Figures {
+  const logged = t.meals > 0;
+  const target = base == null ? undefined : dayTarget(base, t.correction);
+  const net = logged ? t.eaten - t.burnedWorkouts : undefined;
+  return {
+    eaten: logged ? t.eaten : undefined,
+    // A day still ahead has burned nothing yet; only its budget is known.
+    burned_workouts: t.day > today ? undefined : t.burnedWorkouts,
+    burned_total: t.burnedTotal ?? undefined,
+    target,
+    net,
+    remaining: target != null && net != null ? target - net : undefined,
+    energy_balance: logged && t.burnedTotal != null ? t.eaten - t.burnedTotal : undefined,
+  };
+}
+
 /**
- * The calorie figures for a range of local days (inclusive). Each day is read
- * from what was stamped with it, as the Diary does.
+ * Totals and averages over a run of days — the whole range, or one week or
+ * month of it. Totals add up the way the Diary's week/month card does;
+ * averages are over finished days only, since half of today would drag them
+ * all down.
+ */
+function summarize(
+  tallies: DayTally[],
+  base: number | null,
+  today: string,
+): { totals: Figures; averages: Figures; coverage: Coverage } {
+  const withMeals = tallies.filter((t) => t.meals > 0);
+  const withWatch = tallies.filter((t) => t.burnedTotal != null);
+  const withBoth = withMeals.filter((t) => t.burnedTotal != null);
+
+  const eaten = sum(tallies.map((t) => t.eaten));
+  const net = eaten - sum(tallies.map((t) => t.burnedWorkouts));
+  const target = base == null ? undefined : periodTarget(base, tallies.length);
+  const totals: Figures = {
+    eaten: withMeals.length > 0 ? eaten : undefined,
+    burned_workouts: sum(tallies.map((t) => t.burnedWorkouts)),
+    burned_total:
+      withWatch.length > 0 ? sum(withWatch.map((t) => t.burnedTotal ?? 0)) : undefined,
+    target,
+    net: withMeals.length > 0 ? net : undefined,
+    remaining: target != null && withMeals.length > 0 ? target - net : undefined,
+    energy_balance:
+      withBoth.length > 0
+        ? sum(withBoth.map((t) => t.eaten - (t.burnedTotal ?? 0)))
+        : undefined,
+  };
+
+  const finished = tallies.filter((t) => t.day < today);
+  const of = (ts: DayTally[]) => ts.map((t) => dayFigures(t, base, today));
+  const logged = of(finished.filter((t) => t.meals > 0));
+  const watch = of(finished.filter((t) => t.burnedTotal != null));
+  const both = of(finished.filter((t) => t.meals > 0 && t.burnedTotal != null));
+  const averages: Figures = {
+    eaten: avgOf(logged, "eaten"),
+    burned_workouts: avgOf(logged, "burned_workouts"),
+    burned_total: avgOf(watch, "burned_total"),
+    target: avgOf(logged, "target"),
+    net: avgOf(logged, "net"),
+    remaining: avgOf(logged, "remaining"),
+    energy_balance: avgOf(both, "energy_balance"),
+  };
+
+  return {
+    totals,
+    averages,
+    coverage: {
+      days: tallies.length,
+      with_meals: withMeals.length,
+      with_watch_total: withWatch.length,
+    },
+  };
+}
+
+/**
+ * The calorie figures for a range of local days (inclusive), with a row per
+ * day, week or month. Each day is read from what was stamped with it, as the
+ * Diary does.
  */
 export async function readCalories(
   startDay: string,
   endDay: string,
   figures: readonly CalorieFigure[] = CALORIE_FIGURE_KEYS,
+  groupBy: CalorieGrouping = "day",
 ): Promise<CalorieReading> {
   const allDays: string[] = [];
   for (let d = startDay; d <= endDay; d = shiftDay(d, 1)) {
@@ -194,13 +311,12 @@ export async function readCalories(
     }
   }
 
-  const settings = await loadGoalSettings();
-  const [entries, workouts, metrics, adjustments, period] = await Promise.all([
+  const [settings, entries, workouts, metrics, adjustments] = await Promise.all([
+    loadGoalSettings(),
     listFoodEntriesForRange(startDay, endDay),
     listWorkoutsForRange(startDay, endDay),
     listHealthMetricsForRange(startDay, endDay),
     listDayGoalAdjustments(startDay, endDay),
-    getPeriodGoal(startDay, endDay, settings),
   ]);
 
   const byDay = new Map<string, DayTally>(
@@ -241,85 +357,66 @@ export async function readCalories(
   const tallies = [...byDay.values()];
   const base = settings.base;
   const today = todayStr();
-  const figuresOf = (t: DayTally): Figures => {
-    const logged = t.meals > 0;
-    const target = base == null ? undefined : dayTarget(base, t.correction);
-    const net = logged ? t.eaten - t.burnedWorkouts : undefined;
-    return {
-      eaten: logged ? t.eaten : undefined,
-      // A day still ahead has burned nothing yet; only its budget is known.
-      burned_workouts: t.day > today ? undefined : t.burnedWorkouts,
-      burned_total: t.burnedTotal ?? undefined,
-      target,
-      net,
-      remaining: target != null && net != null ? target - net : undefined,
-      energy_balance:
-        logged && t.burnedTotal != null ? t.eaten - t.burnedTotal : undefined,
-    };
-  };
-
   const notes: string[] = [];
 
   let days: Record<string, unknown>[] | undefined;
-  if (tallies.length <= MAX_DAY_ROWS) {
-    days = tallies.map((t) => ({
-      day: t.day,
-      ...(t.day === today ? { in_progress: true } : t.day > today ? { upcoming: true } : {}),
-      meals: t.meals,
-      ...(t.unestimated > 0 ? { meals_without_kcal: t.unestimated } : {}),
-      ...pick(figuresOf(t), figures),
-      ...(figures.includes("target") && base != null && t.correction !== 0
-        ? { target_correction: Math.round(t.correction) }
-        : {}),
-    }));
+  let periods: CaloriePeriod[] | undefined;
+  if (groupBy === "day") {
+    if (tallies.length <= MAX_DAY_ROWS) {
+      days = tallies.map((t) => ({
+        day: t.day,
+        ...(t.day === today ? { in_progress: true } : t.day > today ? { upcoming: true } : {}),
+        meals: t.meals,
+        ...(t.unestimated > 0 ? { meals_without_kcal: t.unestimated } : {}),
+        ...pick(dayFigures(t, base, today), figures),
+        ...(figures.includes("target") && base != null && t.correction !== 0
+          ? { target_correction: Math.round(t.correction) }
+          : {}),
+      }));
+    } else {
+      notes.push(
+        `Day rows are left out over ${tallies.length} days; ask for ${MAX_DAY_ROWS} days or fewer, or group_by week or month.`,
+      );
+    }
   } else {
-    notes.push(
-      `Day rows are left out over ${tallies.length} days; ask for ${MAX_DAY_ROWS} days or fewer to get them.`,
-    );
+    // Weeks are keyed by their Monday, months by "YYYY-MM".
+    const keyOf = groupBy === "week" ? mondayOf : (day: string) => day.slice(0, 7);
+    const groups = new Map<string, DayTally[]>();
+    for (const t of tallies) {
+      const k = keyOf(t.day);
+      groups.set(k, [...(groups.get(k) ?? []), t]);
+    }
+    periods = [...groups].map(([key, run]) => {
+      const first = run[0]?.day ?? startDay;
+      const last = run[run.length - 1]?.day ?? endDay;
+      const clipped =
+        groupBy === "week"
+          ? first !== key || last !== shiftDay(key, 6)
+          : !first.endsWith("-01") || keyOf(shiftDay(last, 1)) === key;
+      const s = summarize(run, base, today);
+      const averages = pick(s.averages, figures);
+      return {
+        start_day: first,
+        end_day: last,
+        ...(first <= today && today <= last
+          ? { in_progress: true as const }
+          : first > today
+            ? { upcoming: true as const }
+            : {}),
+        ...(clipped ? { clipped: true as const } : {}),
+        totals: pick(s.totals, figures),
+        ...(Object.keys(averages).length > 0 ? { averages } : {}),
+        coverage: s.coverage,
+      };
+    });
   }
 
-  const withMeals = tallies.filter((t) => t.meals > 0);
-  const withWatch = tallies.filter((t) => t.burnedTotal != null);
-  const withBoth = withMeals.filter((t) => t.burnedTotal != null);
-
-  const eaten = sum(tallies.map((t) => t.eaten));
-  const net = eaten - sum(tallies.map((t) => t.burnedWorkouts));
-  const totals: Figures = {
-    eaten: withMeals.length > 0 ? eaten : undefined,
-    burned_workouts: sum(tallies.map((t) => t.burnedWorkouts)),
-    burned_total:
-      withWatch.length > 0 ? sum(withWatch.map((t) => t.burnedTotal ?? 0)) : undefined,
-    target: period?.target,
-    net: withMeals.length > 0 ? net : undefined,
-    remaining: period && withMeals.length > 0 ? period.target - net : undefined,
-    energy_balance:
-      withBoth.length > 0
-        ? sum(withBoth.map((t) => t.eaten - (t.burnedTotal ?? 0)))
-        : undefined,
-  };
-
-  // Finished days only: half of today would drag every average down.
-  const finished = tallies.filter((t) => t.day < today);
-  const loggedF = finished.filter((t) => t.meals > 0).map(figuresOf);
-  const watchF = finished.filter((t) => t.burnedTotal != null).map(figuresOf);
-  const bothF = finished
-    .filter((t) => t.meals > 0 && t.burnedTotal != null)
-    .map(figuresOf);
-  const averages: Figures = {
-    eaten: avgOf(loggedF, "eaten"),
-    burned_workouts: avgOf(loggedF, "burned_workouts"),
-    burned_total: avgOf(watchF, "burned_total"),
-    target: avgOf(loggedF, "target"),
-    net: avgOf(loggedF, "net"),
-    remaining: avgOf(loggedF, "remaining"),
-    energy_balance: avgOf(bothF, "energy_balance"),
-  };
-
+  const whole = summarize(tallies, base, today);
   if (base == null && (figures.includes("target") || figures.includes("remaining"))) {
     notes.push("No calorie target is set (Settings), so there is no target or remaining.");
   }
   if (
-    withWatch.length === 0 &&
+    whole.coverage.with_watch_total === 0 &&
     (figures.includes("burned_total") || figures.includes("energy_balance"))
   ) {
     notes.push(
@@ -330,14 +427,12 @@ export async function readCalories(
   return {
     start_day: startDay,
     end_day: endDay,
+    group_by: groupBy,
     ...(days ? { days } : {}),
-    totals: pick(totals, figures),
-    averages: pick(averages, figures),
-    coverage: {
-      days: tallies.length,
-      with_meals: withMeals.length,
-      with_watch_total: withWatch.length,
-    },
+    ...(periods ? { periods } : {}),
+    totals: pick(whole.totals, figures),
+    averages: pick(whole.averages, figures),
+    coverage: whole.coverage,
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

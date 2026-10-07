@@ -63,6 +63,14 @@ export function dayTarget(base: number, manual: number): number {
   return Math.max(MIN_DAY_TARGET, base + manual);
 }
 
+/**
+ * A multi-day period's budget: base × days. Corrections redistribute inside
+ * it; they don't shrink it (see the note at the top of this file).
+ */
+export function periodTarget(base: number, days: number): number {
+  return base * days;
+}
+
 export async function loadGoalSettings(): Promise<GoalSettings> {
   const raw = await getSetting(SETTING_KEYS.calorieTarget).catch(() => null);
   const base = raw != null ? parseFloat(raw) : NaN;
@@ -104,5 +112,5 @@ export async function getPeriodGoal(
   const manual = adjustments.reduce((acc, a) => acc + a.delta_kcal, 0);
   let days = 0;
   for (let d = startDay; d <= endDay; d = shiftDay(d, 1)) days++;
-  return { base: s.base, days, manual, target: s.base * days };
+  return { base: s.base, days, manual, target: periodTarget(s.base, days) };
 }

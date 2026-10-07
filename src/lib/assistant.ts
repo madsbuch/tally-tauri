@@ -30,8 +30,10 @@ import { parseToolArgs } from "./schemas";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import {
   CALORIE_FIGURE_KEYS,
+  CALORIE_GROUPINGS,
   CALORIES_TOOL_DESCRIPTION,
   parseCalorieFigures,
+  parseCalorieGrouping,
   readCalories,
 } from "./calories";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
@@ -73,6 +75,12 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
             type: "array",
             items: { type: "string", enum: CALORIE_FIGURE_KEYS },
             description: "Which figures to return. Omit for all of them.",
+          },
+          group_by: {
+            type: "string",
+            enum: CALORIE_GROUPINGS,
+            description:
+              "day (default): a row per day. week / month: a row per Monday-to-Sunday week or calendar month, each with its own totals and averages.",
           },
         },
         required: ["start_day", "end_day"],
@@ -497,7 +505,14 @@ export async function executeAssistantTool(
 ): Promise<string> {
   if (name === "query_calories") {
     const { start, end } = dayArgs(args);
-    return JSON.stringify(await readCalories(start, end, parseCalorieFigures(args["figures"])));
+    return JSON.stringify(
+      await readCalories(
+        start,
+        end,
+        parseCalorieFigures(args["figures"]),
+        parseCalorieGrouping(args["group_by"]),
+      ),
+    );
   }
 
   if (name === "query_meals") {
