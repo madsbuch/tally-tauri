@@ -481,6 +481,7 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "Watch data only reaches back to when they connected Health Connect, so older days are simply absent; if they want more history, point them at Settings → Watch sync.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself.',
     "The structured query_* tools cover most questions; run_sql handles aggregates, joins and longer trends.",
+    "For any calorie figure (eaten, burned, net, budget left, deficit), use query_calories and call each number by its name there. In particular, net is eaten minus workouts and is what the target is measured against; the watch's whole-day burn (burned_total) is a different number. Don't mix the two up.",
     "search_packaged_food looks up branded products in the public Open Food Facts database — use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
     "",
     DB_SCHEMA_DOC,

@@ -50,6 +50,7 @@ export type UiItem =
   | { kind: "activity"; reasoning: string[]; tools: string[] };
 
 const TOOL_LABELS: Record<string, string> = {
+  query_calories: "calories",
   query_meals: "meals",
   query_workouts: "workouts",
   query_sleep: "sleep",

@@ -58,6 +58,11 @@ function shiftDay(day: string, delta: number): string {
   return todayStr(new Date(y, m - 1, d + delta));
 }
 
+/** A day's budget from the base and that day's correction. */
+export function dayTarget(base: number, manual: number): number {
+  return Math.max(MIN_DAY_TARGET, base + manual);
+}
+
 export async function loadGoalSettings(): Promise<GoalSettings> {
   const raw = await getSetting(SETTING_KEYS.calorieTarget).catch(() => null);
   const base = raw != null ? parseFloat(raw) : NaN;
@@ -80,7 +85,7 @@ export async function getDayGoal(
     day,
     base: s.base,
     manual,
-    target: Math.max(MIN_DAY_TARGET, s.base + manual),
+    target: dayTarget(s.base, manual),
   };
 }
 
