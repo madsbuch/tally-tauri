@@ -40,9 +40,15 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
-import { parseToolArgs } from "./schemas";
+import { parseLabelArgs, parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
-import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
+import {
+  FOOD_FACTS_TOOL,
+  executeFoodFactsSearch,
+  foodRegion,
+  labelPortion,
+  regionLabel,
+} from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { stateKey } from "./states";
@@ -159,6 +165,34 @@ const DIARY_TOOLS: ToolDef[] = [
           confidence: { type: "string", enum: ["low", "medium", "high"] },
           icon: iconSchema("meal"),
           nutrients: nutrientsSchema(),
+          label: {
+            type: "object",
+            description:
+              "Set when a search_packaged_food result is what was eaten: Tally then works out the " +
+              "label's nutrients for the amount itself. Pass the barcode and ONE amount. Label " +
+              "values replace yours for every key the label has, so `nutrients` only needs what " +
+              "labels lack (usually the micronutrients).",
+            properties: {
+              barcode: {
+                type: "string",
+                description: "The product's barcode from search_packaged_food, digits only",
+              },
+              grams: {
+                type: "number",
+                description: "Amount consumed in g (in ml for drinks measured per 100 ml)",
+              },
+              servings: {
+                type: "number",
+                description: "Number of label servings consumed (needs a serving_size in the result)",
+              },
+              packages: {
+                type: "number",
+                description: "Number of whole packages consumed, e.g. 1 can, 0.5 of a bag",
+              },
+            },
+            required: ["barcode"],
+            additionalProperties: false,
+          },
         },
         required: ["title", "time"],
         additionalProperties: false,
@@ -439,6 +473,8 @@ function buildSystemPrompt(
   capture: Capture,
   catalog: Supplement[],
   diary: DiaryContext,
+  /** Country product searches favour; null = worldwide. */
+  foodCountry: string | null,
 ): string {
   const now = new Date();
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -470,7 +506,7 @@ function buildSystemPrompt(
     "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
-    "- Branded/packaged products (wrappers, bottles, cans, labels): look them up with search_packaged_food first and base the nutrients on the best match, scaled to the portion actually consumed. The database often lacks micronutrients — estimate missing keys yourself. Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself.",
+    `- Branded/packaged products (wrappers, bottles, cans, labels, barcodes): look them up with search_packaged_food first — by the barcode digits when the photo shows them legibly, else by the name as printed on the package. ${foodCountry == null ? "" : `Searches cover products sold in ${foodCountry} first, then worldwide; prefer a match sold in their country. `}When a result is what was eaten, call log_meal with \`label\` (its barcode plus grams, servings or packages) and let Tally do the label arithmetic; put in \`nutrients\` only what the label lacks (usually the micronutrients). Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself and log without \`label\`.`,
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
@@ -569,14 +605,35 @@ async function executeTool(
 
   if (name === "log_meal") {
     const title = str(args["title"]) ?? "Meal";
+    let nutrients = sanitizeNutrients(args["nutrients"]);
+    let description = str(args["description"]);
+    let fromLabel = "";
+    const label = parseLabelArgs(args["label"]);
+    if (label) {
+      // Resolved before anything is written: a label that doesn't add up goes
+      // back to the model to fix, rather than its guess going in under a
+      // label's name.
+      const portion = await labelPortion(label);
+      // The label wins wherever it has a number; the model's estimate only
+      // fills in what labels don't carry.
+      nutrients = { ...nutrients, ...portion.nutrients };
+      // Said in the entry itself, so the number can always be traced back.
+      const source =
+        `Nutrition from the label: ${portion.amount} ${portion.unit} of ${portion.product} ` +
+        `(Open Food Facts ${portion.barcode}).`;
+      description = description ? `${description} ${source}` : source;
+      fromLabel =
+        ` with label values for ${portion.amount} ${portion.unit}` +
+        ` (${Math.round(portion.nutrients.calories ?? 0)} kcal)`;
+    }
     const photo = ctx.photoToAttach;
     ctx.photoToAttach = null;
     await addFoodEntry({
       eaten_at: time,
       title,
-      description: str(args["description"]),
+      description,
       photo_path: photo,
-      nutrients: sanitizeNutrients(args["nutrients"]),
+      nutrients,
       model_id: ctx.model,
       icon: icon(args["icon"]),
     });
@@ -594,7 +651,7 @@ async function executeTool(
       void unlockAchievement("quick_draw");
     }
     notifyDiaryChanged();
-    return `Logged meal "${title}" at ${time}.`;
+    return `Logged meal "${title}" at ${time}${fromLabel}.`;
   }
 
   if (name === "repeat_meal") {
@@ -766,9 +823,10 @@ async function runCapture(capture: Capture): Promise<void> {
     throw new Error("Add your OpenRouter API key in Settings first");
   }
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
-  const [catalog, diary] = await Promise.all([
+  const [catalog, diary, region] = await Promise.all([
     listSupplements(),
     loadDiaryContext(capture.day),
+    foodRegion(),
   ]);
 
   const parts: ContentPart[] = [
@@ -786,8 +844,9 @@ async function runCapture(capture: Capture): Promise<void> {
     parts.push({ type: "image_url", image_url: { url: dataUrl } });
   }
 
+  const foodCountry = region.cc ? regionLabel(region) : null;
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(capture, catalog, diary) },
+    { role: "system", content: buildSystemPrompt(capture, catalog, diary, foodCountry) },
     { role: "user", content: parts },
   ];
 

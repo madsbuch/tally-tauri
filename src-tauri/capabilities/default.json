@@ -20,7 +20,8 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://openrouter.ai/*" },
-        { "url": "https://world.openfoodfacts.org/*" }
+        { "url": "https://world.openfoodfacts.org/*" },
+        { "url": "https://search.openfoodfacts.org/*" }
       ]
     }
   ]

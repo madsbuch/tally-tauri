@@ -32,6 +32,7 @@ import {
 import type { HealthConnectStatus } from "../lib/healthConnect";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
+import FoodCountrySetting from "../components/FoodCountrySetting";
 
 const MAX_LIST_ROWS = 40;
 
@@ -767,6 +768,8 @@ export default function SettingsPage() {
           </>
         )}
       </div>
+
+      <FoodCountrySetting />
 
       {/* Garmin / Health Connect ------------------------------------------- */}
       <div className="section-title">Watch sync</div>

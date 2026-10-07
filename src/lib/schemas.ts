@@ -438,21 +438,41 @@ export const DocumentAnalysisSchema = z.object({
 /**
  * Individual fields stay `unknown`: OFF label data is messy, and the
  * per-field coercion lives in openFoodFacts.ts (str/num/mapOffNutriments).
- * The schema guarantees "object with these slots", nothing more.
+ * The schema guarantees "object with these slots", nothing more. Loose, so
+ * the per-language names we ask for (`product_name_da`, …) come through.
  */
-export const OffProductSchema = z.object({
+export const OffProductSchema = z.looseObject({
   // zod v4 requires keys unless explicitly .optional(), even for unknown.
   code: z.unknown().optional(),
   product_name: z.unknown().optional(),
   brands: z.unknown().optional(),
   quantity: z.unknown().optional(),
+  product_quantity: z.unknown().optional(),
+  product_quantity_unit: z.unknown().optional(),
   serving_size: z.unknown().optional(),
   serving_quantity: z.unknown().optional(),
   nutriments: z.unknown().optional(),
   nutriscore_grade: z.unknown().optional(),
   ingredients_text: z.unknown().optional(),
+  countries_tags: z.unknown().optional(),
 });
 export type OffProduct = z.infer<typeof OffProductSchema>;
+
+/**
+ * search.openfoodfacts.org response: the barcodes of its hits, best first.
+ * null when the body isn't a search result at all (an error object, a web
+ * page) — that's a failed search, not an empty one.
+ */
+export function parseOffSearchHits(raw: unknown): string[] | null {
+  const r = z.object({ hits: z.array(z.unknown()) }).safeParse(raw);
+  if (!r.success) return null;
+  const Hit = z.object({ code: z.union([z.string(), z.number()]).optional() });
+  return r.data.hits.flatMap((h) => {
+    const q = Hit.safeParse(h);
+    const code = q.success && q.data.code != null ? String(q.data.code).trim() : "";
+    return /^\d+$/.test(code) ? [code] : [];
+  });
+}
 
 /** Free-text search response: object entries of `products`, else []. */
 export function parseOffSearchResponse(raw: unknown): OffProduct[] {
@@ -470,6 +490,31 @@ export function parseOffBarcodeResponse(raw: unknown): OffProduct[] {
   if (!r.success || r.data.status !== 1) return [];
   const p = OffProductSchema.safeParse(r.data.product);
   return p.success ? [p.data] : [];
+}
+
+/** A positive amount the model sent, or undefined for anything else. */
+const positiveAmount = z.coerce.number().positive().finite().optional().catch(undefined);
+
+/**
+ * log_meal's `label` argument: which product, and how much of it. Forgiving
+ * on the amounts (an unusable one is just absent); the barcode has to be
+ * digits, since a guessed product is worse than no product.
+ */
+export const LabelArgsSchema = z.object({
+  barcode: z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .pipe(z.string().regex(/^\d+$/)),
+  grams: positiveAmount,
+  servings: positiveAmount,
+  packages: positiveAmount,
+});
+export type LabelArgs = z.infer<typeof LabelArgsSchema>;
+
+/** The `label` argument, or null when there is no usable barcode in it. */
+export function parseLabelArgs(raw: unknown): LabelArgs | null {
+  const r = LabelArgsSchema.safeParse(raw);
+  return r.success ? r.data : null;
 }
 
 // ---------------------------------------------------------------------------

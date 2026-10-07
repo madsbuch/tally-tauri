@@ -419,6 +419,11 @@ export const SETTING_KEYS = {
   coachUnreadChat: "coach_unread_chat",
   /** JSON blob: the last finished week/month whose recap was seen (see lib/recap.ts). */
   recapSeen: "recap_seen",
+  /**
+   * Country product lookups search first: an ISO code ("dk"), "world" for no
+   * country, absent/empty = the phone's region (see lib/openFoodFacts.ts).
+   */
+  foodCountry: "food_country",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
