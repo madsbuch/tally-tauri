@@ -49,7 +49,7 @@ import {
   labelPortion,
   regionLabel,
 } from "./openFoodFacts";
-import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
+import { NUTRIENT_DEFS, sanitizeNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { stateKey } from "./states";
 import { clampBelief, isActedOn } from "./lifeRules";
@@ -280,12 +280,12 @@ const DIARY_TOOLS: ToolDef[] = [
     function: {
       name: "repeat_meal",
       description:
-        "Log another serving of something already in the diary — \"one more cheese cube\", " +
-        "\"same coffee as this morning\", \"the usual breakfast\". Copies that entry's nutrients " +
-        "exactly (times `portion`) rather than estimating them again, so a thing eaten twice counts " +
-        "the same twice. The new entry says which entry its numbers came from. " +
-        "Use it whenever the note points back at an entry listed in your instructions; fall back " +
-        "to log_meal only when nothing listed is what they mean.",
+        "Log the exact same thing again — \"yet another beer\", \"one more cheese cube\", " +
+        "\"same coffee as this morning\", \"the usual breakfast\". Copies an entry listed in your " +
+        "instructions as it is, nutrients and all, so a thing had twice counts the same twice. " +
+        "One call per serving: \"two more beers\" is two calls. Only for a plain repeat of the same " +
+        "item in the same amount — when the amount differs (\"500 g skyr\" with \"Skyr 200 g\" " +
+        "listed), or you can't tell it is the same product, use log_meal and estimate it afresh.",
       parameters: {
         type: "object",
         properties: {
@@ -293,20 +293,9 @@ const DIARY_TOOLS: ToolDef[] = [
             type: "number",
             description: "Entry id (the #number) from the diary listing in your instructions",
           },
-          portion: {
-            type: "number",
-            description:
-              "Multiple of that entry's portion: 1 (default) for the same again, 2 for twice as much, 0.5 for half.",
-          },
-          title: {
-            type: "string",
-            description:
-              "Name for what was eaten THIS time, with this time's amount when the name has one: " +
-              "\"Skyr 500 g\" for portion 2.5 of \"Skyr 200 g\". With portion 1, that entry's title as it is.",
-          },
           time: { type: "string", description: TIME_DESC },
         },
-        required: ["id", "title", "time"],
+        required: ["id", "time"],
         additionalProperties: false,
       },
     },
@@ -509,7 +498,7 @@ function buildSystemPrompt(
     "",
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
-    "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
+    "- When the note plainly means one of those entries again, the same thing in the same amount — \"yet another beer\", \"one more cheese cube\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id (once per serving) instead of estimating again. Two of the same thing should count the same both times. A different amount, or a food that only shares a name with a listed one, is a new log_meal.",
     "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
@@ -582,7 +571,8 @@ interface ToolContext {
   logged: number;
 }
 
-const round2 = (n: number): number => Math.round(n * 100) / 100;
+/** How a repeated meal's description says where its numbers came from. */
+const FROM_EARLIER_ENTRY = "Nutrition from an earlier entry:";
 
 function num(v: unknown): number | null {
   const n = typeof v === "string" ? parseFloat(v) : v;
@@ -684,35 +674,34 @@ async function executeTool(
     if (!source) {
       return `Error: there is no diary entry #${Math.round(rawId)} — log it with log_meal instead.`;
     }
-    // A portion is a multiple of what that entry was, so the bounds only have
-    // to keep a nonsense number from turning into a nonsense day.
-    const portion = Math.min(20, Math.max(0.05, num(args["portion"]) ?? 1));
-    const times = portion === 1 ? "" : `${round2(portion)} × `;
-    // Named for this serving. A multiplier glued onto the earlier title read
-    // as nonsense: 500 g of skyr turned up as "Skyr 200 g (2.5×)".
-    const title = str(args["title"]) ?? `${times}${source.title}`;
-    // Said in the entry itself, as a label's numbers are, so a copy can
-    // always be traced back to the entry it came from.
-    const from = `Nutrition from an earlier entry: ${times}"${source.title}" (${eatenWhen(source)}).`;
-    // The earlier description is about the earlier portion: it only still
-    // holds when this is the same again.
-    const description =
-      portion === 1 && source.description ? `${source.description} ${from}` : from;
+    // A copy is the same thing again, never a scaled one: 2.5 × "Skyr 200 g"
+    // is a guess that it was the same skyr, dressed up as a fact. A different
+    // amount gets estimated afresh.
+    //
+    // Said in the entry itself, as a label's numbers are, so a copy can always
+    // be traced back. A copy of a copy already names the entry its numbers
+    // first came from, which is still where they came from — "yet another
+    // beer" shouldn't grow a sentence per round.
+    const description = source.description?.includes(FROM_EARLIER_ENTRY)
+      ? source.description
+      : [source.description, `${FROM_EARLIER_ENTRY} "${source.title}" (${eatenWhen(source)}).`]
+          .filter(Boolean)
+          .join(" ");
     const photo = ctx.photoToAttach;
     ctx.photoToAttach = null;
     await addFoodEntry({
       eaten_at: time,
-      title,
+      title: source.title,
       description,
       photo_path: photo,
-      nutrients: sanitizeNutrients(scaleNutrients(source.nutrients, portion)),
+      nutrients: source.nutrients,
       // The numbers are the earlier entry's, not this model's guess.
       model_id: source.model_id,
       icon: source.icon,
     });
     ctx.logged++;
     notifyDiaryChanged();
-    return `Logged "${title}" at ${time}, copied from ${times}#${source.id} "${source.title}".`;
+    return `Logged "${source.title}" at ${time}, copied from #${source.id}.`;
   }
 
   if (name === "log_workout") {
