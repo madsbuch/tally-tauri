@@ -56,7 +56,7 @@ import { clampBelief, isActedOn } from "./lifeRules";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
-import { shiftDay, timeOf } from "./daystamp";
+import { dayOf, formatTime, shiftDay, timeOf } from "./daystamp";
 import type {
   Capture,
   FoodEntry,
@@ -282,7 +282,8 @@ const DIARY_TOOLS: ToolDef[] = [
       description:
         "Log another serving of something already in the diary — \"one more cheese cube\", " +
         "\"same coffee as this morning\", \"the usual breakfast\". Copies that entry's nutrients " +
-        "exactly rather than estimating them again, so a thing eaten twice counts the same twice. " +
+        "exactly (times `portion`) rather than estimating them again, so a thing eaten twice counts " +
+        "the same twice. The new entry says which entry its numbers came from. " +
         "Use it whenever the note points back at an entry listed in your instructions; fall back " +
         "to log_meal only when nothing listed is what they mean.",
       parameters: {
@@ -297,9 +298,15 @@ const DIARY_TOOLS: ToolDef[] = [
             description:
               "Multiple of that entry's portion: 1 (default) for the same again, 2 for twice as much, 0.5 for half.",
           },
+          title: {
+            type: "string",
+            description:
+              "Name for what was eaten THIS time, with this time's amount when the name has one: " +
+              "\"Skyr 500 g\" for portion 2.5 of \"Skyr 200 g\". With portion 1, that entry's title as it is.",
+          },
           time: { type: "string", description: TIME_DESC },
         },
-        required: ["id", "time"],
+        required: ["id", "title", "time"],
         additionalProperties: false,
       },
     },
@@ -586,6 +593,22 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/**
+ * "Thu 8 Oct, 08:12": when an entry was eaten, as the clock read where it was
+ * eaten. A date rather than "this morning", since it is written down for good.
+ */
+function eatenWhen(e: FoodEntry): string {
+  const [y = 0, m = 1, d = 1] = (e.day ?? dayOf(e.eaten_at, e.tz_offset_min))
+    .split("-")
+    .map(Number);
+  const date = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+  return `${date}, ${formatTime(e.eaten_at, e.tz_offset_min)}`;
+}
+
 /** An icon key the model picked, or null when it made one up / skipped it. */
 function icon(v: unknown): string | null {
   const key = str(v);
@@ -664,13 +687,23 @@ async function executeTool(
     // A portion is a multiple of what that entry was, so the bounds only have
     // to keep a nonsense number from turning into a nonsense day.
     const portion = Math.min(20, Math.max(0.05, num(args["portion"]) ?? 1));
-    const title = portion === 1 ? source.title : `${source.title} (${round2(portion)}×)`;
+    const times = portion === 1 ? "" : `${round2(portion)} × `;
+    // Named for this serving. A multiplier glued onto the earlier title read
+    // as nonsense: 500 g of skyr turned up as "Skyr 200 g (2.5×)".
+    const title = str(args["title"]) ?? `${times}${source.title}`;
+    // Said in the entry itself, as a label's numbers are, so a copy can
+    // always be traced back to the entry it came from.
+    const from = `Nutrition from an earlier entry: ${times}"${source.title}" (${eatenWhen(source)}).`;
+    // The earlier description is about the earlier portion: it only still
+    // holds when this is the same again.
+    const description =
+      portion === 1 && source.description ? `${source.description} ${from}` : from;
     const photo = ctx.photoToAttach;
     ctx.photoToAttach = null;
     await addFoodEntry({
       eaten_at: time,
       title,
-      description: source.description,
+      description,
       photo_path: photo,
       nutrients: sanitizeNutrients(scaleNutrients(source.nutrients, portion)),
       // The numbers are the earlier entry's, not this model's guess.
@@ -679,7 +712,7 @@ async function executeTool(
     });
     ctx.logged++;
     notifyDiaryChanged();
-    return `Logged "${title}" at ${time}, copied from #${source.id}.`;
+    return `Logged "${title}" at ${time}, copied from ${times}#${source.id} "${source.title}".`;
   }
 
   if (name === "log_workout") {
