@@ -778,7 +778,7 @@ export async function executeAssistantTool(
 // ---------------------------------------------------------------------------
 
 export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like "2026-07-20T06:30:00.000Z"):
-- food_entries(id, eaten_at, day /* local "YYYY-MM-DD" */, tz_offset_min /* minutes east of UTC where it was logged */, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */, diet /* nullable JSON: main_meal, vegetable_forward, refined_carbs, candy, alcohol (nullable booleans), drinks (nullable count), occasion (nullable grouping label). NULL means unknown, not false */)
+- food_entries(id, eaten_at, day /* local "YYYY-MM-DD" */, tz_offset_min /* minutes east of UTC where it was logged */, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */)
 - workouts(id, performed_at, day, tz_offset_min, title, description, calories_burned /* kcal; summed per day this is burned_workouts */, duration_min, source /* "Garmin", "Health Connect" or NULL = manual */, external_id)
 - sleep_sessions(id, started_at, ended_at, day /* the morning it ended on */, tz_offset_min, duration_min, deep_min, rem_min, light_min, awake_min, source)
 - health_metrics(day /* local "YYYY-MM-DD" */, steps, resting_hr, hrv_ms, spo2_pct, weight_kg, vo2_max, calories_total /* kcal, the watch's whole-day burn incl. resting and workouts = burned_total */, updated_at)

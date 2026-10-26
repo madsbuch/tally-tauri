@@ -363,7 +363,6 @@ internal object CoachDb {
 
         return Digest(
             day = day,
-            diet = DietSummary.render(db, day),
             todayKcalIn = Math.round(todayKcal).toDouble(),
             todayKcalOut = Math.round(todayBurned).toDouble(),
             todayProteinG = Math.round(todayProtein).toDouble(),
@@ -458,7 +457,6 @@ internal object CoachDb {
     /** Everything the trigger evaluation and the prompt need from the diary. */
     data class Digest(
         val day: String,
-        val diet: String,
         val todayKcalIn: Double,
         val todayKcalOut: Double,
         val todayProteinG: Double,
@@ -488,7 +486,6 @@ internal object CoachDb {
         /** Mirrors renderCoachDigest() on the TypeScript side. */
         fun render(): String {
             val lines = ArrayList<String>()
-            lines.add(diet)
             lines.add(
                 "Today ($day): ${num(todayKcalIn)} kcal in, ${num(todayKcalOut)} burned, " +
                     "net ${num(todayKcalIn - todayKcalOut)}" +

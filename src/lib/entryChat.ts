@@ -53,7 +53,6 @@ function changed(label: string, from: unknown, to: unknown, unit = ""): string |
 /** Every difference between two versions of a meal, in display order. */
 function diffMeal(before: FoodEntry, after: FoodEntry): string[] {
   const changes: string[] = [];
-  if (JSON.stringify(before.diet) !== JSON.stringify(after.diet)) changes.push("Diet observations updated");
   const t = changed("Title", before.title, after.title);
   if (t) changes.push(t);
   for (const d of NUTRIENT_DEFS) {
@@ -144,7 +143,6 @@ export async function sendEntryMessage(
           title: entry.title,
           description: entry.description,
           nutrients: entry.nutrients,
-          diet: entry.diet,
         },
       }),
     );
@@ -156,7 +154,6 @@ export async function sendEntryMessage(
         title: answer.entry.title ?? entry.title,
         description: answer.entry.description ?? entry.description,
         nutrients: answer.entry.nutrients ?? entry.nutrients,
-        diet: answer.entry.diet === undefined ? entry.diet : answer.entry.diet,
         // The numbers are this model's now, whoever estimated them first.
         model_id: model,
       };

@@ -27,32 +27,6 @@
   color-scheme: light;
 }
 
-.diet-card { margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
-.diet-heading, .diet-protein, .diet-week > summary, .diet-observation > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.diet-heading h2 { margin: 0; font-family: var(--font-serif); font-size: 21px; }
-.diet-heading > span { font-size: 12px; color: var(--accent); }
-.diet-protein { margin-top: 16px; font-size: 13px; }
-.diet-protein strong { font-size: 22px; white-space: nowrap; }
-.diet-protein strong span { font-size: 13px; color: var(--muted); font-weight: 400; }
-.diet-progress { width: 100%; height: 7px; margin-top: 8px; border: 0; border-radius: 9px; overflow: hidden; accent-color: var(--accent); }
-.diet-progress::-webkit-progress-bar { background: var(--bg-elev); }
-.diet-progress::-webkit-progress-value { background: var(--accent); border-radius: 9px; }
-.diet-week { border-top: 1px solid var(--border); padding-top: 12px; }
-.diet-allowances { font-size: 13px; color: var(--accent); line-height: 1.5; }
-.diet-week > summary { font-size: 13px; cursor: pointer; }
-.diet-week > summary::after { content: "+"; color: var(--muted); }
-.diet-week[open] > summary::after { content: "−"; }
-.diet-observation { border-top: 1px solid var(--border); padding: 12px 0; font-size: 13px; }
-.diet-observation > summary { cursor: pointer; flex-wrap: wrap; }
-.diet-observation strong { font-weight: 500; }
-.diet-entries { padding-left: 20px; margin-bottom: 0; }
-.diet-entries li { margin: 8px 0; }
-.diet-entries a { color: var(--accent); text-decoration: underline; }
-.diet-editor > summary { cursor: pointer; font-weight: 500; }
-.diet-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.diet-field { display: grid; grid-template-columns: minmax(0, 1fr) 110px; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 13px; }
-.diet-editor .label .input { margin-top: 6px; }
-
 /*
  * Keyboard up — MainActivity sets the class. The WebView now ends where the
  * keys begin, so there is no navigation bar under it to clear, and the tab bar

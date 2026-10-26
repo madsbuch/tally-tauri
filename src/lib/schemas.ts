@@ -170,34 +170,6 @@ const looseMinutes = z.unknown().optional().transform((v) => {
 /** Known nutrient keys only, finite non-negative amounts only. */
 const NutrientsField = z.unknown().optional().transform((v) => sanitizeNutrients(v));
 
-/** Observations, not judgements about whether a meal fits the person's goals. */
-export const DietObservationsSchema = z.object({
-  main_meal: z.boolean().nullable().default(null),
-  vegetable_forward: z.boolean().nullable().default(null),
-  refined_carbs: z.boolean().nullable().default(null),
-  candy: z.boolean().nullable().default(null),
-  alcohol: z.boolean().nullable().default(null),
-  drinks: z.number().finite().nonnegative().nullable().default(null),
-  occasion: z.string().trim().max(100).nullable().default(null),
-});
-export type DietObservations = z.infer<typeof DietObservationsSchema>;
-
-export function parseDietObservations(raw: unknown): DietObservations | null {
-  if (raw == null) return null;
-  return DietObservationsSchema.parse(typeof raw === "string" ? parseJson(raw) : raw);
-}
-
-// Model mistakes degrade per field to unknown, never to a false negative.
-export const ModelDietSchema = DietObservationsSchema.extend({
-  main_meal: DietObservationsSchema.shape.main_meal.catch(null),
-  vegetable_forward: DietObservationsSchema.shape.vegetable_forward.catch(null),
-  refined_carbs: DietObservationsSchema.shape.refined_carbs.catch(null),
-  candy: DietObservationsSchema.shape.candy.catch(null),
-  alcohol: DietObservationsSchema.shape.alcohol.catch(null),
-  drinks: DietObservationsSchema.shape.drinks.catch(null),
-  occasion: DietObservationsSchema.shape.occasion.catch(null),
-}).nullable().catch(null);
-
 export const FoodAnalysisSchema = z.object({
   title: looseTitle("Meal"),
   description: looseDescription,
@@ -260,7 +232,6 @@ const MealEntryFields = z.object({
   title: keptText,
   description: keptText,
   nutrients: keptNutrients,
-  diet: ModelDietSchema.optional(),
 });
 
 const WorkoutEntryFields = z.object({
@@ -325,7 +296,6 @@ const FoodEntrySnapshotSchema = z.object({
   description: z.string().nullable(),
   photo_path: z.string().nullable(),
   nutrients: z.unknown().transform((v) => sanitizeNutrients(v)),
-  diet: DietObservationsSchema.nullable().default(null),
   model_id: z.string().nullable(),
   icon: z.string().nullable(),
   day: z.string().nullable(),

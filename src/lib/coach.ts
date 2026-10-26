@@ -31,7 +31,6 @@ import {
 import { CoachStanceSchema, parseJson } from "./schemas";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
 import { getDayGoal } from "./goals";
-import { DIET_PREFERENCES, dietWeek, renderDietSummary } from "./diet";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
 import { SETTING_KEYS } from "./types";
@@ -103,7 +102,6 @@ export async function saveCoachStance(stance: CoachStance): Promise<void> {
 
 export interface CoachDigest {
   day: string;
-  diet?: string;
   today: {
     kcalIn: number;
     kcalOut: number;
@@ -168,7 +166,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs, dietEntries] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -178,7 +176,6 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       getActiveFast().catch(() => null),
       getDayGoal(day).catch(() => null),
       listStateLogsForRange(weekStart, day).catch(() => []),
-      listFoodEntriesForRange(shiftDay(dietWeek(day).start, -1), day),
     ]);
 
   // Chronological for today (a day reads forwards), and tallied for the week.
@@ -250,7 +247,6 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
 
   return {
     day,
-    diet: renderDietSummary(dietEntries, day),
     today: {
       kcalIn: round(kcalIn),
       kcalOut: round(kcalOut),
@@ -300,7 +296,6 @@ const na = (v: number | null, unit = ""): string =>
 /** The digest as prompt text. Terse — it's read by a model, not a person. */
 export function renderCoachDigest(d: CoachDigest): string {
   const lines = [
-    ...(d.diet ? [d.diet] : []),
     `Today (${d.day}): ${d.today.kcalIn} kcal in, ${d.today.kcalOut} burned, net ${d.today.net}` +
       (d.today.target != null ? ` against a ${d.today.target} kcal target` : " (no target set)") +
       `; ${d.today.proteinG} g protein; ${d.today.itemsLogged} items logged.`,
@@ -354,7 +349,7 @@ function renderStance(s: CoachStance): string {
     );
   } else {
     lines.push(
-      "Use their diet preferences below and what they tell you to guide coaching; ask about other priorities only when relevant.",
+      "They haven't set any priorities yet. Work out what matters from their data and their answers, and early on, ask.",
     );
   }
   lines.push(`Tone: ${TONE_PROMPT[s.tone]}`);
@@ -466,7 +461,6 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "",
     "## Your stance",
     renderStance(stance),
-    DIET_PREFERENCES,
     "",
     "## What you know about them",
     renderMemory(memory, today),

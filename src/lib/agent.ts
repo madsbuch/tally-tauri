@@ -40,8 +40,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
-import { ModelDietSchema, parseLabelArgs, parseToolArgs } from "./schemas";
-import { DIET_OBSERVATION_PROMPT, DIET_TOOL_SCHEMA } from "./diet";
+import { parseLabelArgs, parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import {
   FOOD_FACTS_TOOL,
@@ -166,7 +165,6 @@ const DIARY_TOOLS: ToolDef[] = [
           confidence: { type: "string", enum: ["low", "medium", "high"] },
           icon: iconSchema("meal"),
           nutrients: nutrientsSchema(),
-          diet: DIET_TOOL_SCHEMA,
           label: {
             type: "object",
             description:
@@ -513,7 +511,6 @@ function buildSystemPrompt(
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
     "- Always pass `icon` on log_meal/log_workout: it is what the user sees in the timeline when there is no photo. Pick the most specific match (a cappuccino is \"coffee\", not \"meal\").",
-    DIET_OBSERVATION_PROMPT,
     "- After your final tool call, reply with one short plain-text sentence of confirmation.",
     "- If there is nothing usable to record, call no tools and explain why in one plain-text sentence.",
   ].join("\n");
@@ -637,7 +634,6 @@ async function executeTool(
       description,
       photo_path: photo,
       nutrients,
-      diet: ModelDietSchema.parse(args["diet"]),
       model_id: ctx.model,
       icon: icon(args["icon"]),
     });
@@ -677,13 +673,6 @@ async function executeTool(
       description: source.description,
       photo_path: photo,
       nutrients: sanitizeNutrients(scaleNutrients(source.nutrients, portion)),
-      diet: source.diet
-        ? {
-            ...source.diet,
-            occasion: null,
-            drinks: source.diet.drinks == null ? null : source.diet.drinks * portion,
-          }
-        : null,
       // The numbers are the earlier entry's, not this model's guess.
       model_id: source.model_id,
       icon: source.icon,

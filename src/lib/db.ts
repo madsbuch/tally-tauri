@@ -1,5 +1,4 @@
 import Database from "@tauri-apps/plugin-sql";
-import { parseDietObservations } from "./schemas";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gt, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
@@ -140,7 +139,6 @@ function toFoodEntry(r: FoodEntryRow): FoodEntry {
     description: r.description,
     photo_path: r.photoPath,
     nutrients: sanitizeNutrients(r.nutrients),
-    diet: parseDietObservations(r.diet),
     model_id: r.modelId,
     icon: r.icon,
     day: r.day,
@@ -165,7 +163,6 @@ export async function addFoodEntry(
       description: entry.description,
       photoPath: entry.photo_path,
       nutrients: entry.nutrients,
-      diet: entry.diet == null ? null : JSON.stringify(parseDietObservations(entry.diet)),
       modelId: entry.model_id,
       icon: entry.icon,
       day: stamp.day,
@@ -187,7 +184,6 @@ export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
       description: entry.description,
       photoPath: entry.photo_path,
       nutrients: entry.nutrients,
-      diet: entry.diet == null ? null : JSON.stringify(parseDietObservations(entry.diet)),
       modelId: entry.model_id,
       icon: entry.icon,
       day: dayOf(entry.eaten_at, tzOffsetMin),

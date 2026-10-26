@@ -23,7 +23,6 @@ export const foodEntries = sqliteTable(
     description: text("description"),
     photoPath: text("photo_path"),
     nutrients: text("nutrients", { mode: "json" }).$type<Nutrients>().notNull().default({}),
-    diet: text("diet"),
     modelId: text("model_id"),
     /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
     icon: text("icon"),

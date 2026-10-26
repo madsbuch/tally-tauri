@@ -5,16 +5,6 @@ lives in a SQLite database on the device — there is no backend.
 
 ## Features
 
-- **Personal diet** — built-in preferences for vegetable-focused meals, around
-  150 g protein daily, up to two candy and two drinking occasions per Monday–Sunday
-  week, and fewer refined carbs. The diary shows protein progress and expandable
-  weekly observations. Photo/note captures classify new food; each entry's diet
-  observations can be corrected manually or through its chat. Unknown and older
-  entries remain unclassified. Nearby candy/drink logs form one occasion (within
-  four hours, capped at twelve); a unique occasion label overrides grouping.
-  Both in-app and scheduled Android coaching receive these preferences and totals.
-  Preferences live in `src/lib/diet.ts`; there is no profile setup or management.
-
 - **Fire-and-forget photo diary** — take a picture (plus an optional note like
   "ate this earlier today"), tap Add, done. The capture appears in the
   timeline instantly as "Analyzing…" while a background agent — armed with
