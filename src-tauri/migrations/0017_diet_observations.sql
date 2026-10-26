@@ -1,0 +1,1 @@
+ALTER TABLE `food_entries` ADD `diet` text;

@@ -111,6 +111,15 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0016_life_rules.sql"),
             kind: MigrationKind::Up,
         },
+        // The diet feature was reverted, but this migration had already run on
+        // devices; sqlx refuses to open a DB with an applied migration it can't
+        // find, so it stays (unchanged — its checksum is checked too).
+        Migration {
+            version: 18,
+            description: "diet_observations",
+            sql: include_str!("../migrations/0017_diet_observations.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
