@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import DietObservationsEditor from "../components/DietObservationsEditor";
 import {
   deleteFoodEntry,
   deletePhotoIfUnused,
@@ -438,6 +439,7 @@ export default function EntryPage() {
 
       {meal && (
         <>
+          <DietObservationsEditor key={`${meal.id}:${JSON.stringify(meal.diet)}`} meal={meal} onSaved={() => void afterChange()} />
           <div className="section-title">Nutrition</div>
           <div className="list">
             {NUTRIENT_DEFS.filter(

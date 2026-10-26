@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import DietCard from "../components/DietCard";
 import type {
   Capture,
   FoodEntry,
@@ -581,6 +582,7 @@ function AddSheet({
           description: note.trim() || null,
           photo_path: photoPath,
           nutrients,
+          diet: null,
           model_id: null,
           icon,
         });
@@ -1978,6 +1980,7 @@ export default function DiaryPage() {
 
       {loaded && !loadError && (
         <>
+          <DietCard day={day} refresh={refresh} />
           <div
             style={{
               display: "flex",

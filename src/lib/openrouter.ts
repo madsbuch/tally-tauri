@@ -1,6 +1,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { FoodAnalysis, Nutrients, ORModel, WorkoutAnalysis } from "./types";
 import { NUTRIENT_DEFS } from "./nutrients";
+import { DIET_OBSERVATION_PROMPT } from "./diet";
 import {
   DocumentAnalysisSchema,
   FoodAnalysisSchema,
@@ -516,6 +517,8 @@ export async function askAboutMealEntry(
 ): Promise<z.infer<typeof MealChatSchema>> {
   const system = [
     ...ENTRY_CHAT_RULES,
+    DIET_OBSERVATION_PROMPT,
+    "The entry may also contain diet: {main_meal, vegetable_forward, refined_carbs, candy, alcohol, drinks, occasion}, using the types described above. Include updated diet observations whenever correcting the food or portion, or when the user asks to classify it. Omit diet only when it is unchanged.",
     `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}}}`,
     "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
     "Nutrients are TOTALS for the whole portion as corrected. Include every key you can reasonably estimate; omit the rest rather than guessing zeros.",

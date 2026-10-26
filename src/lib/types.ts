@@ -42,7 +42,7 @@ export type NutrientKey =
   | "creatine_g"
   | "caffeine_mg";
 
-import type { DocumentValue } from "./schemas";
+import type { DietObservations, DocumentValue } from "./schemas";
 
 /** Sparse map of nutrient amounts. Missing key = unknown / not estimated. */
 export type Nutrients = Partial<Record<NutrientKey, number>>;
@@ -56,6 +56,7 @@ export interface FoodEntry {
   /** Filename inside the app data `photos/` dir (not a full path). */
   photo_path: string | null;
   nutrients: Nutrients;
+  diet: DietObservations | null;
   /** OpenRouter model id that produced the estimate, if any. */
   model_id: string | null;
   /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
