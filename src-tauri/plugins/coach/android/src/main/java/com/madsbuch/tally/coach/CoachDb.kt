@@ -345,6 +345,41 @@ internal object CoachDb {
             .sortedByDescending { it.second }
             .map { "${it.first} ×${it.second}" }
 
+        // Meter readings (mmol/L): today's in order, the week as averages,
+        // GKI from each ketone and the nearest glucose within half an hour.
+        val todayReadings = ArrayList<String>()
+        val glucoses = ArrayList<Pair<Long, Double>>()
+        val ketones = ArrayList<Pair<Long, Double>>()
+        try {
+            db.rawQuery(
+                "SELECT day, measured_at, tz_offset_min, kind, value FROM blood_readings " +
+                    "WHERE day BETWEEN ? AND ? ORDER BY measured_at",
+                arrayOf(weekStart, day),
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val at = parseIso(c.getString(1)) ?: continue
+                    val kind = c.getString(3) ?: continue
+                    val value = c.getDouble(4)
+                    when (kind) {
+                        "glucose" -> glucoses.add(Pair(at, value))
+                        "ketone" -> ketones.add(Pair(at, value))
+                        else -> continue
+                    }
+                    if (c.getString(0) == day) {
+                        todayReadings.add("$kind ${round1(value)} ${hhmm(at + c.getLong(2) * 60_000L)}")
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // No blood_readings table yet.
+        }
+        val gkis = ketones.mapNotNull { k ->
+            val g = glucoses
+                .filter { Math.abs(it.first - k.first) <= 30 * 60_000L }
+                .minByOrNull { Math.abs(it.first - k.first) }
+            if (g == null || k.second <= 0.0) null else round1(g.second / k.second)
+        }
+
         // Only the newest document, and only its title: the prompt prefix the
         // frontend caches already carries the full library index, so this is
         // just so a check-in can mention a result that landed since.
@@ -385,6 +420,11 @@ internal object CoachDb {
             latestDocument = latestDocument,
             todayStates = todayStates,
             weekStates = weekStates,
+            todayReadings = todayReadings,
+            weekReadings = glucoses.size + ketones.size,
+            avgGlucose = glucoses.map { it.second }.averageOrNull()?.let { round1(it) },
+            avgKetone = ketones.map { it.second }.averageOrNull()?.let { round1(it) },
+            avgGki = gkis.averageOrNull()?.let { round1(it) },
         )
     }
 
@@ -479,6 +519,11 @@ internal object CoachDb {
         val latestDocument: String?,
         val todayStates: List<String>,
         val weekStates: List<String>,
+        val todayReadings: List<String>,
+        val weekReadings: Int,
+        val avgGlucose: Double?,
+        val avgKetone: Double?,
+        val avgGki: Double?,
     ) {
         private fun num(v: Double?): String =
             if (v == null) "no data" else if (v == Math.floor(v)) v.toLong().toString() else v.toString()
@@ -518,6 +563,15 @@ internal object CoachDb {
             if (weekStates.isNotEmpty()) {
                 lines.add(
                     "States logged in the last 7 days: " + weekStates.joinToString(", ") + ".",
+                )
+            }
+            if (todayReadings.isNotEmpty()) {
+                lines.add("Meter today (mmol/L): " + todayReadings.joinToString("; ") + ".")
+            }
+            if (weekReadings > 0) {
+                lines.add(
+                    "Meter, last 7 days ($weekReadings readings, mmol/L): avg glucose ${num(avgGlucose)}, " +
+                        "avg ketones ${num(avgKetone)}, avg GKI ${num(avgGki)}.",
                 )
             }
             return lines.joinToString("\n")

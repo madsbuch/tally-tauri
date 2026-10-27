@@ -21,6 +21,7 @@ import {
   listCoachMemory,
   listDocuments,
   listFoodEntriesForRange,
+  listBloodReadingsForRange,
   listHealthMetricsForRange,
   listSleepForRange,
   listStateLogsForRange,
@@ -29,6 +30,7 @@ import {
   todayStr,
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
+import { gki } from "./readings";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
 import { getDayGoal } from "./goals";
 import { getStreakInfo } from "./streak";
@@ -134,6 +136,14 @@ export interface CoachDigest {
     today: { label: string; time: string; note: string | null }[];
     week: { label: string; count: number }[];
   };
+  /**
+   * Meter readings, mmol/L. Today's in order; the week as averages, which is
+   * what a ketogenic diet is steered by — a single strip swings with the hour.
+   */
+  readings: {
+    today: { kind: "glucose" | "ketone"; value: number; time: string }[];
+    week: { avgGlucose: number | null; avgKetone: number | null; avgGki: number | null; count: number };
+  };
 }
 
 function shiftDay(day: string, delta: number): string {
@@ -166,7 +176,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs, readings] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -176,7 +186,31 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       getActiveFast().catch(() => null),
       getDayGoal(day).catch(() => null),
       listStateLogsForRange(weekStart, day).catch(() => []),
+      listBloodReadingsForRange(weekStart, day).catch(() => []),
     ]);
+
+  const todayReadings = readings
+    .filter((r) => r.day === day)
+    .map((r) => ({ kind: r.kind, value: round(r.value, 1), time: timeOf(r.measured_at, r.tz_offset_min) }))
+    .reverse();
+  const glucoses = readings.filter((r) => r.kind === "glucose");
+  const ketones = readings.filter((r) => r.kind === "ketone");
+  // GKI only from strips read together: each ketone with the nearest glucose
+  // within half an hour.
+  const gkis: number[] = [];
+  for (const k of ketones) {
+    const at = new Date(k.measured_at).getTime();
+    const g = glucoses
+      .map((x) => ({ x, gap: Math.abs(new Date(x.measured_at).getTime() - at) }))
+      .filter((p) => p.gap <= 30 * 60_000)
+      .sort((a, b) => a.gap - b.gap)[0];
+    const i = g ? gki(g.x.value, k.value) : null;
+    if (i !== null) gkis.push(i);
+  }
+  const avgOf = (xs: number[]): number | null => {
+    const a = avg(xs);
+    return a == null ? null : round(a, 1);
+  };
 
   // Chronological for today (a day reads forwards), and tallied for the week.
   // Grouped case-insensitively: a chip writes "Bloated" and the capture agent
@@ -287,6 +321,15 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
         }
       : null,
     states: { today: todayStates, week: weekStates },
+    readings: {
+      today: todayReadings,
+      week: {
+        avgGlucose: avgOf(glucoses.map((r) => r.value)),
+        avgKetone: avgOf(ketones.map((r) => r.value)),
+        avgGki: avgOf(gkis),
+        count: readings.length,
+      },
+    },
   };
 }
 
@@ -331,6 +374,20 @@ export function renderCoachDigest(d: CoachDigest): string {
       "States logged in the last 7 days: " +
         d.states.week.map((st) => `${st.label} ×${st.count}`).join(", ") +
         ".",
+    );
+  }
+  if (d.readings.today.length > 0) {
+    lines.push(
+      "Meter today (mmol/L): " +
+        d.readings.today.map((r) => `${r.kind} ${r.value} ${r.time}`).join("; ") +
+        ".",
+    );
+  }
+  if (d.readings.week.count > 0) {
+    const w = d.readings.week;
+    lines.push(
+      `Meter, last 7 days (${w.count} readings, mmol/L): avg glucose ${na(w.avgGlucose)}, ` +
+        `avg ketones ${na(w.avgKetone)}, avg GKI ${na(w.avgGki)}.`,
     );
   }
   return lines.join("\n");

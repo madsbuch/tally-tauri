@@ -127,6 +127,13 @@
       "when": 1793010998635,
       "tag": "0017_diet_observations",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793083182792,
+      "tag": "0018_blood_readings",
+      "breakpoints": true
     }
   ]
 }

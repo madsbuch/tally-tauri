@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  BloodReading,
   Capture,
   FoodEntry,
   LifeRule,
@@ -47,7 +48,9 @@ import {
   deleteLifeRule,
   deletePhotoIfUnused,
   deleteSupplement,
+  getGlucoseUnit,
   getSetting,
+  listBloodReadingsForRange,
   listCapturesForDay,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
@@ -91,6 +94,15 @@ import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
 import { stateGlyph } from "../lib/states";
+import {
+  READING_DEFS,
+  formatReading,
+  gkiBand,
+  gkiOfPair,
+  ketoneBand,
+  partnerOf,
+} from "../lib/readings";
+import type { GlucoseUnit } from "../lib/readings";
 import { ACTED_ON_LABEL, RULE_GLYPH } from "../lib/lifeRules";
 import {
   MAX_MANUAL_ADJUSTMENT,
@@ -1440,6 +1452,7 @@ type TimelineItem =
   | { kind: "workout"; ts: string; workout: Workout }
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
   | { kind: "state"; ts: string; state: StateLog }
+  | { kind: "reading"; ts: string; reading: BloodReading }
   | { kind: "rule"; ts: string; log: LifeRuleLog }
   | { kind: "rule_new"; ts: string; rule: LifeRule }
   | { kind: "capture"; ts: string; capture: Capture };
@@ -1451,6 +1464,7 @@ function entryPath(item: TimelineItem): string {
   if (item.kind === "workout") return `/entry/workout/${item.workout.id}`;
   if (item.kind === "supp") return `/entry/supplement/${item.log.id}`;
   if (item.kind === "state") return `/entry/state/${item.state.id}`;
+  if (item.kind === "reading") return `/entry/reading/${item.reading.id}`;
   return "/";
 }
 
@@ -1524,6 +1538,8 @@ export default function DiaryPage() {
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
   const [captures, setCaptures] = useState<Capture[] | null>(null);
   const [states, setStates] = useState<StateLog[]>([]);
+  const [readings, setReadings] = useState<BloodReading[]>([]);
+  const [glucoseUnit, setGlucoseUnit] = useState<GlucoseUnit>("mmol");
   const [ruleLogs, setRuleLogs] = useState<LifeRuleLog[]>([]);
   const [newRules, setNewRules] = useState<LifeRule[]>([]);
   const [sleep, setSleep] = useState<SleepSession[]>([]);
@@ -1648,8 +1664,10 @@ export default function DiaryPage() {
       listStateLogsForDay(day).catch(() => [] as StateLog[]),
       listLifeRuleLogsForDay(day).catch(() => [] as LifeRuleLog[]),
       listLifeRulesCreatedOn(day).catch(() => [] as LifeRule[]),
+      listBloodReadingsForRange(day, day).catch(() => [] as BloodReading[]),
+      getGlucoseUnit().catch((): GlucoseUnit => "mmol"),
     ])
-      .then(([e, w, s, c, sl, st, rl, nr]) => {
+      .then(([e, w, s, c, sl, st, rl, nr, br, gu]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
@@ -1658,6 +1676,8 @@ export default function DiaryPage() {
         setCaptures(c);
         setSleep(sl);
         setStates(st);
+        setReadings(br);
+        setGlucoseUnit(gu);
         setRuleLogs(rl);
         setNewRules(nr);
       })
@@ -1829,12 +1849,13 @@ export default function DiaryPage() {
         capture: c,
       })),
       ...states.map((st) => ({ kind: "state" as const, ts: st.logged_at, state: st })),
+      ...readings.map((r) => ({ kind: "reading" as const, ts: r.measured_at, reading: r })),
       ...ruleLogs.map((l) => ({ kind: "rule" as const, ts: l.logged_at, log: l })),
       ...newRules.map((r) => ({ kind: "rule_new" as const, ts: r.created_at, rule: r })),
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs, captures, sleep, states, ruleLogs, newRules]);
+  }, [entries, workouts, suppLogs, captures, sleep, states, readings, ruleLogs, newRules]);
 
   const today = todayStr();
   const isToday = day === today;
@@ -2407,6 +2428,41 @@ export default function DiaryPage() {
                             )}
                           </div>
                         )}
+                      </div>
+                      <div className="row-end">›</div>
+                    </div>
+                  );
+                }
+                if (item.kind === "reading") {
+                  const r = item.reading;
+                  const def = READING_DEFS[r.kind];
+                  const index = gkiOfPair(r, partnerOf(r, readings));
+                  return (
+                    <div
+                      key={`reading-${r.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => openItem(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") openItem(item);
+                      }}
+                    >
+                      <GlyphThumb glyph={def.glyph} />
+                      <div className="row-main">
+                        <div className="row-title">
+                          {def.label} {formatReading(r.kind, r.value, glucoseUnit)}
+                        </div>
+                        <div className="row-sub">
+                          {timeOf(r.measured_at, r.tz_offset_min)}
+                          {r.kind === "ketone" ? ` · ${ketoneBand(r.value)}` : ""}
+                          {/* The index belongs to the pair; shown once, on the ketone row. */}
+                          {index !== null && r.kind === "ketone"
+                            ? ` · GKI ${index} (${gkiBand(index)})`
+                            : ""}
+                          {r.note ? ` · ${shorten(r.note)}` : ""}
+                        </div>
                       </div>
                       <div className="row-end">›</div>
                     </div>

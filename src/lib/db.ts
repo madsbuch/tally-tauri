@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gt, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   achievements,
+  bloodReadings,
   captures,
   chats,
   coachMemory,
@@ -24,6 +25,7 @@ import {
   workouts,
 } from "../db/schema";
 import type {
+  BloodReading,
   Capture,
   ChatSummary,
   CoachMemory,
@@ -38,6 +40,7 @@ import type {
   LifeRule,
   LifeRuleLog,
   LifeRuleStatus,
+  ReadingKind,
   RuleActedOn,
   SleepSession,
   StateCategory,
@@ -47,11 +50,13 @@ import type {
   Workout,
 } from "./types";
 import type { ChatMessage } from "./openrouter";
-import { FAST_BREAK_KCAL } from "./types";
+import { FAST_BREAK_KCAL, SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
 import { stateKey } from "./states";
 import { isActedOn, isRuleStatus, ruleKey } from "./lifeRules";
+import { isGlucoseUnit, isReadingKind } from "./readings";
+import type { GlucoseUnit } from "./readings";
 import { deletePhoto } from "./photos";
 import {
   parseChatTranscript,
@@ -1384,6 +1389,97 @@ export async function listAllSupplementLogs(): Promise<SupplementLogWithSuppleme
 export async function listAllCaptures(): Promise<Capture[]> {
   const rows = await db.select().from(captures);
   return rows.map(toCapture);
+}
+
+// ---------------------------------------------------------------------------
+// Blood readings — glucose and ketones off a meter, in mmol/L
+// ---------------------------------------------------------------------------
+
+type ReadingRow = typeof bloodReadings.$inferSelect;
+
+const toBloodReading = (r: ReadingRow): BloodReading => {
+  if (!isReadingKind(r.kind)) throw new Error(`Reading #${r.id} has kind "${r.kind}"`);
+  return {
+    id: r.id,
+    measured_at: r.measuredAt,
+    kind: r.kind,
+    value: r.value,
+    note: r.note,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+  };
+};
+
+export async function addBloodReading(reading: {
+  kind: ReadingKind;
+  /** mmol/L. */
+  value: number;
+  note?: string | null;
+  /** ISO instant; defaults to now. */
+  measuredAt?: string;
+}): Promise<number> {
+  const measuredAt = reading.measuredAt ?? new Date().toISOString();
+  const stamp = stampOf(measuredAt);
+  const rows = await db
+    .insert(bloodReadings)
+    .values({
+      measuredAt,
+      kind: reading.kind,
+      value: reading.value,
+      note: reading.note?.trim() || null,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+    })
+    .returning({ id: bloodReadings.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function getBloodReading(id: number): Promise<BloodReading | null> {
+  const rows = await db.select().from(bloodReadings).where(eq(bloodReadings.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toBloodReading(row) : null;
+}
+
+export async function updateBloodReading(reading: BloodReading): Promise<void> {
+  await db
+    .update(bloodReadings)
+    .set({
+      measuredAt: reading.measured_at,
+      kind: reading.kind,
+      value: reading.value,
+      note: reading.note,
+      // Re-stamped in the offset it already carries, as with states.
+      day: dayOf(reading.measured_at, reading.tz_offset_min),
+      tzOffsetMin: reading.tz_offset_min,
+    })
+    .where(eq(bloodReadings.id, reading.id));
+}
+
+export async function deleteBloodReading(id: number): Promise<void> {
+  await db.delete(bloodReadings).where(eq(bloodReadings.id, id));
+}
+
+/** Readings taken on local days `startDay`..`endDay`, newest first. */
+export async function listBloodReadingsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<BloodReading[]> {
+  const rows = await db
+    .select()
+    .from(bloodReadings)
+    .where(and(gte(bloodReadings.day, startDay), lte(bloodReadings.day, endDay)))
+    .orderBy(desc(bloodReadings.measuredAt));
+  return rows.map(toBloodReading);
+}
+
+/** How glucose is typed in and shown; mmol/L until they say otherwise. */
+export async function getGlucoseUnit(): Promise<GlucoseUnit> {
+  const v = await getSetting(SETTING_KEYS.glucoseUnit);
+  return isGlucoseUnit(v) ? v : "mmol";
+}
+
+export async function setGlucoseUnit(unit: GlucoseUnit): Promise<void> {
+  await setSetting(SETTING_KEYS.glucoseUnit, unit);
 }
 
 // ---------------------------------------------------------------------------

@@ -194,6 +194,24 @@ export interface StateLog {
   tz_offset_min: number;
 }
 
+/** What a blood meter strip measured (see lib/readings.ts). */
+export type ReadingKind = "glucose" | "ketone";
+
+/** One finger-prick reading off a blood meter. */
+export interface BloodReading {
+  id: number;
+  /** ISO 8601 UTC timestamp. */
+  measured_at: string;
+  kind: ReadingKind;
+  /** mmol/L, for both kinds — mg/dL is only ever a way of showing glucose. */
+  value: number;
+  note: string | null;
+  /** Local day it was measured on, stamped where it happened. */
+  day: string;
+  /** Minutes east of UTC at that moment. */
+  tz_offset_min: number;
+}
+
 /** Where a rule for living stands (see lib/lifeRules.ts). */
 export type LifeRuleStatus = "suggested" | "kept" | "archived";
 
@@ -424,6 +442,8 @@ export const SETTING_KEYS = {
    * country, absent/empty = the phone's region (see lib/openFoodFacts.ts).
    */
   foodCountry: "food_country",
+  /** "mmol" | "mgdl": how glucose readings are typed in and shown. */
+  glucoseUnit: "glucose_unit",
 } as const;
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";

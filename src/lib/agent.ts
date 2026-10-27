@@ -4,7 +4,7 @@
  * A capture (photo and/or note) is stored instantly and resolved in the
  * background: the model sees the current time, the supplement catalog and the
  * diary around this day, then records entries exclusively through tool calls
- * (log_meal / repeat_meal / log_workout / log_supplement / log_state /
+ * (log_meal / repeat_meal / log_workout / log_supplement / log_reading / log_state /
  * add_rule / log_rule), so phrases like
  * "ate this earlier today" get a concrete timestamp and "one more of those"
  * gets the same numbers as the first one. Successful captures are deleted;
@@ -14,6 +14,7 @@ import {
   addCapture,
   addFoodEntry,
   addLifeRule,
+  addBloodReading,
   addLifeRuleLog,
   addStateLog,
   addSupplement,
@@ -35,6 +36,7 @@ import {
   listSupplements,
   listWorkoutsForDay,
   setCaptureStatus,
+  setGlucoseUnit,
   todayStr,
   updateLifeRule,
 } from "./db";
@@ -53,6 +55,13 @@ import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
 import { stateKey } from "./states";
 import { clampBelief, isActedOn } from "./lifeRules";
+import {
+  MGDL_PER_MMOL,
+  READING_DEFS,
+  glucoseMmolFromEither,
+  isReadingKind,
+} from "./readings";
+import type { GlucoseUnit } from "./readings";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
@@ -271,6 +280,50 @@ const DIARY_TOOLS: ToolDef[] = [
           time: { type: "string", description: TIME_DESC },
         },
         required: ["label", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_reading",
+      description:
+        "Record a blood reading off a meter — usually a photo of a FreeStyle Precision Neo's " +
+        "screen, or a number in the note. Glucose and β-ketones come from different strips; " +
+        "one call per number (a glucose AND a ketone reading is two calls with the same time). " +
+        "Copy the number exactly as the screen shows it, never estimate one. A screen saying " +
+        "LO or HI has no number: don't log it, say so.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["glucose", "ketone"],
+            description:
+              "\"ketone\" when the screen shows a ketone strip or the KETONE label (always mmol/L, " +
+              "typically 0.0-8.0); \"glucose\" otherwise.",
+          },
+          value: { type: "number", description: "The number on the screen." },
+          unit: {
+            type: "string",
+            enum: ["mmol/L", "mg/dL"],
+            description: "The unit printed on the screen. Ketones are always mmol/L.",
+          },
+          note: {
+            type: "string",
+            description:
+              "Anything they said about it — fasted, after a meal, after a workout. Their words.",
+          },
+          time: {
+            type: "string",
+            description:
+              TIME_DESC +
+              " When the meter screen shows the reading's own time, use it if it's plausible (the diary day, not in " +
+              "the future) — meter clocks are often never set, and then the photo's moment is the better guess.",
+          },
+        },
+        required: ["kind", "value", "time"],
         additionalProperties: false,
       },
     },
@@ -503,7 +556,7 @@ function buildSystemPrompt(
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
-    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
+    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; a blood meter screen (glucose or ketones) → log_reading; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
     `- Branded/packaged products (wrappers, bottles, cans, labels, barcodes): look them up with search_packaged_food first — by the barcode digits when the photo shows them legibly, else by the name as printed on the package. ${foodCountry == null ? "" : `Searches cover products sold in ${foodCountry} first, then worldwide; prefer a match sold in their country. `}When a result is what was eaten, call log_meal with \`label\` (its barcode plus grams, servings or packages) and let Tally do the label arithmetic; put in \`nutrients\` only what the label lacks (usually the micronutrients). Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself and log without \`label\`.`,
@@ -726,6 +779,34 @@ async function executeTool(
     return `Logged ${amount} × "${supp.name}" at ${time}.`;
   }
 
+  if (name === "log_reading") {
+    const kind = args["kind"];
+    if (!isReadingKind(kind)) return 'Error: kind must be "glucose" or "ketone".';
+    const raw = num(args["value"]);
+    if (raw === null) return "Error: value must be the number on the screen.";
+    const unitArg = str(args["unit"])?.toLowerCase().replace(/\s/g, "");
+    const unit: GlucoseUnit | null =
+      unitArg === "mg/dl" ? "mgdl" : unitArg === "mmol/l" ? "mmol" : null;
+    const value =
+      kind === "glucose"
+        ? unit === "mgdl"
+          ? raw / MGDL_PER_MMOL
+          : unit === "mmol"
+            ? raw
+            : glucoseMmolFromEither(raw)
+        : raw;
+    const { min, max, label } = READING_DEFS[kind];
+    if (value < min || value > max) {
+      return `Error: ${raw}${unitArg ? ` ${args["unit"]}` : ""} is outside what the meter can read for ${label.toLowerCase()} — check the number and unit.`;
+    }
+    await addBloodReading({ kind, value, note: str(args["note"]), measuredAt: time });
+    // The meter's unit is the one to show glucose in from here on.
+    if (kind === "glucose" && unit) await setGlucoseUnit(unit);
+    ctx.logged++;
+    notifyDiaryChanged();
+    return `Logged ${label.toLowerCase()} ${raw}${unitArg ? ` ${args["unit"]}` : ""} at ${time}.`;
+  }
+
   if (name === "log_state") {
     const label = str(args["label"]);
     if (!label) return "Error: label is required.";
@@ -878,9 +959,9 @@ async function runCapture(capture: Capture): Promise<void> {
           role: "user",
           content:
             "Nothing has been recorded yet. If the capture shows any food, drink, " +
-            "exercise, supplement, feeling or rule for living, record it NOW by calling the " +
-            "matching tool (log_meal / log_workout / log_supplement / log_state / add_rule / " +
-            "log_rule) — a rough estimate is better " +
+            "exercise, supplement, meter reading, feeling or rule for living, record it NOW by calling the " +
+            "matching tool (log_meal / log_workout / log_supplement / log_reading / log_state / " +
+            "add_rule / log_rule) — a rough estimate is better " +
             "than nothing. Only reply in plain text if there is truly nothing to " +
             "record, and say why.",
         });

@@ -14,6 +14,12 @@ lives in a SQLite database on the device — there is no backend.
   analyses stay in the timeline with a retry; interrupted ones resume on next
   launch. Meals get 38-nutrient estimates; workout screenshots become negative
   calories; unknown supplement names create catalog entries automatically.
+- **Glucose & ketone readings** — photograph a blood meter's screen (e.g. a
+  FreeStyle Precision Neo) and the diary agent records the number via
+  `log_reading`. Readings are stored in mmol/L (glucose shown in whichever unit
+  the meter uses); a ketone and glucose strip taken together show their
+  glucose–ketone index, each reading's page has a 30-day trend, and the coach
+  sees today's readings and the week's averages.
 - **Open Food Facts lookup** — the diary agent and the assistant can search
   the free Open Food Facts database, so branded/packaged products get real
   label nutrition instead of an estimate (missing micronutrients are still

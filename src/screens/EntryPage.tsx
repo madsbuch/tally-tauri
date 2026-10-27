@@ -12,17 +12,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
+  deleteBloodReading,
   deleteFoodEntry,
   deletePhotoIfUnused,
   deleteStateLog,
   deleteSupplementLog,
   deleteWorkout,
+  getBloodReading,
   getFoodEntry,
+  getGlucoseUnit,
   getSleepSession,
   getStateLog,
   getSupplementLog,
   getWorkout,
+  listBloodReadingsForRange,
   todayStr,
+  updateBloodReading,
   updateFoodEntry,
   updateStateLog,
   updateSupplementLog,
@@ -32,6 +37,7 @@ import { notifyDiaryChanged } from "../lib/agent";
 import { NUTRIENT_DEFS } from "../lib/nutrients";
 import type { NutrientKey } from "../lib/types";
 import type {
+  BloodReading,
   FoodEntry,
   Nutrients,
   SleepSession,
@@ -46,6 +52,7 @@ import {
   isElsewhere,
   isoFromLocal,
   offsetLabel,
+  shiftDay,
   timeOf,
 } from "../lib/daystamp";
 import {
@@ -58,11 +65,25 @@ import {
 } from "../components/EntryBits";
 import { entryGlyph } from "../lib/icons";
 import { stateGlyph } from "../lib/states";
+import {
+  READING_DEFS,
+  formatReading,
+  gkiBand,
+  gkiOfPair,
+  ketoneBand,
+  parseReading,
+  partnerOf,
+  toDisplay,
+  unitLabel,
+} from "../lib/readings";
+import type { GlucoseUnit } from "../lib/readings";
+import AssistantChart from "../components/AssistantChart";
+import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
 import { useUp } from "../lib/navigation";
 import EntryChat from "../components/EntryChat";
 
-type Kind = "meal" | "workout" | "supplement" | "sleep" | "state";
+type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading";
 
 /** Nutrients shown without asking; the rest hide behind "all nutrients". */
 const BASE_KEYS: NutrientKey[] = ["calories", "protein_g", "carbs_g", "fat_g"];
@@ -73,7 +94,8 @@ function isKind(v: string | undefined): v is Kind {
     v === "workout" ||
     v === "supplement" ||
     v === "sleep" ||
-    v === "state"
+    v === "state" ||
+    v === "reading"
   );
 }
 
@@ -188,7 +210,8 @@ type Editing =
   | { field: "nutrient"; key: NutrientKey }
   | { field: "calories_burned" }
   | { field: "duration" }
-  | { field: "amount" };
+  | { field: "amount" }
+  | { field: "reading" };
 
 // ---------------------------------------------------------------------------
 // The page
@@ -206,6 +229,10 @@ export default function EntryPage() {
   const [dose, setDose] = useState<SupplementLogWithSupplement | null>(null);
   const [night, setNight] = useState<SleepSession | null>(null);
   const [felt, setFelt] = useState<StateLog | null>(null);
+  const [reading, setReading] = useState<BloodReading | null>(null);
+  /** The same day's readings (for the GKI partner) and the last 30 days' (for the trend). */
+  const [nearby, setNearby] = useState<BloodReading[]>([]);
+  const [unit, setUnit] = useState<GlucoseUnit>("mmol");
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -235,6 +262,18 @@ export default function EntryPage() {
         const st = await getStateLog(id);
         setFelt(st);
         setGone(st === null);
+      } else if (kind === "reading") {
+        const r = await getBloodReading(id);
+        setReading(r);
+        setGone(r === null);
+        if (r) {
+          const [rows, u] = await Promise.all([
+            listBloodReadingsForRange(shiftDay(r.day, -29), shiftDay(r.day, 1)),
+            getGlucoseUnit(),
+          ]);
+          setNearby(rows);
+          setUnit(u);
+        }
       } else {
         const n = await getSleepSession(id);
         setNight(n);
@@ -257,7 +296,13 @@ export default function EntryPage() {
   }
 
   async function remove() {
-    const what = meal?.title ?? workout?.title ?? dose?.name ?? felt?.label ?? "this entry";
+    const what =
+      meal?.title ??
+      workout?.title ??
+      dose?.name ??
+      felt?.label ??
+      (reading ? `${READING_DEFS[reading.kind].label} ${formatReading(reading.kind, reading.value, unit)}` : null) ??
+      "this entry";
     if (!window.confirm(`Delete "${what}"? This cannot be undone.`)) return;
     try {
       if (meal) {
@@ -270,6 +315,8 @@ export default function EntryPage() {
         await deleteSupplementLog(dose.id);
       } else if (felt) {
         await deleteStateLog(felt.id);
+      } else if (reading) {
+        await deleteBloodReading(reading.id);
       }
       notifyDiaryChanged();
       back();
@@ -288,7 +335,7 @@ export default function EntryPage() {
     );
   }
 
-  if (gone || (!meal && !workout && !dose && !night && !felt)) {
+  if (gone || (!meal && !workout && !dose && !night && !felt && !reading)) {
     return (
       <div className="page">
         <header className="page-header">
@@ -321,6 +368,7 @@ export default function EntryPage() {
     dose?.taken_at ??
     night?.ended_at ??
     felt?.logged_at ??
+    reading?.measured_at ??
     "";
   const offset =
     meal?.tz_offset_min ??
@@ -328,14 +376,22 @@ export default function EntryPage() {
     dose?.tz_offset_min ??
     night?.tz_offset_min ??
     felt?.tz_offset_min ??
+    reading?.tz_offset_min ??
     null;
   const day =
-    meal?.day ?? workout?.day ?? dose?.day ?? night?.day ?? felt?.day ?? dayOf(when, offset);
+    meal?.day ??
+    workout?.day ??
+    dose?.day ??
+    night?.day ??
+    felt?.day ??
+    reading?.day ??
+    dayOf(when, offset);
   const title =
     meal?.title ??
     workout?.title ??
     dose?.name ??
     felt?.label ??
+    (reading ? READING_DEFS[reading.kind].label : null) ??
     (night ? (fmtDuration(night.duration_min) ?? "Sleep") : "");
   const glyph = meal
     ? entryGlyph(meal.icon, meal.title, "meal")
@@ -345,7 +401,11 @@ export default function EntryPage() {
         ? "😴"
         : felt
           ? stateGlyph(felt.icon)
-          : "💊";
+          : reading
+            ? READING_DEFS[reading.kind].glyph
+            : "💊";
+  const partner = reading ? partnerOf(reading, nearby.filter((r) => r.id !== reading.id)) : null;
+  const index = reading ? gkiOfPair(reading, partner) : null;
 
   return (
     <div className="page entry-page">
@@ -400,6 +460,27 @@ export default function EntryPage() {
             value={glyph}
             onClick={() => setEditing({ field: "icon" })}
           />
+        )}
+        {reading && (
+          <>
+            <InfoRow
+              label="Reading"
+              value={formatReading(reading.kind, reading.value, unit)}
+              onClick={() => setEditing({ field: "reading" })}
+            />
+            {reading.kind === "ketone" && (
+              <InfoRow label="Ketosis" value={ketoneBand(reading.value)} />
+            )}
+            {partner && (
+              <InfoRow
+                label={`${READING_DEFS[partner.kind].label} with it`}
+                value={`${formatReading(partner.kind, partner.value, unit)} · ${formatTimeHere(partner.measured_at, partner.tz_offset_min)}`}
+              />
+            )}
+            {index !== null && (
+              <InfoRow label="Glucose–ketone index" value={`${index} · ${gkiBand(index)}`} />
+            )}
+          </>
         )}
         {dose && (
           <>
@@ -468,13 +549,17 @@ export default function EntryPage() {
 
       {night && <SleepStages night={night} />}
 
-      {(meal || workout || felt) && (
+      {reading && <ReadingTrend reading={reading} rows={nearby} unit={unit} />}
+
+      {(meal || workout || felt || reading) && (
         <>
-          <div className="section-title">{felt ? "What was going on" : "Notes"}</div>
+          <div className="section-title">{felt || reading ? "What was going on" : "Notes"}</div>
           <div className="list">
             <InfoRow
-              label={felt ? "Note" : "Description"}
-              value={meal?.description ?? workout?.description ?? felt?.note ?? "—"}
+              label={felt || reading ? "Note" : "Description"}
+              value={
+                meal?.description ?? workout?.description ?? felt?.note ?? reading?.note ?? "—"
+              }
               onClick={() => setEditing({ field: "description" })}
             />
           </div>
@@ -517,6 +602,8 @@ export default function EntryPage() {
           workout={workout}
           dose={dose}
           felt={felt}
+          reading={reading}
+          unit={unit}
           onClose={() => setEditing(null)}
           onSaved={() => void afterChange()}
         />
@@ -575,6 +662,57 @@ function SleepStages({ night }: { night: SleepSession }) {
   );
 }
 
+/**
+ * The last 30 days of this kind of reading, one point per day — the day's
+ * mean, since a morning and an evening reading are both that day. A single
+ * reading means little on its own; the line is what tracking it is for.
+ */
+function ReadingTrend({
+  reading,
+  rows,
+  unit,
+}: {
+  reading: BloodReading;
+  rows: BloodReading[];
+  unit: GlucoseUnit;
+}) {
+  const sums = new Map<string, { total: number; n: number }>();
+  for (const r of rows) {
+    if (r.kind !== reading.kind || r.day > reading.day) continue;
+    const s = sums.get(r.day) ?? { total: 0, n: 0 };
+    s.total += r.value;
+    s.n++;
+    sums.set(r.day, s);
+  }
+  if (sums.size < 2) return null;
+  const days = Array.from({ length: 30 }, (_, i) => shiftDay(reading.day, i - 29));
+  // Start where the readings start, so a week of history isn't squeezed into
+  // the right edge of a month.
+  const first = days.findIndex((d) => sums.has(d));
+  const shown = days.slice(first);
+  const chart: ChartSpec = {
+    type: "line",
+    title: `${READING_DEFS[reading.kind].label}, daily average`,
+    unit: unitLabel(reading.kind, unit),
+    x_labels: shown.map((d) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`),
+    series: [
+      {
+        name: READING_DEFS[reading.kind].label,
+        values: shown.map((d) => {
+          const s = sums.get(d);
+          return s ? toDisplay(reading.kind, s.total / s.n, unit) : null;
+        }),
+      },
+    ],
+  };
+  return (
+    <>
+      <div className="section-title">Last 30 days</div>
+      <AssistantChart chart={chart} />
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The editors, one field each
 // ---------------------------------------------------------------------------
@@ -585,6 +723,8 @@ function FieldEditor({
   workout,
   dose,
   felt,
+  reading,
+  unit: glucoseUnit,
   onClose,
   onSaved,
 }: {
@@ -593,16 +733,24 @@ function FieldEditor({
   workout: Workout | null;
   dose: SupplementLogWithSupplement | null;
   felt: StateLog | null;
+  reading: BloodReading | null;
+  unit: GlucoseUnit;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const when =
-    meal?.eaten_at ?? workout?.performed_at ?? dose?.taken_at ?? felt?.logged_at ?? "";
+    meal?.eaten_at ??
+    workout?.performed_at ??
+    dose?.taken_at ??
+    felt?.logged_at ??
+    reading?.measured_at ??
+    "";
   const offset =
     meal?.tz_offset_min ??
     workout?.tz_offset_min ??
     dose?.tz_offset_min ??
     felt?.tz_offset_min ??
+    reading?.tz_offset_min ??
     null;
 
   const [text, setText] = useState(
@@ -610,11 +758,12 @@ function FieldEditor({
       (editing.field === "title"
         ? (meal?.title ?? workout?.title ?? felt?.label ?? "")
         : editing.field === "description"
-          ? (meal?.description ?? workout?.description ?? felt?.note ?? "")
+          ? (meal?.description ?? workout?.description ?? felt?.note ?? reading?.note ?? "")
           : "") as string,
   );
   const [date, setDate] = useState(
-    () => meal?.day ?? workout?.day ?? dose?.day ?? felt?.day ?? dayOf(when, offset),
+    () =>
+      meal?.day ?? workout?.day ?? dose?.day ?? felt?.day ?? reading?.day ?? dayOf(when, offset),
   );
   const [time, setTime] = useState(() => timeOf(when, offset));
   const [icon, setIcon] = useState<string | null>(meal?.icon ?? workout?.icon ?? null);
@@ -630,6 +779,9 @@ function FieldEditor({
       return workout?.duration_min != null ? numToInput(workout.duration_min) : "";
     }
     if (editing.field === "amount") return dose ? numToInput(dose.amount) : "";
+    if (editing.field === "reading") {
+      return reading ? numToInput(toDisplay(reading.kind, reading.value, glucoseUnit)) : "";
+    }
     return "";
   });
 
@@ -709,6 +861,16 @@ function FieldEditor({
         patch.logged_at = at;
       }
       await updateStateLog(patch);
+    } else if (reading) {
+      const patch: BloodReading = { ...reading };
+      if (editing.field === "reading") {
+        patch.value = parseReading(reading.kind, num, glucoseUnit);
+      } else if (editing.field === "description") {
+        patch.note = text.trim() || null;
+      } else if (editing.field === "when") {
+        patch.measured_at = at;
+      }
+      await updateBloodReading(patch);
     }
     onSaved();
   }
@@ -724,13 +886,15 @@ function FieldEditor({
             ? "Duration"
             : editing.field === "amount"
               ? "Doses"
+              : editing.field === "reading"
+                ? (reading ? READING_DEFS[reading.kind].label : "Reading")
               : editing.field === "title"
                 ? felt
                   ? "What you felt"
                   : "Title"
                 : editing.field === "icon"
                   ? "Icon"
-                  : felt
+                  : felt || reading
                     ? "Note"
                     : "Description";
 
@@ -741,7 +905,9 @@ function FieldEditor({
         ? "kcal"
         : editing.field === "duration"
           ? "min"
-          : undefined;
+          : editing.field === "reading" && reading
+            ? unitLabel(reading.kind, glucoseUnit)
+            : undefined;
   const sheetTitle = unit ? `${heading} (${unit})` : heading;
 
   return (
@@ -759,7 +925,9 @@ function FieldEditor({
           className="input"
           rows={3}
           value={text}
-          placeholder={felt ? "What was going on…" : "What it is, portion size…"}
+          placeholder={
+            felt || reading ? "What was going on…" : "What it is, portion size…"
+          }
           onChange={(e) => setText(e.target.value)}
         />
       )}
@@ -797,7 +965,8 @@ function FieldEditor({
       {(editing.field === "nutrient" ||
         editing.field === "calories_burned" ||
         editing.field === "duration" ||
-        editing.field === "amount") && (
+        editing.field === "amount" ||
+        editing.field === "reading") && (
         <div className="field">
           <input
             className="input"

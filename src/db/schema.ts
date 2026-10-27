@@ -475,3 +475,34 @@ export const lifeRuleLogs = sqliteTable(
     index("idx_life_rule_logs_rule").on(t.ruleId),
   ],
 );
+
+/**
+ * Finger-prick readings off a blood meter (a FreeStyle Precision Neo, say):
+ * glucose and β-ketones, one row per strip.
+ *
+ * Both are stored in mmol/L whatever the meter shows — ketones are only ever
+ * read in mmol/L, and keeping glucose in the same unit is what lets the two
+ * be divided into a glucose–ketone index. mg/dL is a display choice (see
+ * lib/readings.ts), not a second kind of number in the table.
+ */
+export const bloodReadings = sqliteTable(
+  "blood_readings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    measuredAt: text("measured_at").notNull(),
+    /** "glucose" | "ketone". */
+    kind: text("kind").notNull(),
+    /** mmol/L. */
+    value: real("value").notNull(),
+    /** Fasted, after a meal, after a workout — whatever they said about it. */
+    note: text("note"),
+    /** Local day it was measured on, stamped where it happened (lib/daystamp.ts). */
+    day: text("day").notNull(),
+    /** Minutes east of UTC at that moment. */
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+  },
+  (t) => [
+    index("idx_blood_readings_day").on(t.day),
+    index("idx_blood_readings_kind_measured_at").on(t.kind, t.measuredAt),
+  ],
+);
