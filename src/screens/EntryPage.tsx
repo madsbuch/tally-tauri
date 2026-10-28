@@ -9,6 +9,7 @@
  * line opens a sheet for that one thing when you tap it. Nothing is a form
  * until you ask it to be.
  */
+import { diaryZone2Minutes } from "../lib/exerciseGoals";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -516,7 +517,7 @@ export default function EntryPage() {
             />
             <InfoRow
               label="Zone 2"
-              value={workout.zone2_min != null ? `${workout.zone2_min} min` : "Not recorded"}
+              value={diaryZone2Minutes(workout) != null ? `${diaryZone2Minutes(workout)} min` : "No zone data"}
               onClick={() => setEditing({ field: "zone2" })}
             />
           </>
@@ -784,7 +785,10 @@ function FieldEditor({
     if (editing.field === "duration") {
       return workout?.duration_min != null ? numToInput(workout.duration_min) : "";
     }
-    if (editing.field === "zone2") return workout?.zone2_min != null ? numToInput(workout.zone2_min) : "";
+    if (editing.field === "zone2") {
+      const minutes = workout ? diaryZone2Minutes(workout) : null;
+      return minutes != null ? numToInput(minutes) : "";
+    }
     if (editing.field === "amount") return dose ? numToInput(dose.amount) : "";
     if (editing.field === "reading") {
       return reading ? numToInput(toDisplay(reading.kind, reading.value, glucoseUnit)) : "";
@@ -995,7 +999,7 @@ function FieldEditor({
             value={num}
             onChange={(e) => setNum(e.target.value)}
           />
-          {editing.field === "zone2" && <p className="faint small">Only record time explicitly spent in Zone 2. Leave empty if unknown.</p>}
+          {editing.field === "zone2" && <p className="faint small">Normally read from your diary entry. Set a value to override it, or leave empty to use the diary description.</p>}
           {editing.field === "nutrient" && (
             <p className="faint small" style={{ margin: "6px 2px 0" }}>
               Leave it empty to record nothing for this one.

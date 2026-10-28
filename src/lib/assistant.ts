@@ -4,6 +4,7 @@
  * wellness metrics, supplements, and fasts. Structured query tools cover the
  * common cases; a guarded SELECT-only SQL tool handles everything else.
  */
+import { diaryZone2Minutes } from "./exerciseGoals";
 import {
   addCoachMemory,
   addLifeRule,
@@ -546,7 +547,7 @@ export async function executeAssistantTool(
           description: w.description,
           calories_burned: round(w.calories_burned, 0),
           duration_min: round(w.duration_min, 0),
-          zone2_min: w.zone2_min,
+          zone2_min: diaryZone2Minutes(w),
           source: w.source ?? "manual",
         }),
       ),

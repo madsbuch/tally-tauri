@@ -26,12 +26,13 @@ lives in a SQLite database on the device — there is no backend.
   estimated by the model). Only the product name or barcode is sent — never
   photos or personal data.
 - **Summary** — a compact exercise and nutrition overview. Zone 2 progress
-  covers today and the previous six local diary days, against an editable
-  300-minute default target. Expand the goal to edit its target or open a
-  workout; record Zone 2 minutes manually or explicitly in a diary note.
-  Unknown time never counts, and Garmin re-syncs preserve recorded minutes.
-  Nutrition offers Day, Last 7 days (default), and Last 24 days; longer periods
-  show per-day averages. Energy and macros stay visible, with keto,
+  follows the shared Day, Last 7 days (default), and Last 24 days selector,
+  including date navigation. The editable 7-day target defaults to 300 minutes;
+  the 24-day goal is four times that (1,200 minutes). Progress comes straight
+  from diary workouts, including older entries describing Zone 2 sessions or
+  minutes, with no second log. Unknown intensity never counts as Zone 2,
+  and Garmin re-syncs preserve recorded minutes. Nutrition shows per-day
+  averages over longer periods. Energy and macros stay visible, with keto,
   micronutrients, source filters, and other compounds under Nutrition details.
 - **Garmin / Health Connect sync** — workouts your watch records (calories,
   distance, avg heart rate) flow in automatically via Android Health Connect.

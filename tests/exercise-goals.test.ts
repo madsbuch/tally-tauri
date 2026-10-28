@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
-import { exerciseProgress, zone2Minutes } from "../src/lib/exerciseGoals";
+import { exerciseProgress, zone2Minutes, exerciseTarget, diaryZone2Minutes } from "../src/lib/exerciseGoals";
 import { shiftDay } from "../src/lib/daystamp";
 import { parseEntrySnapshot, WorkoutChatSchema } from "../src/lib/schemas";
 
@@ -73,6 +73,49 @@ describe("rolling exercise goals", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.zone2_min).toBe(40);
     expect(rows[0]!.calories_burned).toBe(300);
+  });
+  test("the selected view scales targets, including four weekly targets for 24 days", () => {
+    expect(exerciseTarget(300, 7)).toBe(300);
+    expect(exerciseTarget(300, 24)).toBe(1200);
+    expect(exerciseTarget(300, 1)).toBeCloseTo(300 / 7);
+    expect(exerciseTarget(250, 24)).toBe(1000);
+  });
+  test("older diary workouts count without adding Zone 2 again", async () => {
+    await addWorkout({ ...workout, title: "Zone 2 ride", duration_min: 45 });
+    await addWorkout({ ...workout, title: "Cycling", description: "20 min in zone 2, then 10 min in zone 3", duration_min: 30 });
+    await addWorkout({ ...workout, title: "Z2 run", duration_min: 35, zone2_min: 0 });
+    const rows = await listWorkoutsForRange("2026-10-22", "2026-10-28");
+    expect(exerciseProgress(rows, 300).minutes).toBe(65);
+    expect(exerciseProgress(rows, 300).unknown).toBe(0);
+  });
+  test("recognizes diary zone durations and avoids guessing mixed sessions", () => {
+    const read = (description: string, duration_min = 90) => diaryZone2Minutes({ title: "Ride", description, duration_min, zone2_min: null });
+    expect(read("Zone 2: 30 minutes" )).toBe(30);
+    expect(read("1.5 hours in zone 2" )).toBe(90);
+    expect(read("1h 30min in zone 2" )).toBe(90);
+    expect(read("Zone 2: 00:45:00" )).toBe(45);
+    expect(read("Zone 2: 30:30" )).toBe(30.5);
+    expect(read("Zone 2: 50%" )).toBe(45);
+    expect(read("50% in zone 2" )).toBe(45);
+    expect(read("Zone two steady cycling" )).toBe(90);
+    expect(read("Zone 2 and zone 3 intervals" )).toBeNull();
+    expect(read("Not zone 2" )).toBeNull();
+    expect(read("Goal: 300 min in zone 2" )).toBeNull();
+    expect(read("Easy run · avg HR 135" )).toBeNull();
+    expect(read("Mostly Zone 2" )).toBeNull();
+  });
+  test("24-day and historical views use their diary ranges, with edits reflected", async () => {
+    for (const day of ["2026-10-04", "2026-10-05", "2026-10-21", "2026-10-22", "2026-10-28", "2026-10-29"]) {
+      await addWorkout({ ...workout, performed_at: `${day}T12:00:00Z`, title: "Zone 2 ride", duration_min: 45 });
+    }
+    const recent = await listWorkoutsForRange("2026-10-22", "2026-10-28");
+    const longer = await listWorkoutsForRange("2026-10-05", "2026-10-28");
+    const historical = await listWorkoutsForRange("2026-10-15", "2026-10-21");
+    expect(exerciseProgress(recent, 300).minutes).toBe(90);
+    expect(exerciseProgress(longer, 1200).minutes).toBe(180);
+    expect(exerciseProgress(historical, 300).minutes).toBe(45);
+    await updateWorkout({ ...historical[0]!, title: "Strength training" });
+    expect(exerciseProgress(await listWorkoutsForRange("2026-10-15", "2026-10-21"), 300).minutes).toBe(0);
   });
   test("target persists and old undo snapshots still load", async () => {
     await setSetting("zone2_weekly_target", "250");

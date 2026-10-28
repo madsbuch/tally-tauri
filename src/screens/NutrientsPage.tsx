@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getSetting,
   listFoodEntriesForRange,
@@ -6,6 +6,7 @@ import {
   listWorkoutsForRange,
   todayStr,
 } from "../lib/db";
+import { onAppResume } from "../lib/appLifecycle";
 import { onDiaryChanged } from "../lib/agent";
 import ExerciseGoals from "../components/ExerciseGoals";
 import InfoButton from "../components/InfoButton";
@@ -201,6 +202,7 @@ const SOURCE_OPTIONS: { value: Source; label: string }[] = [
 export default function NutrientsPage() {
   // `day` is always the LAST day of the visible range.
   const [day, setDay] = useState(() => todayStr());
+  const lastToday = useRef(todayStr());
   const [span, setSpan] = useState<Span>("sevenDays");
   const [entries, setEntries] = useState<FoodEntry[] | null>(null);
   const [suppLogs, setSuppLogs] = useState<SupplementLogWithSupplement[] | null>(null);
@@ -249,7 +251,19 @@ export default function NutrientsPage() {
   }, [day, span, reloadKey]);
 
   // Background-analyzed captures land as entries — refresh when they do.
-  useEffect(() => onDiaryChanged(() => setReloadKey((k) => k + 1)), []);
+  useEffect(() => {
+    const refresh = () => {
+      const now = todayStr();
+      const previous = lastToday.current;
+      lastToday.current = now;
+      setDay((current) => current === previous ? now : current);
+      setReloadKey((k) => k + 1);
+    };
+    const offDiary = onDiaryChanged(refresh);
+    const offResume = onAppResume(refresh);
+    const timer = window.setInterval(refresh, 60_000);
+    return () => { offDiary(); offResume(); window.clearInterval(timer); };
+  }, []);
 
   // Keto net-carb limit (configured in Settings).
   useEffect(() => {
@@ -334,9 +348,6 @@ export default function NutrientsPage() {
         </span>
       </header>
 
-      <ExerciseGoals />
-
-      <h2 className="section-title">Nutrition</h2>
       <div className="seg" style={{ marginBottom: 10 }}>
         {SPAN_OPTIONS.map((o) => (
           <button
@@ -392,6 +403,11 @@ export default function NutrientsPage() {
         </div>
       )}
 
+      {!loading && !loadError && workouts && (
+        <ExerciseGoals workouts={workouts} start={startDay} end={day} days={spanDays} label={navTitle} />
+      )}
+
+      <h2 className="section-title">Nutrition</h2>
       {!loading && !loadError && totals && !hasAnyData && (
         <div className="empty">
           <div className="empty-icon">🥗</div>

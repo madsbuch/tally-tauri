@@ -230,7 +230,7 @@ const DIARY_TOOLS: ToolDef[] = [
             description: "kcal; read exactly when shown, estimate from activity + duration otherwise",
           },
           duration_min: { type: "number", description: "Total minutes, if known" },
-          zone2_min: { type: "number", description: "Minutes explicitly spent in Zone 2, only when stated by the user or shown in the source. Never infer from activity type or average heart rate. Omit if unknown." },
+          zone2_min: { type: "number", description: "Zone 2 minutes from the diary note or screenshot. For a session described as Zone 2 (or Z2), use its duration automatically; for a mixed session, use the Zone 2 portion. Never require a separate log. Do not infer from activity type or average heart rate alone. Omit if unknown." },
         },
         required: ["title", "time", "calories_burned"],
         additionalProperties: false,
