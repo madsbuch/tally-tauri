@@ -20,6 +20,7 @@ import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.aggregate.AggregateMetric
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
@@ -47,6 +48,10 @@ import kotlinx.coroutines.launch
 class ReadSessionsArgs {
     var startMs: Long = 0
     var endMs: Long = 0
+    /** Only records written by these packages; empty reads every app. */
+    var origins: List<String> = emptyList()
+
+    fun dataOrigins(): Set<DataOrigin> = origins.map { DataOrigin(it) }.toSet()
 }
 
 @TauriPlugin
@@ -199,10 +204,11 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     Instant.ofEpochMilli(args.startMs),
                     Instant.ofEpochMilli(args.endMs),
                 )
-                val records = readAll(hc, ExerciseSessionRecord::class, filter)
+                val origins = args.dataOrigins()
+                val records = readAll(hc, ExerciseSessionRecord::class, filter, origins)
 
                 val sessions = JSArray()
-                for (record in records) sessions.put(sessionToJson(hc, record))
+                for (record in records) sessions.put(sessionToJson(hc, record, origins))
                 val res = JSObject()
                 res.put("sessions", sessions)
                 invoke.resolve(res)
@@ -219,6 +225,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         hc: HealthConnectClient,
         type: KClass<T>,
         filter: TimeRangeFilter,
+        origins: Set<DataOrigin>,
     ): List<T> {
         val records = mutableListOf<T>()
         var pageToken: String? = null
@@ -227,6 +234,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                 ReadRecordsRequest(
                     recordType = type,
                     timeRangeFilter = filter,
+                    dataOriginFilter = origins,
                     pageSize = 500,
                     pageToken = pageToken,
                 )
@@ -245,9 +253,10 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         hc: HealthConnectClient,
         type: KClass<T>,
         filter: TimeRangeFilter,
+        origins: Set<DataOrigin>,
     ): List<T> =
         try {
-            readAll(hc, type, filter)
+            readAll(hc, type, filter, origins)
         } catch (_: SecurityException) {
             emptyList()
         }
@@ -263,6 +272,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         metric: AggregateMetric<T>,
         startMs: Long,
         endMs: Long,
+        origins: Set<DataOrigin>,
         onValue: (day: String, value: T) -> Unit,
     ) {
         val zone = ZoneId.systemDefault()
@@ -276,6 +286,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     metrics = setOf(metric),
                     timeRangeFilter = TimeRangeFilter.between(start, end),
                     timeRangeSlicer = Period.ofDays(1),
+                    dataOriginFilter = origins,
                 )
             )
             for (bucket in buckets) {
@@ -302,7 +313,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     Instant.ofEpochMilli(args.endMs),
                 )
                 val sessions = JSArray()
-                for (s in readAllOptional(hc, SleepSessionRecord::class, filter)) {
+                for (s in readAllOptional(hc, SleepSessionRecord::class, filter, args.dataOrigins())) {
                     sessions.put(sleepToJson(s))
                 }
                 val res = JSObject()
@@ -362,6 +373,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     Instant.ofEpochMilli(args.startMs),
                     Instant.ofEpochMilli(args.endMs),
                 )
+                val origins = args.dataOrigins()
                 val zone = ZoneId.systemDefault()
                 fun dayOf(instant: Instant): String = instant.atZone(zone).toLocalDate().toString()
                 val byDay = sortedMapOf<String, DayAgg>()
@@ -376,6 +388,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     StepsRecord.COUNT_TOTAL,
                     args.startMs,
                     args.endMs,
+                    origins,
                 ) { day, count ->
                     agg(day).steps = count
                 }
@@ -384,23 +397,24 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                     TotalCaloriesBurnedRecord.ENERGY_TOTAL,
                     args.startMs,
                     args.endMs,
+                    origins,
                 ) { day, energy ->
                     agg(day).caloriesTotal = energy.inKilocalories
                 }
-                for (r in readAllOptional(hc, RestingHeartRateRecord::class, filter)) {
+                for (r in readAllOptional(hc, RestingHeartRateRecord::class, filter, origins)) {
                     agg(dayOf(r.time)).restingHr.add(r.beatsPerMinute.toDouble())
                 }
-                for (r in readAllOptional(hc, HeartRateVariabilityRmssdRecord::class, filter)) {
+                for (r in readAllOptional(hc, HeartRateVariabilityRmssdRecord::class, filter, origins)) {
                     agg(dayOf(r.time)).hrvMs.add(r.heartRateVariabilityMillis)
                 }
-                for (r in readAllOptional(hc, OxygenSaturationRecord::class, filter)) {
+                for (r in readAllOptional(hc, OxygenSaturationRecord::class, filter, origins)) {
                     agg(dayOf(r.time)).spo2Pct.add(r.percentage.value)
                 }
                 // Point-in-time measurements: keep the latest reading of the day.
-                for (r in readAllOptional(hc, WeightRecord::class, filter).sortedBy { it.time }) {
+                for (r in readAllOptional(hc, WeightRecord::class, filter, origins).sortedBy { it.time }) {
                     agg(dayOf(r.time)).weightKg = r.weight.inKilograms
                 }
-                for (r in readAllOptional(hc, Vo2MaxRecord::class, filter).sortedBy { it.time }) {
+                for (r in readAllOptional(hc, Vo2MaxRecord::class, filter, origins).sortedBy { it.time }) {
                     agg(dayOf(r.time)).vo2Max = r.vo2MillilitersPerMinuteKilogram
                 }
 
@@ -449,6 +463,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
     private suspend fun sessionToJson(
         hc: HealthConnectClient,
         s: ExerciseSessionRecord,
+        origins: Set<DataOrigin>,
     ): JSObject {
         var calories: Double? = null
         var distanceMeters: Double? = null
@@ -463,6 +478,7 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
                         HeartRateRecord.BPM_AVG,
                     ),
                     timeRangeFilter = TimeRangeFilter.between(s.startTime, s.endTime),
+                    dataOriginFilter = origins,
                 )
             )
             calories = agg[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories

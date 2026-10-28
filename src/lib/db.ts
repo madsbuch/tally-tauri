@@ -418,6 +418,27 @@ export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
   return listWorkoutsForRange(day, day);
 }
 
+/**
+ * Drop what Health Connect sync wrote that didn't come from `keepSource` —
+ * workouts and nights from other apps, and every day of metrics from
+ * `fromDay` on (the caller re-reads those right after). Hand-logged workouts
+ * are never touched.
+ */
+export async function purgeSyncedDataNotFrom(
+  keepSource: string,
+  fromDay: string,
+): Promise<void> {
+  const stale = await db
+    .select({ id: workouts.id })
+    .from(workouts)
+    .where(and(isNotNull(workouts.externalId), sql`${workouts.source} IS NOT ${keepSource}`));
+  for (const w of stale) await deleteWorkout(w.id);
+  await db
+    .delete(sleepSessions)
+    .where(sql`${sleepSessions.source} IS NOT ${keepSource}`);
+  await db.delete(healthMetrics).where(gte(healthMetrics.day, fromDay));
+}
+
 /** Every workout synced from an external source (Garmin etc.), newest first. */
 export async function listSyncedWorkouts(): Promise<Workout[]> {
   const rows = await db

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   deleteSetting,
   getSetting,
+  purgeSyncedDataNotFrom,
   setSetting,
   upsertExternalWorkout,
   upsertHealthMetric,
@@ -9,14 +10,23 @@ import {
 } from "./db";
 import { SETTING_KEYS } from "./types";
 import { notifyDiaryChanged } from "./agent";
+import { dayOf } from "./daystamp";
 
 // ---------------------------------------------------------------------------
-// Health Connect sync — pulls everything the Garmin Connect app (or any other
-// fitness app) writes into Android Health Connect and upserts it locally:
+// Health Connect sync — pulls what the Garmin Connect app writes into Android
+// Health Connect and upserts it locally:
 // exercise sessions → `workouts`, sleep → `sleep_sessions`, and daily wellness
 // aggregates (steps, resting HR, HRV, SpO2, weight, VO2 max, calories) →
 // `health_metrics`. Everything stays on-device.
+//
+// Only Garmin's records are read. Health Connect otherwise blends in every
+// app that writes there (the phone's own step counter, the OEM health app,
+// Google Fit…) by its data-origin priority list, and the phone's guess at the
+// day's burn can win over the watch's.
 // ---------------------------------------------------------------------------
+
+const GARMIN_CONNECT = "com.garmin.android.apps.connectmobile";
+const ORIGINS = [GARMIN_CONNECT];
 
 export type HealthConnectAvailability = "available" | "updateRequired" | "unavailable";
 
@@ -83,7 +93,7 @@ const SYNC_OVERLAP_MS = 48 * 3_600_000;
  * (e.g. the switch from summing raw step records to deduplicated aggregates).
  * A mismatch forces one full-window resync so stale values get overwritten.
  */
-const RESYNC_VERSION = "2";
+const RESYNC_VERSION = "3";
 
 export async function getHealthConnectStatus(): Promise<HealthConnectStatus> {
   try {
@@ -210,8 +220,28 @@ async function runSync(): Promise<HealthConnectSyncResult> {
 
   const { sessions } = await invoke<{ sessions: HCExerciseSession[] }>(
     "plugin:health-connect|read_exercise_sessions",
-    { startMs, endMs: now },
+    { startMs, endMs: now, origins: ORIGINS },
   );
+  // Sleep often spans midnight — pad the window start by a day so the night
+  // in progress at `startMs` is still picked up whole.
+  const { sessions: sleepSessions } = await invoke<{ sessions: HCSleepSession[] }>(
+    "plugin:health-connect|read_sleep_sessions",
+    { startMs: startMs - 24 * 3_600_000, endMs: now, origins: ORIGINS },
+  );
+  // Daily aggregates are computed from the records inside the window — extend
+  // it back to local midnight so the first day is never a partial recount.
+  const windowStart = new Date(startMs);
+  windowStart.setHours(0, 0, 0, 0);
+  const { days } = await invoke<{ days: HCDailyMetric[] }>(
+    "plugin:health-connect|read_daily_metrics",
+    { startMs: windowStart.getTime(), endMs: now, origins: ORIGINS },
+  );
+
+  // A full resync rewrites the window from scratch, so whatever other apps
+  // left behind before reads were limited to Garmin goes — including day
+  // metrics Garmin has nothing for, which an upsert would otherwise keep.
+  // Only once every read above has succeeded, so a failed read loses nothing.
+  if (fullResync) await purgeSyncedDataNotFrom("Garmin", dayOf(windowStart.toISOString()));
 
   let workoutCount = 0;
   for (const s of sessions) {
@@ -236,13 +266,6 @@ async function runSync(): Promise<HealthConnectSyncResult> {
     workoutCount++;
   }
 
-  // Sleep often spans midnight — pad the window start by a day so the night
-  // in progress at `startMs` is still picked up whole.
-  const { sessions: sleepSessions } = await invoke<{ sessions: HCSleepSession[] }>(
-    "plugin:health-connect|read_sleep_sessions",
-    { startMs: startMs - 24 * 3_600_000, endMs: now },
-  );
-
   let sleepCount = 0;
   for (const s of sleepSessions) {
     const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
@@ -261,15 +284,6 @@ async function runSync(): Promise<HealthConnectSyncResult> {
     });
     sleepCount++;
   }
-
-  // Daily aggregates are computed from the records inside the window — extend
-  // it back to local midnight so the first day is never a partial recount.
-  const windowStart = new Date(startMs);
-  windowStart.setHours(0, 0, 0, 0);
-  const { days } = await invoke<{ days: HCDailyMetric[] }>(
-    "plugin:health-connect|read_daily_metrics",
-    { startMs: windowStart.getTime(), endMs: now },
-  );
 
   let dayCount = 0;
   for (const d of days) {

@@ -29,9 +29,14 @@ pub(crate) async fn read_exercise_sessions<R: Runtime>(
     app: AppHandle<R>,
     start_ms: i64,
     end_ms: i64,
+    origins: Option<Vec<String>>,
 ) -> Result<SessionsResponse> {
     app.health_connect()
-        .read_exercise_sessions(ReadSessionsArgs { start_ms, end_ms })
+        .read_exercise_sessions(ReadSessionsArgs {
+            start_ms,
+            end_ms,
+            origins: origins.unwrap_or_default(),
+        })
 }
 
 #[command]
@@ -39,9 +44,14 @@ pub(crate) async fn read_sleep_sessions<R: Runtime>(
     app: AppHandle<R>,
     start_ms: i64,
     end_ms: i64,
+    origins: Option<Vec<String>>,
 ) -> Result<SleepResponse> {
     app.health_connect()
-        .read_sleep_sessions(ReadSessionsArgs { start_ms, end_ms })
+        .read_sleep_sessions(ReadSessionsArgs {
+            start_ms,
+            end_ms,
+            origins: origins.unwrap_or_default(),
+        })
 }
 
 #[command]
@@ -49,9 +59,14 @@ pub(crate) async fn read_daily_metrics<R: Runtime>(
     app: AppHandle<R>,
     start_ms: i64,
     end_ms: i64,
+    origins: Option<Vec<String>>,
 ) -> Result<DailyMetricsResponse> {
     app.health_connect()
-        .read_daily_metrics(ReadSessionsArgs { start_ms, end_ms })
+        .read_daily_metrics(ReadSessionsArgs {
+            start_ms,
+            end_ms,
+            origins: origins.unwrap_or_default(),
+        })
 }
 
 #[command]

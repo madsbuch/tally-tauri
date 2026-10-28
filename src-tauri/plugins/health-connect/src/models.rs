@@ -27,6 +27,10 @@ pub struct ReadSessionsArgs {
     pub start_ms: i64,
     /// Unix epoch milliseconds — exclusive end of the query window.
     pub end_ms: i64,
+    /// Only read records written by these app packages; empty reads every
+    /// app that writes to Health Connect.
+    #[serde(default)]
+    pub origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
