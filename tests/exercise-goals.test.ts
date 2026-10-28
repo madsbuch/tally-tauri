@@ -16,7 +16,7 @@ mock.module("@tauri-apps/plugin-sql", () => ({ default: {
     select: async (sql: string, params: never[]) => sqlite.query(sql).all(...params),
   }),
 } }));
-const { addWorkout, getWorkout, updateWorkout, upsertExternalWorkout, listWorkoutsForRange, deleteWorkout, getSetting, setSetting } = await import("../src/lib/db");
+const { addWorkout, getWorkout, updateWorkout, upsertExternalWorkout, listWorkoutsForRange, deleteWorkout, getSetting, setSetting, setWorkoutZone2 } = await import("../src/lib/db");
 const workout = {
   performed_at: "2026-10-28T12:00:00Z", title: "Cycling", description: null,
   photo_path: null, calories_burned: 250, duration_min: 60, model_id: null, icon: null,
@@ -73,6 +73,36 @@ describe("rolling exercise goals", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.zone2_min).toBe(40);
     expect(rows[0]!.calories_burned).toBe(300);
+  });
+  test("a workout toggle counts the duration and explicit off overrides its title", async () => {
+    const id = await addWorkout({ ...workout, title: "Zone 2 ride" });
+    await setWorkoutZone2(id, true);
+    expect(diaryZone2Minutes((await getWorkout(id))!)).toBe(60);
+    await setWorkoutZone2(id, false);
+    expect(diaryZone2Minutes((await getWorkout(id))!)).toBe(0);
+    await setWorkoutZone2(id, true);
+    expect(diaryZone2Minutes((await getWorkout(id))!)).toBe(60);
+  });
+  test("Garmin preserves both toggle choices and follows duration corrections", async () => {
+    const external = { ...workout, title: "CrossFit", description: "avg HR 135", source: "Garmin", external_id: "toggle-test" };
+    await upsertExternalWorkout(external);
+    const [w] = await listWorkoutsForRange("2026-10-22", "2026-10-28");
+    expect(diaryZone2Minutes(w!)).toBeNull();
+    await setWorkoutZone2(w!.id, true);
+    await upsertExternalWorkout({ ...external, duration_min: 65 });
+    expect(diaryZone2Minutes((await getWorkout(w!.id))!)).toBe(65);
+    await setWorkoutZone2(w!.id, false);
+    await upsertExternalWorkout({ ...external, title: "Zone 2 ride", duration_min: 70 });
+    expect(diaryZone2Minutes((await getWorkout(w!.id))!)).toBe(0);
+  });
+  test("enabling requires duration and only changes the Zone 2 field", async () => {
+    const id = await addWorkout({ ...workout, duration_min: null });
+    await expect(setWorkoutZone2(id, true)).rejects.toThrow("duration");
+    await setWorkoutZone2(id, false);
+    expect((await getWorkout(id))!.zone2_min).toBe(0);
+    expect((await getWorkout(id))!.title).toBe(workout.title);
+    expect((await getWorkout(id))!.calories_burned).toBe(workout.calories_burned);
+    await expect(setWorkoutZone2(-1, true)).rejects.toThrow();
   });
   test("the selected view scales targets, including four weekly targets for 24 days", () => {
     expect(exerciseTarget(300, 7)).toBe(300);

@@ -364,7 +364,12 @@ export async function upsertExternalWorkout(
         description: w.description,
         caloriesBurned: w.calories_burned,
         durationMin: w.duration_min,
-        // Keep explicitly recorded Zone 2 minutes across external re-syncs.
+        // Whole-session marks follow a corrected duration; explicit off and
+        // partial Zone 2 minutes survive a re-sync unchanged.
+        zone2Min: sql`case when ${workouts.zone2Min} > 0
+          and ${workouts.zone2Min} = ${workouts.durationMin}
+          and ${w.duration_min} > 0 then ${w.duration_min}
+          else ${workouts.zone2Min} end`,
         source: w.source,
       },
     });
@@ -386,6 +391,15 @@ export async function updateWorkout(w: Workout): Promise<void> {
       icon: w.icon,
     })
     .where(eq(workouts.id, w.id));
+}
+
+/** A deliberate toggle wins over text recognition, including an explicit off (0). */
+export async function setWorkoutZone2(id: number, enabled: boolean): Promise<void> {
+  const rows = await db.update(workouts)
+    .set({ zone2Min: enabled ? sql`${workouts.durationMin}` : 0 })
+    .where(enabled ? and(eq(workouts.id, id), gt(workouts.durationMin, 0)) : eq(workouts.id, id))
+    .returning({ id: workouts.id });
+  if (rows.length === 0) throw new Error("The workout needs a duration before it can count as Zone 2, or it no longer exists.");
 }
 
 /** One workout by id; null when it's been deleted. */

@@ -1769,3 +1769,18 @@ button.rule-row {
 .exercise-workout > span:last-child { flex-shrink: 0; }
 .nutrition-details > summary { padding: 12px 2px; font-weight: 650; }
 .nutrition-details > summary > span { display: block; margin-top: 4px; font-weight: 400; }
+
+.zone2-toggle { justify-content: space-between; }
+.zone2-toggle:disabled { cursor: default; opacity: 0.6; }
+.zone2-toggle-label { display: block; font-weight: 600; }
+.zone2-toggle-help { display: block; margin-top: 4px; }
+.zone2-switch {
+  display: flex; align-items: center; flex: 0 0 44px; height: 26px;
+  padding: 3px; border-radius: 999px; background: var(--muted);
+}
+.zone2-switch > span {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--card);
+  transition: transform 120ms ease;
+}
+.zone2-switch-on { background: var(--accent); }
+.zone2-switch-on > span { transform: translateX(18px); }

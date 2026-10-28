@@ -30,8 +30,10 @@ lives in a SQLite database on the device — there is no backend.
   including date navigation. The editable 7-day target defaults to 300 minutes;
   the 24-day goal is four times that (1,200 minutes). Progress comes straight
   from diary workouts, including older entries describing Zone 2 sessions or
-  minutes, with no second log. Unknown intensity never counts as Zone 2,
-  and Garmin re-syncs preserve recorded minutes. Nutrition shows per-day
+  minutes, with no second log. A **Zone 2 workout** switch on each workout's
+  detail page counts its full duration when on and excludes it when off.
+  Garmin re-syncs preserve that choice; average heart rate never turns it on.
+  Unknown intensity never counts as Zone 2. Nutrition shows per-day
   averages over longer periods. Energy and macros stay visible, with keto,
   micronutrients, source filters, and other compounds under Nutrition details.
 - **Garmin / Health Connect sync** — workouts your watch records (calories,

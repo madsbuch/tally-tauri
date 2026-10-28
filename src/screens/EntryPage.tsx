@@ -82,6 +82,7 @@ import AssistantChart from "../components/AssistantChart";
 import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
 import { useUp } from "../lib/navigation";
+import WorkoutZone2Toggle from "../components/WorkoutZone2Toggle";
 import EntryChat from "../components/EntryChat";
 
 type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading";
@@ -515,11 +516,14 @@ export default function EntryPage() {
               }
               onClick={() => setEditing({ field: "duration" })}
             />
-            <InfoRow
-              label="Zone 2"
-              value={diaryZone2Minutes(workout) != null ? `${diaryZone2Minutes(workout)} min` : "No zone data"}
-              onClick={() => setEditing({ field: "zone2" })}
-            />
+            <WorkoutZone2Toggle workout={workout} onSaved={afterChange} />
+            {(diaryZone2Minutes(workout) ?? 0) > 0 && diaryZone2Minutes(workout) !== workout.duration_min && (
+              <InfoRow
+                label="Zone 2 minutes"
+                value={`${diaryZone2Minutes(workout)} min`}
+                onClick={() => setEditing({ field: "zone2" })}
+              />
+            )}
           </>
         )}
       </div>
@@ -854,6 +858,10 @@ function FieldEditor({
       } else if (editing.field === "duration") {
         const v = parseNum(false);
         patch.duration_min = v != null && v > 0 ? Math.round(v) : null;
+        if (workout.zone2_min != null && workout.zone2_min > 0 && workout.zone2_min === workout.duration_min) {
+          if (patch.duration_min == null) throw new Error("Turn off Zone 2 before clearing the workout duration.");
+          patch.zone2_min = patch.duration_min;
+        }
         if (patch.duration_min != null && (patch.zone2_min ?? 0) > patch.duration_min) {
           throw new Error("Duration cannot be shorter than the recorded Zone 2 time. Correct Zone 2 first.");
         }
