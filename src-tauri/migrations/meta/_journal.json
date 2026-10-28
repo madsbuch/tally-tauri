@@ -134,6 +134,13 @@
       "when": 1793083182792,
       "tag": "0018_blood_readings",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793197380916,
+      "tag": "0019_zone2_minutes",
+      "breakpoints": true
     }
   ]
 }

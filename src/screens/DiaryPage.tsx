@@ -496,6 +496,7 @@ function AddSheet({
   // Workout-specific state.
   const [calStr, setCalStr] = useState("");
   const [durStr, setDurStr] = useState("");
+  const [zone2Str, setZone2Str] = useState("");
 
   const [saving, setSaving] = useState(false);
 
@@ -555,6 +556,7 @@ function AddSheet({
     const nutrients: Nutrients = {};
     let cal = 0;
     let dur: number | null = null;
+    let zone2: number | null = null;
     if (kind === "meal") {
       for (const k of NUTRIENT_KEYS) {
         const raw = (nutrVals[k] ?? "").trim();
@@ -579,6 +581,13 @@ function AddSheet({
         durStr.trim() && isFinite(durParsed) && durParsed > 0
           ? Math.round(durParsed)
           : null;
+      if (zone2Str.trim()) {
+        zone2 = Number(zone2Str);
+        if (!Number.isFinite(zone2) || zone2 < 0 || (dur != null && zone2 > dur)) {
+          setError("Zone 2 minutes must be non-negative and no greater than the workout duration.");
+          return;
+        }
+      }
     }
     setSaving(true);
     setError(null);
@@ -604,6 +613,7 @@ function AddSheet({
           photo_path: photoPath,
           calories_burned: cal,
           duration_min: dur,
+          zone2_min: zone2,
           model_id: null,
           icon,
         });
@@ -766,6 +776,7 @@ function AddSheet({
                 </button>
               </>
             ) : (
+              <>
               <div className="input-row" style={{ marginBottom: 12 }}>
                 <div>
                   <label className="label">Calories burned</label>
@@ -794,6 +805,10 @@ function AddSheet({
                   />
                 </div>
               </div>
+              <label className="label" htmlFor="workout-zone2">Zone 2 (min)</label>
+              <input id="workout-zone2" className="input" type="number" min="0" step="any" inputMode="decimal" placeholder="Unknown" value={zone2Str} onChange={(e) => setZone2Str(e.target.value)} />
+              <p className="faint small">Minutes spent in Zone 2. Leave empty if unknown.</p>
+              </>
             )}
             {error && (
               <div className="error-text" style={{ marginTop: 10 }}>

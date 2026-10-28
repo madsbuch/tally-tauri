@@ -52,6 +52,7 @@ export const workouts = sqliteTable(
     photoPath: text("photo_path"),
     caloriesBurned: real("calories_burned").notNull().default(0),
     durationMin: real("duration_min"),
+    zone2Min: real("zone2_min"),
     modelId: text("model_id"),
     /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
     icon: text("icon"),

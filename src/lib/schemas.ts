@@ -239,6 +239,12 @@ const WorkoutEntryFields = z.object({
   description: keptText,
   calories_burned: keptKcal,
   duration_min: keptMinutes,
+  zone2_min: z.unknown().optional().transform((v) => {
+    if (v === undefined) return undefined;
+    if (v === null || v === "") return null;
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
+  }),
 });
 
 /**
@@ -310,6 +316,7 @@ const WorkoutSnapshotSchema = z.object({
   photo_path: z.string().nullable(),
   calories_burned: z.number(),
   duration_min: z.number().nullable(),
+  zone2_min: z.number().nonnegative().nullable().default(null),
   model_id: z.string().nullable(),
   icon: z.string().nullable(),
   source: z.string().nullable(),

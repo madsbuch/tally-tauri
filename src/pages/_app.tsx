@@ -55,14 +55,10 @@ const TABS: { to: TabRoot; label: string; icon: JSX.Element }[] = [
   },
   {
     to: "/nutrients",
-    label: "Nutrients",
+    label: "Summary",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path
-          d="M20 4c-8.5 0-14 4.5-14 11 0 2.5 1.5 5 4 5 6.5 0 10-5.5 10-16Z"
-          strokeLinejoin="round"
-        />
-        <path d="M6.5 19.5C9 15 12.5 11 17 8" strokeLinecap="round" />
+        <path d="M5 20V11M12 20V4M19 20v-6" strokeLinecap="round" />
       </svg>
     ),
   },

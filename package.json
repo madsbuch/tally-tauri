@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && eslint . && vite build",
     "lint": "eslint .",
+    "test": "TZ=Europe/Copenhagen bun test",
     "preview": "vite preview",
     "tauri": "tauri"
   },

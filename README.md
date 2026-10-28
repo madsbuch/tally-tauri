@@ -25,12 +25,14 @@ lives in a SQLite database on the device — there is no backend.
   label nutrition instead of an estimate (missing micronutrients are still
   estimated by the model). Only the product name or barcode is sent — never
   photos or personal data.
-- **Nutrients page** — macro/micro overview over a day, week, or month
-  (multi-day spans show per-day averages): energy in/burned/net, macro split,
-  and every micronutrient against adult reference intakes, filterable by
-  source (food vs supplements), with the omega-6:omega-3 ratio. Creatine and
-  caffeine live in their own "Other" section — creatine against a 5 g/day
-  supplementation target.
+- **Summary** — a compact exercise and nutrition overview. Zone 2 progress
+  covers today and the previous six local diary days, against an editable
+  300-minute default target. Expand the goal to edit its target or open a
+  workout; record Zone 2 minutes manually or explicitly in a diary note.
+  Unknown time never counts, and Garmin re-syncs preserve recorded minutes.
+  Nutrition offers Day, Last 7 days (default), and Last 24 days; longer periods
+  show per-day averages. Energy and macros stay visible, with keto,
+  micronutrients, source filters, and other compounds under Nutrition details.
 - **Garmin / Health Connect sync** — workouts your watch records (calories,
   distance, avg heart rate) flow in automatically via Android Health Connect.
   Enable Health Connect in the Garmin Connect app, tap "Connect" in Tally's

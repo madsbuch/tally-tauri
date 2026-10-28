@@ -53,6 +53,7 @@ import type { ChatMessage } from "./openrouter";
 import { FAST_BREAK_KCAL, SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
+import { zone2Minutes } from "./exerciseGoals";
 import { stateKey } from "./states";
 import { isActedOn, isRuleStatus, ruleKey } from "./lifeRules";
 import { isGlucoseUnit, isReadingKind } from "./readings";
@@ -278,6 +279,7 @@ function toWorkout(r: WorkoutRow): Workout {
     photo_path: r.photoPath,
     calories_burned: r.caloriesBurned,
     duration_min: r.durationMin,
+    zone2_min: zone2Minutes(r.zone2Min, r.durationMin),
     model_id: r.modelId,
     icon: r.icon,
     source: r.source,
@@ -290,9 +292,9 @@ function toWorkout(r: WorkoutRow): Workout {
 /** Manual/agent entries omit `source`/`external_id` — they default to null. */
 export type NewWorkout = Omit<
   Workout,
-  "id" | "source" | "external_id" | "day" | "tz_offset_min"
+  "id" | "source" | "external_id" | "day" | "tz_offset_min" | "zone2_min"
 > &
-  Partial<Pick<Workout, "source" | "external_id">>;
+  Partial<Pick<Workout, "source" | "external_id" | "zone2_min">>;
 
 export async function addWorkout(w: NewWorkout): Promise<number> {
   const stamp = stampOf(w.performed_at);
@@ -307,6 +309,7 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
       photoPath: w.photo_path,
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
+      zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
       modelId: w.model_id,
       icon: w.icon,
       source: w.source ?? null,
@@ -322,7 +325,8 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
  * upstream edits (e.g. corrected calories in Garmin) flow through.
  */
 export async function upsertExternalWorkout(
-  w: Omit<Workout, "id" | "day" | "tz_offset_min"> & {
+  w: Omit<Workout, "id" | "day" | "tz_offset_min" | "zone2_min"> & {
+    zone2_min?: number | null;
     external_id: string;
     /** Offset the source recorded it in; falls back to here. */
     tz_offset_min?: number | null;
@@ -343,6 +347,7 @@ export async function upsertExternalWorkout(
       photoPath: w.photo_path,
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
+      zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
       modelId: w.model_id,
       icon: w.icon,
       source: w.source,
@@ -359,6 +364,7 @@ export async function upsertExternalWorkout(
         description: w.description,
         caloriesBurned: w.calories_burned,
         durationMin: w.duration_min,
+        // Keep explicitly recorded Zone 2 minutes across external re-syncs.
         source: w.source,
       },
     });
@@ -368,12 +374,14 @@ export async function updateWorkout(w: Workout): Promise<void> {
   await db
     .update(workouts)
     .set({
+      day: dayOf(w.performed_at, w.tz_offset_min),
       performedAt: w.performed_at,
       title: w.title,
       description: w.description,
       photoPath: w.photo_path,
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
+      zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
       modelId: w.model_id,
       icon: w.icon,
     })

@@ -1747,3 +1747,25 @@ button.rule-row {
   color: var(--accent);
   font-weight: 700;
 }
+
+/* Summary keeps the overview compact; detail stays one tap away. */
+.summary-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.summary-details > summary { cursor: pointer; }
+.exercise-goal-details > summary { list-style: none; padding-top: 16px; }
+.exercise-goal-details > summary::-webkit-details-marker { display: none; }
+.exercise-meter { height: 8px; border-radius: 999px; overflow: hidden; background: var(--bg-elev); margin: 10px 0 8px; }
+.exercise-meter > div { height: 100%; background: var(--accent); border-radius: inherit; }
+.exercise-workout {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 12px; border: 0; border-bottom: 1px solid var(--border);
+  background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit;
+}
+.exercise-workout > span:first-child { display: grid; gap: 4px; min-width: 0; }
+.exercise-workout > span:last-child { flex-shrink: 0; }
+.nutrition-details > summary { padding: 12px 2px; font-weight: 650; }
+.nutrition-details > summary > span { display: block; margin-top: 4px; font-weight: 400; }

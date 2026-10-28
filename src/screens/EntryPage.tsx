@@ -210,6 +210,7 @@ type Editing =
   | { field: "nutrient"; key: NutrientKey }
   | { field: "calories_burned" }
   | { field: "duration" }
+  | { field: "zone2" }
   | { field: "amount" }
   | { field: "reading" };
 
@@ -513,6 +514,11 @@ export default function EntryPage() {
               }
               onClick={() => setEditing({ field: "duration" })}
             />
+            <InfoRow
+              label="Zone 2"
+              value={workout.zone2_min != null ? `${workout.zone2_min} min` : "Not recorded"}
+              onClick={() => setEditing({ field: "zone2" })}
+            />
           </>
         )}
       </div>
@@ -778,6 +784,7 @@ function FieldEditor({
     if (editing.field === "duration") {
       return workout?.duration_min != null ? numToInput(workout.duration_min) : "";
     }
+    if (editing.field === "zone2") return workout?.zone2_min != null ? numToInput(workout.zone2_min) : "";
     if (editing.field === "amount") return dose ? numToInput(dose.amount) : "";
     if (editing.field === "reading") {
       return reading ? numToInput(toDisplay(reading.kind, reading.value, glucoseUnit)) : "";
@@ -843,6 +850,14 @@ function FieldEditor({
       } else if (editing.field === "duration") {
         const v = parseNum(false);
         patch.duration_min = v != null && v > 0 ? Math.round(v) : null;
+        if (patch.duration_min != null && (patch.zone2_min ?? 0) > patch.duration_min) {
+          throw new Error("Duration cannot be shorter than the recorded Zone 2 time. Correct Zone 2 first.");
+        }
+      } else if (editing.field === "zone2") {
+        patch.zone2_min = parseNum(false);
+        if (patch.duration_min != null && (patch.zone2_min ?? 0) > patch.duration_min) {
+          throw new Error("Zone 2 minutes cannot exceed the workout duration.");
+        }
       }
       await updateWorkout(patch);
     } else if (dose) {
@@ -882,8 +897,8 @@ function FieldEditor({
         ? "When"
         : editing.field === "calories_burned"
           ? "Calories burned"
-          : editing.field === "duration"
-            ? "Duration"
+          : editing.field === "duration" || editing.field === "zone2"
+            ? (editing.field === "zone2" ? "Zone 2" : "Duration")
             : editing.field === "amount"
               ? "Doses"
               : editing.field === "reading"
@@ -903,7 +918,7 @@ function FieldEditor({
       ? NUTRIENT_DEFS.find((d) => d.key === editing.key)?.unit
       : editing.field === "calories_burned"
         ? "kcal"
-        : editing.field === "duration"
+        : editing.field === "duration" || editing.field === "zone2"
           ? "min"
           : editing.field === "reading" && reading
             ? unitLabel(reading.kind, glucoseUnit)
@@ -965,6 +980,7 @@ function FieldEditor({
       {(editing.field === "nutrient" ||
         editing.field === "calories_burned" ||
         editing.field === "duration" ||
+        editing.field === "zone2" ||
         editing.field === "amount" ||
         editing.field === "reading") && (
         <div className="field">
@@ -979,6 +995,7 @@ function FieldEditor({
             value={num}
             onChange={(e) => setNum(e.target.value)}
           />
+          {editing.field === "zone2" && <p className="faint small">Only record time explicitly spent in Zone 2. Leave empty if unknown.</p>}
           {editing.field === "nutrient" && (
             <p className="faint small" style={{ margin: "6px 2px 0" }}>
               Leave it empty to record nothing for this one.

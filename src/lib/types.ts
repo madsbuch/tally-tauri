@@ -148,6 +148,8 @@ export interface Workout {
   /** Energy burned — subtracted from the day's calorie total. */
   calories_burned: number;
   duration_min: number | null;
+  /** Explicitly recorded Zone 2 minutes; null means unknown. */
+  zone2_min: number | null;
   model_id: string | null;
   /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
   icon: string | null;
@@ -408,6 +410,7 @@ export const SETTING_KEYS = {
   modelsCache: "models_cache",
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
+  zone2WeeklyTarget: "zone2_weekly_target",
   healthConnectLastSyncAt: "health_connect_last_sync_at",
   /** Set once a sync ran WITH history permission — gates the one-time backfill. */
   healthConnectHistorySynced: "health_connect_history_synced",

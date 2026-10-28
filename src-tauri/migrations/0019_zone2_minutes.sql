@@ -1,0 +1,1 @@
+ALTER TABLE `workouts` ADD `zone2_min` real;

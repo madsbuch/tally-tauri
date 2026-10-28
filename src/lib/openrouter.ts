@@ -528,7 +528,7 @@ export async function askAboutWorkoutEntry(
 ): Promise<z.infer<typeof WorkoutChatSchema>> {
   const system = [
     ...ENTRY_CHAT_RULES,
-    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences), "calories_burned": number (kcal), "duration_min": number (minutes, omit if unknown)}}`,
+    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences), "calories_burned": number (kcal), "duration_min": number (minutes, omit if unknown), "zone2_min": number | null (explicit Zone 2 minutes only; never infer from activity type or average heart rate; omit to preserve)}}`,
     "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
   ].join("\n");
   return WorkoutChatSchema.parse(extractJsonObject(await askAboutEntry(opts, system)));

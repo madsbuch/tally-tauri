@@ -230,6 +230,7 @@ const DIARY_TOOLS: ToolDef[] = [
             description: "kcal; read exactly when shown, estimate from activity + duration otherwise",
           },
           duration_min: { type: "number", description: "Total minutes, if known" },
+          zone2_min: { type: "number", description: "Minutes explicitly spent in Zone 2, only when stated by the user or shown in the source. Never infer from activity type or average heart rate. Omit if unknown." },
         },
         required: ["title", "time", "calories_burned"],
         additionalProperties: false,
@@ -748,6 +749,7 @@ async function executeTool(
       photo_path: photo,
       calories_burned: cal != null && cal >= 0 ? Math.round(cal) : 0,
       duration_min: dur != null && dur > 0 ? Math.round(dur) : null,
+      zone2_min: num(args["zone2_min"]),
       model_id: ctx.model,
       icon: icon(args["icon"]),
     });
