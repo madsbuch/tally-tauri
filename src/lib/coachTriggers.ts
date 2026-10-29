@@ -16,7 +16,7 @@
  *
  * Two kinds of trigger:
  *
- * - **occasion** — a time arriving (the daily close-out). It has a reason to
+ * - **occasion** — a time arriving (the morning recap). It has a reason to
  *   speak even when nothing is wrong.
  * - **condition** — something being true that shouldn't be. Carries a cooldown
  *   so it raises a thing once, not every day until fixed.
@@ -28,9 +28,9 @@ import { SETTING_KEYS } from "./types";
 import type { CoachDigest } from "./coach";
 
 export type TriggerKey =
-  | "weekly_review"
+  | "monday_review"
   | "follow_up_due"
-  | "daily_closeout"
+  | "daily_recap"
   | "protein_short"
   | "target_drift"
   | "sleep_debt"
@@ -60,6 +60,12 @@ export interface TriggerContext {
   hour: number;
   config: TriggerConfig;
   /**
+   * The digest as of yesterday. Morning check-ins look back at a finished
+   * day — and on a Monday, a finished Monday-to-Sunday week — which today's
+   * digest, barely begun, can't describe.
+   */
+  yesterday: CoachDigest;
+  /**
    * Reminders that have come due. Not part of the digest — that's a read of
    * the diary, and these are the coach's own notes to itself.
    */
@@ -76,7 +82,7 @@ export interface TriggerDef {
   hourLabel?: string;
   thresholdLabel?: string;
   /**
-   * Higher speaks first. Conditions outrank the close-out: if something is
+   * Higher speaks first. Conditions outrank the recap: if something is
    * actually wrong, that's the more useful thing to open with.
    */
   salience: number;
@@ -93,6 +99,9 @@ export interface TriggerDef {
 /** Enough logged days for an average to mean anything. */
 const MIN_DAYS_FOR_TREND = 3;
 
+/** Hours after its start the morning recap may still go out. */
+const RECAP_WINDOW_HOURS = 5;
+
 /** Whether a "YYYY-MM-DD" day is a Sunday — the last day of a Mon–Sun week. */
 function isSunday(day: string): boolean {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
@@ -101,30 +110,35 @@ function isSunday(day: string): boolean {
 
 export const TRIGGERS: TriggerDef[] = [
   {
-    key: "weekly_review",
+    // Was "weekly_review" on Sunday evenings; a new key so an evening hour
+    // saved for that doesn't hold this one back until after the recap.
+    key: "monday_review",
     kind: "occasion",
     title: "Weekly review",
-    help: "Sunday evening, a look back at the week that's ending: what went well, what slipped, and one thing to focus on next week. The full numbers are in the week's recap on the Diary.",
-    defaults: { enabled: true, hour: 19 },
+    help: "Monday morning, a look back at the week that just ended: what went well, what slipped, and one thing to focus on this week. The full numbers are in the week's recap on the Diary.",
+    defaults: { enabled: true, hour: 7 },
     hourLabel: "Not before",
-    // Top of the order, even above follow-ups: it has one evening a week to
+    // Top of the order, even above follow-ups: it has one morning a week to
     // happen, while a due follow-up keeps until tomorrow. Whatever else is
-    // true on a Sunday becomes material for the review instead.
+    // true on a Monday — yesterday's recap included — becomes material for
+    // the review instead.
     salience: 55,
-    // Once per week; any shorter and a Sunday could repeat, any longer and
-    // next Sunday would still be cooling down.
+    // Once per week; any shorter and a Monday could repeat, any longer and
+    // next Monday would still be cooling down.
     cooldownDays: 6,
-    evaluate: ({ digest, hour, config }) => {
-      // Sunday only: that's the one day the digest's rolling "last 7 days"
-      // is exactly the calendar week the recap shows, so no extra numbers
-      // are needed — and the same check stays trivial to mirror in Kotlin.
-      if (!isSunday(digest.day) || hour < (config.hour ?? 19)) return null;
-      if (digest.week.daysLogged === 0 && digest.week.workouts === 0) return null;
+    evaluate: ({ yesterday, hour, config }) => {
+      // Monday only: yesterday was Sunday, so yesterday's rolling "last 7
+      // days" is exactly the calendar week the recap shows — and the same
+      // check stays trivial to mirror in Kotlin.
+      if (!isSunday(yesterday.day) || hour < (config.hour ?? 7)) return null;
+      const w = yesterday.week;
+      if (w.daysLogged === 0 && w.workouts === 0) return null;
       return (
-        `The week ends today — "last 7 days" in the digest is exactly this Monday-to-Sunday week, ` +
-        `with ${digest.week.daysLogged} of 7 days logged. Give a short weekly review: what went ` +
-        `well, what slipped, and one concrete thing to focus on next week. Draw on the week's ` +
-        `numbers, not just today's.`
+        `Last week (Monday to Sunday ${yesterday.day}) just ended, with ${w.daysLogged} of 7 days ` +
+        `logged: avg net ${w.avgNet ?? "no data"} kcal, avg protein ${w.avgProteinG ?? "no data"} g, ` +
+        `${w.workouts} workouts, avg sleep ${w.avgSleepH ?? "no data"} h. These are the week's ` +
+        `numbers — the digest's "last 7 days" runs through today instead. Give a short weekly ` +
+        `review: what went well, what slipped, and one concrete thing to focus on this week.`
       );
     },
   },
@@ -225,19 +239,28 @@ export const TRIGGERS: TriggerDef[] = [
     },
   },
   {
-    key: "daily_closeout",
+    key: "daily_recap",
     kind: "occasion",
-    title: "Daily close-out",
-    help: "An end-of-day read on how the day went, and one concrete thing for tomorrow.",
-    defaults: { enabled: true, hour: 21 },
+    title: "Yesterday's recap",
+    help: "In the morning, a read on how yesterday went and one concrete thing to plan today around.",
+    defaults: { enabled: true, hour: 7 },
     hourLabel: "Not before",
     salience: 10,
     cooldownDays: 1,
-    evaluate: ({ digest, hour, config }) => {
-      if (hour < (config.hour ?? 21)) return null;
-      // Nothing logged means nothing to close out; streak_risk covers that case.
-      if (digest.today.itemsLogged === 0) return null;
-      return `End of ${digest.day}. Close the day out: how it went against the target, and one concrete thing for tomorrow.`;
+    evaluate: ({ digest, yesterday, hour, config }) => {
+      const from = config.hour ?? 7;
+      // A morning thing: one opened at night about the day before is stale.
+      if (hour < from || hour >= from + RECAP_WINDOW_HOURS) return null;
+      // Nothing logged means nothing to recap; streak_risk covers that case.
+      const y = yesterday.today;
+      if (y.itemsLogged === 0) return null;
+      return (
+        `It's the morning of ${digest.day}. Yesterday (${yesterday.day}): ${y.kcalIn} kcal in, ` +
+        `${y.kcalOut} burned, net ${y.net}` +
+        (y.target != null ? ` against a ${y.target} kcal target` : " (no target set)") +
+        `; ${y.proteinG} g protein; ${y.itemsLogged} items logged. Recap how yesterday went ` +
+        `against the target, and give one concrete thing to plan today around.`
+      );
     },
   },
 ];
@@ -285,7 +308,7 @@ export async function saveCoachTriggers(triggers: CoachTriggers): Promise<void> 
 // The scheduled wake-up
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_CHECKIN_HOUR = 21;
+export const DEFAULT_CHECKIN_HOUR = 7;
 
 export async function loadCheckinHour(): Promise<number> {
   const raw = await getSetting(SETTING_KEYS.coachCheckinHour).catch(() => null);
@@ -351,7 +374,7 @@ export interface Evaluation {
   reason: "budget" | "cooldown" | "nothing" | "ok";
 }
 
-function shiftDay(day: string, delta: number): string {
+export function shiftDay(day: string, delta: number): string {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + delta));
 }
@@ -364,6 +387,8 @@ function shiftDay(day: string, delta: number): string {
  */
 export function evaluateTriggers(args: {
   digest: CoachDigest;
+  /** The digest as of the day before `today`. */
+  yesterday: CoachDigest;
   hour: number;
   triggers: CoachTriggers;
   /** Day → trigger keys already fired, for cooldowns and the daily budget. */
@@ -371,7 +396,7 @@ export function evaluateTriggers(args: {
   today: string;
   dueFollowUps?: DueFollowUp[];
 }): Evaluation {
-  const { digest, hour, triggers, history, today } = args;
+  const { digest, yesterday, hour, triggers, history, today } = args;
   const dueFollowUps = args.dueFollowUps ?? [];
 
   const firedToday = history.filter((h) => h.day === today).length;
@@ -379,7 +404,7 @@ export function evaluateTriggers(args: {
   for (const def of TRIGGERS) {
     const config = triggers[def.key];
     if (!config?.enabled) continue;
-    const fact = def.evaluate({ digest, hour, config, dueFollowUps });
+    const fact = def.evaluate({ digest, yesterday, hour, config, dueFollowUps });
     if (fact) candidates.push({ key: def.key, kind: def.kind, salience: def.salience, fact });
   }
   if (candidates.length === 0) return { winner: null, alsoTrue: [], reason: "nothing" };

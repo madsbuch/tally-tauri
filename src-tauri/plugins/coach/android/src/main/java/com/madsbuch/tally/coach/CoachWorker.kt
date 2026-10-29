@@ -29,6 +29,7 @@ internal object CoachWorker {
     private const val DEFAULT_MODEL = "google/gemini-2.5-flash"
     private const val TIMEOUT_MS = 90_000
     private const val MIN_DAYS_FOR_TREND = 3
+    private const val RECAP_WINDOW_HOURS = 5
 
     /** Mirrors TRIGGERS in lib/coachTriggers.ts, highest salience first. */
     private data class Trigger(
@@ -42,13 +43,13 @@ internal object CoachWorker {
     )
 
     private val TRIGGERS = listOf(
-        Trigger("weekly_review", "Weekly review", 55, 6, true, 19, null),
+        Trigger("monday_review", "Weekly review", 55, 6, true, 7, null),
         Trigger("follow_up_due", "Following up", 50, 1, true, null, null),
         Trigger("target_drift", "Target looks wrong", 40, 7, true, null, 300.0),
         Trigger("sleep_debt", "Sleep debt building", 35, 5, true, null, 7.0),
         Trigger("protein_short", "Protein running low", 30, 5, true, null, 100.0),
         Trigger("streak_risk", "Streak about to break", 20, 1, false, 20, null),
-        Trigger("daily_closeout", "Daily close-out", 10, 1, true, 21, null),
+        Trigger("daily_recap", "Yesterday's recap", 10, 1, true, 7, null),
     )
 
     private data class Candidate(val trigger: Trigger, val fact: String)
@@ -77,21 +78,24 @@ internal object CoachWorker {
     private fun evaluate(
         t: Trigger,
         d: CoachDb.Digest,
+        y: CoachDb.Digest,
         hour: Int,
         config: JSONObject?,
         due: List<CoachDb.DueFollowUp>,
     ): String? = when (t.key) {
-        "weekly_review" ->
-            // Sunday only: the digest's rolling week is then exactly Mon–Sun.
-            if (!CoachDb.isSunday(d.day) || hour < hourOf(config, t) ||
-                (d.daysLogged == 0 && d.workouts == 0)
+        "monday_review" ->
+            // Monday only: yesterday was Sunday, so its rolling week is exactly Mon–Sun.
+            if (!CoachDb.isSunday(y.day) || hour < hourOf(config, t) ||
+                (y.daysLogged == 0 && y.workouts == 0)
             ) {
                 null
             } else {
-                "The week ends today — \"last 7 days\" in the digest is exactly this Monday-to-Sunday week, " +
-                    "with ${d.daysLogged} of 7 days logged. Give a short weekly review: what went " +
-                    "well, what slipped, and one concrete thing to focus on next week. Draw on the week's " +
-                    "numbers, not just today's."
+                "Last week (Monday to Sunday ${y.day}) just ended, with ${y.daysLogged} of 7 days " +
+                    "logged: avg net ${num(y.avgNet?.let { Math.round(it).toDouble() })} kcal, " +
+                    "avg protein ${num(y.avgProteinG?.let { Math.round(it).toDouble() })} g, " +
+                    "${y.workouts} workouts, avg sleep ${num(y.avgSleepH)} h. These are the week's " +
+                    "numbers — the digest's \"last 7 days\" runs through today instead. Give a short " +
+                    "weekly review: what went well, what slipped, and one concrete thing to focus on this week."
             }
         "follow_up_due" ->
             if (due.isEmpty()) {
@@ -145,18 +149,26 @@ internal object CoachWorker {
             } else {
                 "Nothing logged today and a ${d.streakCurrent}-day logging streak is about to break."
             }
-        "daily_closeout" ->
-            if (hour < hourOf(config, t) || d.todayItems == 0) {
+        "daily_recap" -> {
+            val from = hourOf(config, t)
+            // A morning thing: one opened at night about the day before is stale.
+            if (hour < from || hour >= from + RECAP_WINDOW_HOURS || y.todayItems == 0) {
                 null
             } else {
-                "End of ${d.day}. Close the day out: how it went against the target, " +
-                    "and one concrete thing for tomorrow."
+                "It's the morning of ${d.day}. Yesterday (${y.day}): ${num(y.todayKcalIn)} kcal in, " +
+                    "${num(y.todayKcalOut)} burned, net ${num(y.todayKcalIn - y.todayKcalOut)}" +
+                    (if (y.todayTarget != null) " against a ${num(y.todayTarget)} kcal target" else " (no target set)") +
+                    "; ${num(y.todayProteinG)} g protein; ${y.todayItems} items logged. Recap how " +
+                    "yesterday went against the target, and give one concrete thing to plan today around."
             }
+        }
         else -> null
     }
 
     private fun fmt(v: Double): String =
         if (v == Math.floor(v)) v.toLong().toString() else v.toString()
+
+    private fun num(v: Double?): String = if (v == null) "no data" else fmt(v)
 
     /**
      * Run the check-in. Returns what was sent, or a result with sent = false
@@ -170,6 +182,7 @@ internal object CoachWorker {
 
             val day = CoachDb.today()
             val digest = CoachDb.digest(db, day)
+            val yesterday = CoachDb.digest(db, CoachDb.shiftDay(day, -1))
             val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
 
             val configs: JSONObject = try {
@@ -185,7 +198,7 @@ internal object CoachWorker {
             for (t in TRIGGERS) {
                 val config = configs.optJSONObject(t.key)
                 if (!enabled(config, t)) continue
-                val fact = evaluate(t, digest, hour, config, due) ?: continue
+                val fact = evaluate(t, digest, yesterday, hour, config, due) ?: continue
                 candidates.add(Candidate(t, fact))
             }
             if (candidates.isEmpty()) return Result(false, null, null)

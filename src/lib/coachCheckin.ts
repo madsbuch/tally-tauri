@@ -21,6 +21,7 @@ import {
   loadTriggerHistory,
   occasionFor,
   recordTriggerRun,
+  shiftDay,
 } from "./coachTriggers";
 import type { Evaluation } from "./coachTriggers";
 import { markCheckinUnread } from "./coachInbox";
@@ -105,8 +106,9 @@ export async function runCoachCheckin(
 
     lastEvaluatedAt = now;
     const today = todayStr();
-    const [digest, triggers, history, due] = await Promise.all([
+    const [digest, yesterday, triggers, history, due] = await Promise.all([
       buildCoachDigest(today),
+      buildCoachDigest(shiftDay(today, -1)),
       loadCoachTriggers(),
       loadTriggerHistory(today),
       listDueFollowUps(today).catch(() => []),
@@ -114,6 +116,7 @@ export async function runCoachCheckin(
 
     const evaluation = evaluateTriggers({
       digest,
+      yesterday,
       hour: new Date().getHours(),
       triggers,
       dueFollowUps: due.map((m) => ({

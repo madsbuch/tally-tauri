@@ -11,12 +11,12 @@ import java.util.Calendar
  * The daily alarm, and the handful of settings the worker needs to survive a
  * reboot without the app being opened.
  *
- * Deliberately inexact (`setAndAllowWhileIdle`): a check-in at 21:00 ± a few
- * minutes is worth nothing less than one at exactly 21:00, and an exact alarm
+ * Deliberately inexact (`setAndAllowWhileIdle`): a check-in at 07:00 ± a few
+ * minutes is worth nothing less than one at exactly 07:00, and an exact alarm
  * costs battery and, on newer Android, a permission the app would have to
  * justify. `AllowWhileIdle` is the part that matters — without it Doze holds
- * the alarm until the phone is next picked up, which for an evening check-in
- * could be the following morning.
+ * the alarm until the phone is next picked up, which for a morning check-in
+ * could be well past the time it was meant to help plan.
  *
  * Android has no repeating allow-while-idle alarm, so each firing schedules
  * the next one.
@@ -51,7 +51,7 @@ internal object CoachSchedule {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_DB_PATH, null)
 
     private fun hour(ctx: Context) =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_HOUR, 21)
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_HOUR, 7)
 
     private fun minute(ctx: Context) =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_MINUTE, 0)

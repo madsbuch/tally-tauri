@@ -425,8 +425,12 @@ export const SETTING_KEYS = {
   coachStance: "coach_stance",
   /** JSON blob: which check-ins fire, when, and at what threshold. */
   coachTriggers: "coach_triggers",
-  /** Local hour (0-23) the scheduled Android check-in wakes up at. */
-  coachCheckinHour: "coach_checkin_hour",
+  /**
+   * Local hour (0-23) the scheduled Android check-in wakes up at. A new key
+   * since the check-in moved to the morning, so an hour saved for the old
+   * evening close-out doesn't keep waking it at night.
+   */
+  coachCheckinHour: "coach_morning_hour",
   /**
    * The clock-independent half of the coach prompt, cached for the Android
    * worker — it has no JavaScript to build one with (see lib/coach.ts).

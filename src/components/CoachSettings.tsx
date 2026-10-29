@@ -363,7 +363,7 @@ export default function CoachSettings() {
                         min={0}
                         max={23}
                         inputMode="numeric"
-                        value={c.hour ?? 21}
+                        value={c.hour ?? t.defaults.hour}
                         onChange={(e) =>
                           patchTrigger(t.key, { hour: parseInt(e.target.value, 10) })
                         }
