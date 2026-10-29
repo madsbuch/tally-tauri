@@ -403,6 +403,75 @@ export default function NutrientsPage() {
         </div>
       )}
 
+      {/* Energy — always food + workouts, unaffected by the source filter */}
+      {!loading && !loadError && totals && hasAnyData && (
+        <div className="card">
+          <div className="card-title">Energy{avgSuffix}</div>
+          <div className="stat-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="stat">
+              <div className="stat-value">{Math.round(eatenKcal)}</div>
+              <div className="stat-label">Eaten kcal</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{Math.round(burnedKcal)}</div>
+              <div className="stat-label">Burned kcal</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{Math.round(netKcal)}</div>
+              <div className="stat-label">Net kcal</div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            {MACRO_SPLIT.map((m, i) => {
+              const grams = (totals.food[m.key] ?? 0) / spanDays;
+              const pct =
+                macroKcalTotal > 0
+                  ? Math.round(((macroKcal[i] ?? 0) / macroKcalTotal) * 100)
+                  : 0;
+              return (
+                <div
+                  key={m.key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: i === 0 ? 0 : 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 56,
+                      flexShrink: 0,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    {m.label}
+                  </span>
+                  <MeterBar pct={pct} />
+                  <span
+                    style={{
+                      minWidth: 96,
+                      flexShrink: 0,
+                      textAlign: "right",
+                      fontSize: 12.5,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    <span style={{ fontWeight: 650 }}>
+                      {formatAmount(m.key, grams)}
+                    </span>{" "}
+                    <span className="faint">· {pct}%</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {!loading && !loadError && workouts && (
         <ExerciseGoals workouts={workouts} start={startDay} end={day} days={spanDays} label={navTitle} />
       )}
@@ -421,66 +490,139 @@ export default function NutrientsPage() {
 
       {!loading && !loadError && totals && hasAnyData && (
         <>
-          {/* Energy — always food + workouts, unaffected by the source filter */}
+          {/* Keto — food-based, unaffected by the source filter */}
           <div className="card">
-            <div className="card-title">Energy{avgSuffix}</div>
-            <div className="stat-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-              <div className="stat">
-                <div className="stat-value">{Math.round(eatenKcal)}</div>
-                <div className="stat-label">Eaten kcal</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              <div
+                className="card-title"
+                style={{ margin: 0, display: "flex", alignItems: "center", gap: 2 }}
+              >
+                Keto{avgSuffix}
+                <InfoButton title="Keto">
+                  <p>
+                    <strong>Net carbs</strong> are carbs minus fiber, counted from
+                    food only — supplements don&apos;t move this bar.
+                  </p>
+                  <p>
+                    Most people stay in ketosis under {carbLimit} g a day with fat
+                    around 70–80% of their energy. Your limit is in Settings.
+                  </p>
+                </InfoButton>
               </div>
-              <div className="stat">
-                <div className="stat-value">{Math.round(burnedKcal)}</div>
-                <div className="stat-label">Burned kcal</div>
-              </div>
-              <div className="stat">
-                <div className="stat-value">{Math.round(netKcal)}</div>
-                <div className="stat-label">Net kcal</div>
+              {netCarbsPerDay != null && (
+                <span className={`chip ${overCarbLimit ? "chip-warn" : "chip-accent"}`}>
+                  {overCarbLimit ? "Over carb limit" : "✓ In the keto zone"}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                style={{
+                  width: 68,
+                  flexShrink: 0,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: "var(--muted)",
+                }}
+              >
+                Net carbs
+              </span>
+              <MeterBar pct={netCarbPct ?? 0} warn={overCarbLimit} />
+              <span
+                style={{
+                  minWidth: 96,
+                  flexShrink: 0,
+                  textAlign: "right",
+                  fontSize: 12.5,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 650,
+                    color: overCarbLimit ? "var(--warn)" : undefined,
+                  }}
+                >
+                  {netCarbsPerDay != null ? formatAmount("carbs_g", netCarbsPerDay) : "—"}
+                </span>{" "}
+                <span className="faint">/ {carbLimit} g</span>
+              </span>
+            </div>
+
+            <div className="nutrient-grid" style={{ marginTop: 12 }}>
+              {(["carbs_g", "fiber_g", "sugar_g"] as NutrientKey[]).map((key) => {
+                const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
+                const value = foodPerDay[key];
+                return (
+                  <div key={key} className="nutrient-row">
+                    <span className="n-label">{def.label}</span>
+                    <span className="n-value">
+                      {value != null ? formatAmount(key, value) : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="nutrient-row">
+                <span className="n-label">Fat energy</span>
+                <span className="n-value">
+                  {fatEnergyPct != null ? `${fatEnergyPct}%` : "—"}
+                </span>
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }}>
-              {MACRO_SPLIT.map((m, i) => {
-                const grams = (totals.food[m.key] ?? 0) / spanDays;
-                const pct =
-                  macroKcalTotal > 0
-                    ? Math.round(((macroKcal[i] ?? 0) / macroKcalTotal) * 100)
-                    : 0;
+          </div>
+
+          {/* Source filter — recomputes the cards below */}
+          <div className="seg" style={{ margin: "12px 0 10px" }}>
+            {SOURCE_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                className={`seg-item${source === o.value ? " seg-item-active" : ""}`}
+                onClick={() => setSource(o.value)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Macros */}
+          <div className="card">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              <div className="card-title" style={{ margin: 0 }}>
+                Macros{avgSuffix}
+              </div>
+              {ratio != null && (
+                <span className={`chip ${ratio <= 4 ? "chip-accent" : "chip-warn"}`}>
+                  Ω6:Ω3 {ratio.toFixed(1)}:1
+                </span>
+              )}
+            </div>
+            <div className="nutrient-grid">
+              {MACRO_ROW_KEYS.map((key) => {
+                const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
+                const value = shown[key];
                 return (
-                  <div
-                    key={m.key}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      marginTop: i === 0 ? 0 : 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 56,
-                        flexShrink: 0,
-                        fontSize: 12.5,
-                        fontWeight: 600,
-                        color: "var(--muted)",
-                      }}
-                    >
-                      {m.label}
-                    </span>
-                    <MeterBar pct={pct} />
-                    <span
-                      style={{
-                        minWidth: 96,
-                        flexShrink: 0,
-                        textAlign: "right",
-                        fontSize: 12.5,
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      <span style={{ fontWeight: 650 }}>
-                        {formatAmount(m.key, grams)}
-                      </span>{" "}
-                      <span className="faint">· {pct}%</span>
+                  <div key={key} className="nutrient-row">
+                    <span className="n-label">{def.label}</span>
+                    <span className="n-value">
+                      {value != null ? formatAmount(key, value) : "—"}
                     </span>
                   </div>
                 );
@@ -488,201 +630,58 @@ export default function NutrientsPage() {
             </div>
           </div>
 
-          <details className="summary-details nutrition-details">
-            <summary>Nutrition details <span className="faint small">Keto, macros &amp; micronutrients</span></summary>
-            {/* Keto — food-based, unaffected by the source filter */}
-            <div className="card">
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <div
-                  className="card-title"
-                  style={{ margin: 0, display: "flex", alignItems: "center", gap: 2 }}
-                >
-                  Keto{avgSuffix}
-                  <InfoButton title="Keto">
-                    <p>
-                      <strong>Net carbs</strong> are carbs minus fiber, counted from
-                      food only — supplements don&apos;t move this bar.
-                    </p>
-                    <p>
-                      Most people stay in ketosis under {carbLimit} g a day with fat
-                      around 70–80% of their energy. Your limit is in Settings.
-                    </p>
-                  </InfoButton>
-                </div>
-                {netCarbsPerDay != null && (
-                  <span className={`chip ${overCarbLimit ? "chip-warn" : "chip-accent"}`}>
-                    {overCarbLimit ? "Over carb limit" : "✓ In the keto zone"}
-                  </span>
-                )}
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span
-                  style={{
-                    width: 68,
-                    flexShrink: 0,
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    color: "var(--muted)",
-                  }}
-                >
-                  Net carbs
-                </span>
-                <MeterBar pct={netCarbPct ?? 0} warn={overCarbLimit} />
-                <span
-                  style={{
-                    minWidth: 96,
-                    flexShrink: 0,
-                    textAlign: "right",
-                    fontSize: 12.5,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: 650,
-                      color: overCarbLimit ? "var(--warn)" : undefined,
-                    }}
-                  >
-                    {netCarbsPerDay != null ? formatAmount("carbs_g", netCarbsPerDay) : "—"}
-                  </span>{" "}
-                  <span className="faint">/ {carbLimit} g</span>
-                </span>
-              </div>
-
-              <div className="nutrient-grid" style={{ marginTop: 12 }}>
-                {(["carbs_g", "fiber_g", "sugar_g"] as NutrientKey[]).map((key) => {
-                  const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
-                  const value = foodPerDay[key];
-                  return (
-                    <div key={key} className="nutrient-row">
-                      <span className="n-label">{def.label}</span>
-                      <span className="n-value">
-                        {value != null ? formatAmount(key, value) : "—"}
-                      </span>
-                    </div>
-                  );
-                })}
-                <div className="nutrient-row">
-                  <span className="n-label">Fat energy</span>
-                  <span className="n-value">
-                    {fatEnergyPct != null ? `${fatEnergyPct}%` : "—"}
-                  </span>
-                </div>
-              </div>
-
+          {/* Micronutrients */}
+          <div className="card">
+            <div
+              className="card-title"
+              style={{ display: "flex", alignItems: "center", gap: 2 }}
+            >
+              Micronutrients{avgSuffix}
+              <InfoButton title="Micronutrients">
+                <p>
+                  Each bar compares your intake with an approximate adult daily
+                  reference — a rough yardstick, not a prescription.
+                </p>
+                <p>
+                  Over a range of days the bars show the average per day, so one
+                  unusual day doesn&apos;t swing them. Sodium turns amber when
+                  you go over rather than under.
+                </p>
+              </InfoButton>
             </div>
+            {microDefs.map((def, i) => (
+              <RefRow
+                key={def.key}
+                def={def}
+                value={shown[def.key]}
+                last={i === microDefs.length - 1}
+              />
+            ))}
+          </div>
 
-            {/* Source filter — recomputes the cards below */}
-            <div className="seg" style={{ margin: "12px 0 10px" }}>
-              {SOURCE_OPTIONS.map((o) => (
-                <button
-                  key={o.value}
-                  className={`seg-item${source === o.value ? " seg-item-active" : ""}`}
-                  onClick={() => setSource(o.value)}
-                >
-                  {o.label}
-                </button>
-              ))}
+          {/* Other compounds — creatine, caffeine, … */}
+          <div className="card">
+            <div
+              className="card-title"
+              style={{ display: "flex", alignItems: "center", gap: 2 }}
+            >
+              Other{avgSuffix}
+              <InfoButton title="Other compounds">
+                <p>
+                  The creatine bar tracks a common 5 g a day supplementation
+                  target, not a dietary reference — nobody eats that much of it.
+                </p>
+              </InfoButton>
             </div>
-
-            {/* Macros */}
-            <div className="card">
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <div className="card-title" style={{ margin: 0 }}>
-                  Macros{avgSuffix}
-                </div>
-                {ratio != null && (
-                  <span className={`chip ${ratio <= 4 ? "chip-accent" : "chip-warn"}`}>
-                    Ω6:Ω3 {ratio.toFixed(1)}:1
-                  </span>
-                )}
-              </div>
-              <div className="nutrient-grid">
-                {MACRO_ROW_KEYS.map((key) => {
-                  const def = NUTRIENT_DEFS.find((d) => d.key === key)!;
-                  const value = shown[key];
-                  return (
-                    <div key={key} className="nutrient-row">
-                      <span className="n-label">{def.label}</span>
-                      <span className="n-value">
-                        {value != null ? formatAmount(key, value) : "—"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Micronutrients */}
-            <div className="card">
-              <div
-                className="card-title"
-                style={{ display: "flex", alignItems: "center", gap: 2 }}
-              >
-                Micronutrients{avgSuffix}
-                <InfoButton title="Micronutrients">
-                  <p>
-                    Each bar compares your intake with an approximate adult daily
-                    reference — a rough yardstick, not a prescription.
-                  </p>
-                  <p>
-                    Over a range of days the bars show the average per day, so one
-                    unusual day doesn&apos;t swing them. Sodium turns amber when
-                    you go over rather than under.
-                  </p>
-                </InfoButton>
-              </div>
-              {microDefs.map((def, i) => (
-                <RefRow
-                  key={def.key}
-                  def={def}
-                  value={shown[def.key]}
-                  last={i === microDefs.length - 1}
-                />
-              ))}
-            </div>
-
-            {/* Other compounds — creatine, caffeine, … */}
-            <div className="card">
-              <div
-                className="card-title"
-                style={{ display: "flex", alignItems: "center", gap: 2 }}
-              >
-                Other{avgSuffix}
-                <InfoButton title="Other compounds">
-                  <p>
-                    The creatine bar tracks a common 5 g a day supplementation
-                    target, not a dietary reference — nobody eats that much of it.
-                  </p>
-                </InfoButton>
-              </div>
-              {otherDefs.map((def, i) => (
-                <RefRow
-                  key={def.key}
-                  def={def}
-                  value={shown[def.key]}
-                  last={i === otherDefs.length - 1}
-                />
-              ))}
-            </div>
-          </details>
+            {otherDefs.map((def, i) => (
+              <RefRow
+                key={def.key}
+                def={def}
+                value={shown[def.key]}
+                last={i === otherDefs.length - 1}
+              />
+            ))}
+          </div>
         </>
       )}
     </div>

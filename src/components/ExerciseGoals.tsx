@@ -69,20 +69,17 @@ export default function ExerciseGoals({ workouts, start, end, days, label }: {
           <button className="btn btn-sm" onClick={() => setReload((n) => n + 1)}>Retry</button>
         </div>
       ) : weeklyTarget == null ? <p className="muted small">Loading exercise…</p> : (
-        <details className="summary-details exercise-goal-details">
-          <summary>
-            <div className="summary-section-heading">
-              <strong>Zone 2</strong>
-              <span>{fmt(progress.minutes)} / {fmt(target)} min</span>
-            </div>
-            <div className="exercise-meter" role="progressbar" aria-label="Zone 2 goal" aria-valuenow={Math.min(target, progress.minutes)} aria-valuemin={0} aria-valuemax={target} aria-valuetext={`${fmt(progress.minutes)} of ${fmt(target)} minutes`}>
-              <div style={{ width: `${progress.percent}%` }} />
-            </div>
-            <div className="summary-section-heading small muted">
-              <span>{progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}</span>
-              <span className="faint">Details &amp; target</span>
-            </div>
-          </summary>
+        <div className="exercise-goal-body">
+          <div className="summary-section-heading">
+            <strong>Zone 2</strong>
+            <span>{fmt(progress.minutes)} / {fmt(target)} min</span>
+          </div>
+          <div className="exercise-meter" role="progressbar" aria-label="Zone 2 goal" aria-valuenow={Math.min(target, progress.minutes)} aria-valuemin={0} aria-valuemax={target} aria-valuetext={`${fmt(progress.minutes)} of ${fmt(target)} minutes`}>
+            <div style={{ width: `${progress.percent}%` }} />
+          </div>
+          <div className="small muted">
+            {progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}
+          </div>
           <p className="faint small">{start} – {end} · Automatically totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
           {progress.unknown > 0 && <p className="muted small">{progress.unknown} diary workout{progress.unknown === 1 ? " has" : "s have"} no Zone 2 information.</p>}
           {workouts.length === 0 ? <p className="muted small">Log a workout in the Diary to get started.</p> : (
@@ -104,7 +101,7 @@ export default function ExerciseGoals({ workouts, start, end, days, label }: {
             {days === 24 && <p className="faint small">The 24-day target is four times your 7-day target.</p>}
             {saveError && <p className="error-text" role="alert">{saveError}</p>}
           </form>
-        </details>
+        </div>
       )}
     </section>
   );
