@@ -22,6 +22,7 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "sugar_g", label: "Sugar", unit: "g", group: "macro", dp: 1 },
   { key: "omega3_g", label: "Omega-3", unit: "g", group: "macro", dp: 2 },
   { key: "omega6_g", label: "Omega-6", unit: "g", group: "macro", dp: 2 },
+  { key: "alcohol_g", label: "Alcohol", unit: "g", group: "macro", dp: 1 },
   { key: "sodium_mg", label: "Sodium", unit: "mg", group: "micro", dp: 0 },
   { key: "potassium_mg", label: "Potassium", unit: "mg", group: "micro", dp: 0 },
   { key: "calcium_mg", label: "Calcium", unit: "mg", group: "micro", dp: 0 },

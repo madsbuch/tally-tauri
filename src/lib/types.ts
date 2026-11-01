@@ -11,6 +11,8 @@ export type NutrientKey =
   | "sugar_g"
   | "omega3_g"
   | "omega6_g"
+  /** Grams of ethanol (7 kcal/g). */
+  | "alcohol_g"
   // Micros
   | "sodium_mg"
   | "potassium_mg"

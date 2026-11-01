@@ -121,7 +121,14 @@ function iconSchema(kind: "meal" | "workout"): Record<string, unknown> {
 function nutrientsSchema(): Record<string, unknown> {
   const props: Record<string, unknown> = {};
   for (const d of NUTRIENT_DEFS) {
-    props[d.key] = { type: "number", description: `${d.label} in ${d.unit}` };
+    props[d.key] = {
+      type: "number",
+      description:
+        d.key === "alcohol_g"
+          ? "Grams of ethanol, for alcoholic drinks: ml × ABV × 0.789 (33 cl of 5% beer ≈ 13 g, " +
+            "15 cl of 12% wine ≈ 14 g, 4 cl of 40% spirits ≈ 13 g). Its 7 kcal/g are part of calories."
+          : `${d.label} in ${d.unit}`,
+    };
   }
   return {
     type: "object",
@@ -601,7 +608,7 @@ function buildSystemPrompt(
     "- Supplements are food: \"800mg fish oil\", \"2 tsp psyllium husk\", \"magnesium\" → log_meal with icon \"supplement\", titled by what it is and how much (\"Fish oil 800 mg\"), and `nutrients` for the AMOUNT TAKEN — e.g. the omega-3 in 800 mg of fish oil, the fiber in the husk, the magnesium in the dose. A supplement photo or label shows the dose; with no amount given, assume one typical serving and say so in the description. \"The usual\"/\"same as yesterday\" → repeat_meal like any food.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
-    "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
+    "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate. Any alcoholic drink gets alcohol_g (grams of ethanol), and its calories include the alcohol's.",
     "- Always pass `icon` on log_meal/log_workout: it is what the user sees in the timeline when there is no photo. Pick the most specific match (a cappuccino is \"coffee\", not \"meal\").",
     "- After your final tool call, reply with one short plain-text sentence of confirmation.",
     "- If there is nothing usable to record, call no tools and explain why in one plain-text sentence.",

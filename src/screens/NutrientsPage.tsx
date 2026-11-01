@@ -82,12 +82,15 @@ const MACRO_ROW_KEYS: NutrientKey[] = [
   "sugar_g",
   "omega3_g",
   "omega6_g",
+  "alcohol_g",
 ];
 
 const MACRO_SPLIT: { key: NutrientKey; label: string; kcalPerG: number }[] = [
   { key: "protein_g", label: "Protein", kcalPerG: 4 },
   { key: "carbs_g", label: "Carbs", kcalPerG: 4 },
   { key: "fat_g", label: "Fat", kcalPerG: 9 },
+  // Last, so the indices above stay put; only drawn when there was any.
+  { key: "alcohol_g", label: "Alcohol", kcalPerG: 7 },
 ];
 
 const HAIRLINE = "1px solid color-mix(in srgb, var(--border) 55%, transparent)";
@@ -411,6 +414,7 @@ export default function NutrientsPage() {
           <div style={{ marginTop: 14 }}>
             {MACRO_SPLIT.map((m, i) => {
               const grams = (totals.food[m.key] ?? 0) / spanDays;
+              if (m.key === "alcohol_g" && grams <= 0) return null;
               const pct =
                 macroKcalTotal > 0
                   ? Math.round(((macroKcal[i] ?? 0) / macroKcalTotal) * 100)

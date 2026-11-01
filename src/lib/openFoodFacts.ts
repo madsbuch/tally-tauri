@@ -199,6 +199,8 @@ const OFF_IDS: Record<NutrientKey, string | null> = {
   sugar_g: "sugars",
   omega3_g: "omega-3-fat",
   omega6_g: "omega-6-fat",
+  // OFF's alcohol field is % vol, not grams — converted below.
+  alcohol_g: null,
   sodium_mg: "sodium",
   potassium_mg: "potassium",
   calcium_mg: "calcium",
@@ -230,6 +232,7 @@ const OFF_IDS: Record<NutrientKey, string | null> = {
 };
 
 const KJ_PER_KCAL = 4.184;
+const ETHANOL_G_PER_ML = 0.789;
 
 function num(v: unknown): number | null {
   const n = typeof v === "string" ? parseFloat(v) : v;
@@ -257,6 +260,11 @@ export function mapOffNutriments(raw: unknown): Nutrients {
     }
     if (v == null && def.key === "folate_ug") {
       v = num(n["vitamin-b9_100g"]);
+    }
+    // % vol → grams of ethanol per 100 ml (ethanol is 0.789 g/ml).
+    if (def.key === "alcohol_g") {
+      const vol = num(n["alcohol_100g"]) ?? num(n["alcohol"]);
+      v = vol != null && vol <= 100 ? vol * ETHANOL_G_PER_ML : null;
     }
     if (v != null && v >= 0) out[def.key] = v * unitFactor(def.unit);
   }
