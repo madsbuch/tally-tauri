@@ -22,6 +22,7 @@ import {
   listDocuments,
   listFoodEntriesForRange,
   listBloodReadingsForRange,
+  listIncompleteDays,
   listPerformanceLogsForRange,
   listHealthMetricsForRange,
   listSleepForRange,
@@ -117,10 +118,17 @@ export interface CoachDigest {
     /** Daily protein goal in grams. */
     proteinTarget: number;
     itemsLogged: number;
+    /** They marked today as incompletely tracked. */
+    incomplete: boolean;
   };
   week: {
-    /** Days in the last 7 with at least one meal logged. */
+    /**
+     * Days in the last 7 with at least one meal logged and NOT marked as
+     * incompletely tracked — the days the averages below are taken over.
+     */
     daysLogged: number;
+    /** Days in the last 7 they marked as incompletely tracked, oldest first. */
+    incompleteDays: string[];
     avgNet: number | null;
     avgProteinG: number | null;
     workouts: number;
@@ -193,7 +201,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, proteinTarget, zone2Target, stateLogs, readings, perfLogs] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, proteinTarget, zone2Target, stateLogs, readings, perfLogs, incomplete] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -207,6 +215,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       listStateLogsForRange(weekStart, day).catch(() => []),
       listBloodReadingsForRange(weekStart, day).catch(() => []),
       listPerformanceLogsForRange(shiftDay(day, -89), day).catch(() => []),
+      listIncompleteDays(weekStart, day).catch(() => new Set<string>()),
     ]);
 
   // Logs come newest first, so the first sighting of a metric is its latest.
@@ -282,7 +291,9 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
     const d = dayOfRow(w, w.performed_at);
     outByDay.set(d, (outByDay.get(d) ?? 0) + w.calories_burned);
   }
-  const loggedDays = [...inByDay.keys()];
+  // A day they marked as incompletely tracked would drag the averages down
+  // with meals that were eaten but never logged, so it's left out of them.
+  const loggedDays = [...inByDay.keys()].filter((d) => !incomplete.has(d));
   const nets = loggedDays.map((d) => (inByDay.get(d) ?? 0) - (outByDay.get(d) ?? 0));
   const proteins = loggedDays.map((d) => proteinByDay.get(d) ?? 0);
 
@@ -319,9 +330,11 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       proteinG: round(proteinG),
       proteinTarget: round(proteinTarget),
       itemsLogged: todayEntries.length + todayWorkouts.length,
+      incomplete: incomplete.has(day),
     },
     week: {
       daysLogged: loggedDays.length,
+      incompleteDays: [...incomplete].sort(),
       avgNet: avg(nets) == null ? null : round(avg(nets) as number),
       avgProteinG: avg(proteins) == null ? null : round(avg(proteins) as number),
       workouts: workouts.length,
@@ -377,9 +390,19 @@ export function renderCoachDigest(d: CoachDigest): string {
     `Today (${d.day}): ${d.today.kcalIn} kcal in, ${d.today.kcalOut} burned, net ${d.today.net}` +
       (d.today.target != null ? ` against a ${d.today.target} kcal target` : " (no target set)") +
       `; ${d.today.proteinG} g protein against a ${d.today.proteinTarget} g daily goal; ${d.today.itemsLogged} items logged.`,
-    `Last 7 days: ${d.week.daysLogged}/7 days with food logged, avg net ${na(d.week.avgNet, " kcal")}, ` +
+    `Last 7 days: ${d.week.daysLogged}/7 fully tracked days with food logged, avg net ${na(d.week.avgNet, " kcal")}, ` +
       `avg protein ${na(d.week.avgProteinG, " g")} (goal ${d.today.proteinTarget} g/day), ${d.week.workouts} workouts, ` +
       `avg sleep ${na(d.week.avgSleepH, " h")}, avg steps ${na(d.week.avgSteps)}.`,
+    ...(d.today.incomplete
+      ? ["Today is marked as INCOMPLETELY TRACKED: they know not everything is logged, so today's numbers are a floor, not the day."]
+      : []),
+    ...(d.week.incompleteDays.length > 0
+      ? [
+          `Marked as incompletely tracked in the last 7 days: ${d.week.incompleteDays.join(", ")}. ` +
+            "These are left out of the averages above. Food, workouts or anything else may be missing on them — " +
+            "don't read a low total on such a day as a deficit, a slip or a missed goal.",
+        ]
+      : []),
     `Zone 2, last 7 days incl. today: ${d.week.zone2Min} of a ${d.week.zone2Target} min goal per 7 days` +
       (d.week.zone2Unknown > 0
         ? ` (${d.week.zone2Unknown} workout${d.week.zone2Unknown === 1 ? "" : "s"} with no Zone 2 info — not counted)`
@@ -571,6 +594,7 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "Keep this current as you go: `remember` something durable the moment it comes up, `update_memory` when a commitment is met or abandoned, `forget` what turned out to be wrong. Never record anything they told you to drop.",
     "When they mention something worth revisiting — a symptom, a change they're trying, a plan with a horizon — remember it WITH a follow-up. That's what makes you a coach rather than a diary: you come back to it unprompted.",
     "A reminder fires once and is then cleared. When you follow one up, close it out: `forget` it if it's settled, `update_memory` with a new follow_up_in_days if it still needs watching.",
+    "Some days they mark as incompletely tracked (incomplete_days; query_calories flags them): they forgot to log or logged only part of it. Never read such a day's low numbers as a deficit, a slip or a missed goal, and leave it out when you judge a trend. You can ask about a day that looks unusually empty, but they decide whether to mark it.",
     "Context about ONE entry goes on that entry with `annotate_entry` — a high glucose reading taken right after a coffee, a slow run the day after a bad night — so it is there the next time anyone looks at that entry. A pattern that keeps showing up across entries goes in memory with `remember`. Check an entry's existing notes before adding one, and never annotate just to restate its numbers.",
     "",
     "## Their document library",

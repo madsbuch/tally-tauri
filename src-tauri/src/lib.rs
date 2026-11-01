@@ -144,6 +144,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0021_entry_notes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 23,
+            description: "incomplete_days",
+            sql: include_str!("../migrations/0022_incomplete_days.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

@@ -1766,6 +1766,8 @@ button.rule-row {
 .goal-over { color: var(--warn); }
 
 .zone2-toggle { justify-content: space-between; }
+.day-incomplete-toggle { margin-top: 16px; }
+.day-incomplete-chip { margin-left: 8px; vertical-align: middle; font-size: 11px; }
 .zone2-toggle:disabled { cursor: default; opacity: 0.6; }
 .zone2-toggle-label { display: block; font-weight: 600; }
 .zone2-toggle-help { display: block; margin-top: 4px; }

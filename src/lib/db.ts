@@ -15,6 +15,7 @@ import {
   fasts,
   foodEntries,
   healthMetrics,
+  incompleteDays,
   lifeRuleLogs,
   lifeRules,
   performanceLogs,
@@ -1624,6 +1625,34 @@ export async function listPerformanceLogsForRange(
     .where(and(gte(performanceLogs.day, startDay), lte(performanceLogs.day, endDay)))
     .orderBy(desc(performanceLogs.measuredAt));
   return withStats(rows);
+}
+
+// ---------------------------------------------------------------------------
+// Incompletely tracked days
+// ---------------------------------------------------------------------------
+
+/** Days in `startDay`..`endDay` marked as incompletely tracked. */
+export async function listIncompleteDays(startDay: string, endDay: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ day: incompleteDays.day })
+    .from(incompleteDays)
+    .where(and(gte(incompleteDays.day, startDay), lte(incompleteDays.day, endDay)));
+  return new Set(rows.map((r) => r.day));
+}
+
+export async function isDayIncomplete(day: string): Promise<boolean> {
+  return (await listIncompleteDays(day, day)).has(day);
+}
+
+export async function setDayIncomplete(day: string, incomplete: boolean): Promise<void> {
+  if (incomplete) {
+    await db
+      .insert(incompleteDays)
+      .values({ day, updatedAt: new Date().toISOString() })
+      .onConflictDoNothing();
+  } else {
+    await db.delete(incompleteDays).where(eq(incompleteDays.day, day));
+  }
 }
 
 // ---------------------------------------------------------------------------

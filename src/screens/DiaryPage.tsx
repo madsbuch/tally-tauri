@@ -47,6 +47,8 @@ import {
   getGlucoseUnit,
   listBloodReadingsForRange,
   listPerformanceLogsForRange,
+  isDayIncomplete,
+  setDayIncomplete,
   listCapturesForDay,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
@@ -951,6 +953,9 @@ export default function DiaryPage() {
   const [states, setStates] = useState<StateLog[]>([]);
   const [readings, setReadings] = useState<BloodReading[]>([]);
   const [perfLogs, setPerfLogs] = useState<PerformanceLog[]>([]);
+  /** They marked this day as incompletely tracked (the coach reads this). */
+  const [incomplete, setIncomplete] = useState(false);
+  const [incompleteSaving, setIncompleteSaving] = useState(false);
   const [glucoseUnit, setGlucoseUnit] = useState<GlucoseUnit>("mmol");
   const [ruleLogs, setRuleLogs] = useState<LifeRuleLog[]>([]);
   const [newRules, setNewRules] = useState<LifeRule[]>([]);
@@ -1078,8 +1083,9 @@ export default function DiaryPage() {
       listBloodReadingsForRange(day, day).catch(() => [] as BloodReading[]),
       getGlucoseUnit().catch((): GlucoseUnit => "mmol"),
       listPerformanceLogsForRange(day, day).catch(() => [] as PerformanceLog[]),
+      isDayIncomplete(day).catch(() => false),
     ])
-      .then(([e, w, s, c, sl, st, rl, nr, br, gu, pl]) => {
+      .then(([e, w, s, c, sl, st, rl, nr, br, gu, pl, inc]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
@@ -1091,6 +1097,7 @@ export default function DiaryPage() {
         setReadings(br);
         setGlucoseUnit(gu);
         setPerfLogs(pl);
+        setIncomplete(inc);
         setRuleLogs(rl);
         setNewRules(nr);
       })
@@ -1355,7 +1362,10 @@ export default function DiaryPage() {
         >
           ‹
         </button>
-        <div className="day-nav-title">{dayTitle(day)}</div>
+        <div className="day-nav-title">
+          {dayTitle(day)}
+          {incomplete && <span className="chip chip-warn day-incomplete-chip">Incomplete</span>}
+        </div>
         <button
           className="btn btn-sm"
           onClick={() => setDay((d) => shiftDay(d, 1))}
@@ -1979,6 +1989,38 @@ export default function DiaryPage() {
               })}
             </div>
           )}
+
+          {/* Said once at the end of the day's list: the coach reads it, and
+              leaves the day out of its averages. */}
+          <button
+            className="info-row zone2-toggle day-incomplete-toggle"
+            role="switch"
+            aria-checked={incomplete}
+            disabled={incompleteSaving}
+            onClick={() => {
+              const next = !incomplete;
+              setIncompleteSaving(true);
+              setDayIncomplete(day, next)
+                .then(() => {
+                  setIncomplete(next);
+                  notifyDiaryChanged();
+                })
+                .catch((err: unknown) => setLoadError(errMsg(err)))
+                .finally(() => setIncompleteSaving(false));
+            }}
+          >
+            <span>
+              <span className="zone2-toggle-label">Incomplete tracking</span>
+              <span className="small muted zone2-toggle-help">
+                {incomplete
+                  ? "Not everything is logged — the coach won't judge this day by its totals"
+                  : "Turn on if you forgot to log some of this day"}
+              </span>
+            </span>
+            <span className={`zone2-switch${incomplete ? " zone2-switch-on" : ""}`} aria-hidden="true">
+              <span />
+            </span>
+          </button>
         </>
       )}
 

@@ -282,7 +282,15 @@ internal object CoachDb {
         val proteinTarget = setting(db, "protein_target_g")?.toDoubleOrNull()
             ?.takeIf { !it.isNaN() && it > 0 } ?: DEFAULT_PROTEIN_TARGET_G
 
-        val loggedDays = kcalByDay.keys.toList()
+        // Days they marked as incompletely tracked: out of the averages, as in
+        // buildCoachDigest() — missing meals would otherwise read as a deficit.
+        val incomplete = sortedSetOf<String>()
+        db.rawQuery(
+            "SELECT day FROM incomplete_days WHERE day BETWEEN ? AND ?",
+            arrayOf(weekStart, day),
+        ).use { c -> while (c.moveToNext()) incomplete.add(c.getString(0)) }
+
+        val loggedDays = kcalByDay.keys.filter { it !in incomplete }
         val nets = loggedDays.map { (kcalByDay[it] ?: 0.0) - (burnedByDay[it] ?: 0.0) }
         val proteins = loggedDays.map { proteinByDay[it] ?: 0.0 }
 
@@ -410,7 +418,9 @@ internal object CoachDb {
             todayTarget = target?.let { Math.round(it).toDouble() },
             proteinTarget = Math.round(proteinTarget).toDouble(),
             todayItems = todayItems,
+            todayIncomplete = day in incomplete,
             daysLogged = loggedDays.size,
+            incompleteDays = incomplete.toList(),
             avgNet = nets.averageOrNull(),
             avgProteinG = proteins.averageOrNull(),
             workouts = workouts,
@@ -511,7 +521,12 @@ internal object CoachDb {
         /** Daily protein goal in grams. */
         val proteinTarget: Double,
         val todayItems: Int,
+        /** They marked this day as incompletely tracked. */
+        val todayIncomplete: Boolean,
+        /** Fully tracked days with food logged — what the averages are over. */
         val daysLogged: Int,
+        /** Days in the last 7 marked as incompletely tracked, oldest first. */
+        val incompleteDays: List<String>,
         val avgNet: Double?,
         val avgProteinG: Double?,
         val workouts: Int,
@@ -553,10 +568,23 @@ internal object CoachDb {
                     "$todayItems items logged.",
             )
             lines.add(
-                "Last 7 days: $daysLogged/7 days with food logged, avg net ${num(avgNet)} kcal, " +
+                "Last 7 days: $daysLogged/7 fully tracked days with food logged, avg net ${num(avgNet)} kcal, " +
                     "avg protein ${num(avgProteinG)} g (goal ${num(proteinTarget)} g/day), $workouts workouts, " +
                     "avg sleep ${num(avgSleepH)} h, avg steps ${num(avgSteps)}.",
             )
+            if (todayIncomplete) {
+                lines.add(
+                    "Today is marked as INCOMPLETELY TRACKED: they know not everything is logged, " +
+                        "so today's numbers are a floor, not the day.",
+                )
+            }
+            if (incompleteDays.isNotEmpty()) {
+                lines.add(
+                    "Marked as incompletely tracked in the last 7 days: ${incompleteDays.joinToString(", ")}. " +
+                        "These are left out of the averages above. Food, workouts or anything else may be " +
+                        "missing on them — don't read a low total on such a day as a deficit, a slip or a missed goal.",
+                )
+            }
             if (weightKg != null) {
                 var l = "Weight: ${num(weightKg)} kg"
                 if (weight7dKg != null) l += ", ${if (weight7dKg >= 0) "+" else ""}${num(weight7dKg)} kg over 7 days"

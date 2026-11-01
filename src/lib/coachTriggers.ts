@@ -258,7 +258,10 @@ export const TRIGGERS: TriggerDef[] = [
         `${y.kcalOut} burned, net ${y.net}` +
         (y.target != null ? ` against a ${y.target} kcal target` : " (no target set)") +
         `; ${y.proteinG} g protein against a ${y.proteinTarget} g goal; ${y.itemsLogged} items logged. ` +
-        `Recap how yesterday went against both goals, and give one concrete thing to plan today around.`
+        (y.incomplete
+          ? "They marked yesterday as incompletely tracked, so these numbers are only part of the day: " +
+            "don't grade it against the goals. Recap what was logged lightly, and give one concrete thing to plan today around."
+          : "Recap how yesterday went against both goals, and give one concrete thing to plan today around.")
       );
     },
   },

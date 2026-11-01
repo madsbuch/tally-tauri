@@ -589,3 +589,16 @@ export const entryNotes = sqliteTable(
   },
   (t) => [index("idx_entry_notes_entry").on(t.entryKind, t.entryId)],
 );
+
+/**
+ * Days the user marked as incompletely tracked: they forgot to log, or only
+ * logged some of it. A row's presence is the mark. The coach leaves these
+ * days out of its averages and doesn't judge them as if they were complete —
+ * a 900 kcal day that was really a 2,400 kcal day with lunch missing would
+ * otherwise read as a deficit worth praising.
+ */
+export const incompleteDays = sqliteTable("incomplete_days", {
+  /** Local day "YYYY-MM-DD". */
+  day: text("day").primaryKey(),
+  updatedAt: text("updated_at").notNull(),
+});
