@@ -338,6 +338,13 @@ export default function NutrientsPage() {
     : endsToday
       ? `Last ${spanDays} days`
       : `${shortDate(startDay)} – ${shortDate(day)}`;
+  // The exact days a multi-day span covers, so "last 7 days" is never a guess
+  // about whether today counts. It does: the span ends on the shown day.
+  const rangeText = !multi
+    ? null
+    : endsToday
+      ? `${shortDate(startDay)} – ${shortDate(day)} · includes today`
+      : `${shortDate(startDay)} – ${shortDate(day)}`;
 
   return (
     <div className="page">
@@ -369,7 +376,10 @@ export default function NutrientsPage() {
         >
           ‹
         </button>
-        <div className="day-nav-title">{navTitle}</div>
+        <div className="day-nav-title">
+          {navTitle}
+          {rangeText && endsToday && <div className="day-nav-sub">{rangeText}</div>}
+        </div>
         <button
           className="btn btn-sm"
           onClick={() =>
@@ -473,7 +483,7 @@ export default function NutrientsPage() {
       )}
 
       {!loading && !loadError && workouts && (
-        <ExerciseGoals workouts={workouts} start={startDay} end={day} days={spanDays} label={navTitle} />
+        <ExerciseGoals workouts={workouts} days={spanDays} label={navTitle} rangeText={rangeText ?? dayTitle(day)} />
       )}
 
       <h2 className="section-title">Nutrition</h2>

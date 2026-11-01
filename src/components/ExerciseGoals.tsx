@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import { getSetting, setSetting } from "../lib/db";
-import { DEFAULT_ZONE2_TARGET, exerciseProgress, exerciseTarget, diaryZone2Minutes } from "../lib/exerciseGoals";
-import { useGo } from "../lib/navigation";
+import { DEFAULT_ZONE2_TARGET, exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
 import { SETTING_KEYS } from "../lib/types";
 import type { Workout } from "../lib/types";
 
-/** Shares the Summary range and the exact workout rows used for its energy totals. */
-export default function ExerciseGoals({ workouts, start, end, days, label }: {
+/**
+ * A summary of the Zone 2 goal over the Summary range, from the same workout
+ * rows its energy totals use. The workouts themselves live in the Diary.
+ */
+export default function ExerciseGoals({ workouts, days, label, rangeText }: {
   workouts: Workout[];
-  start: string;
-  end: string;
   days: number;
   label: string;
+  /** The days the range covers, written out. */
+  rangeText: string;
 }) {
-  const go = useGo();
   const [weeklyTarget, setWeeklyTarget] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [reload, setReload] = useState(0);
@@ -80,18 +81,9 @@ export default function ExerciseGoals({ workouts, start, end, days, label }: {
           <div className="small muted">
             {progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}
           </div>
-          <p className="faint small">{start} – {end} · Automatically totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
+          <p className="faint small">{rangeText} · Totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
           {progress.unknown > 0 && <p className="muted small">{progress.unknown} diary workout{progress.unknown === 1 ? " has" : "s have"} no Zone 2 information.</p>}
-          {workouts.length === 0 ? <p className="muted small">Log a workout in the Diary to get started.</p> : (
-            <div className="list">
-              {workouts.map((w) => (
-                <button key={w.id} className="exercise-workout" onClick={() => go(`/entry/workout/${w.id}`)}>
-                  <span><strong>{w.title}</strong><span className="faint small">{w.day}</span></span>
-                  <span className="muted small">{diaryZone2Minutes(w) == null ? "No zone data" : `${fmt(diaryZone2Minutes(w)!)} min`}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {workouts.length === 0 && <p className="muted small">Log a workout in the Diary to get started.</p>}
           <form onSubmit={(e) => void saveTarget(e)} style={{ marginTop: 16 }}>
             <label className="label" htmlFor="zone2-target">Target per 7 days (minutes)</label>
             <div className="btn-row">
