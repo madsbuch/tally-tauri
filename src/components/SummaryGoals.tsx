@@ -25,7 +25,7 @@ function GoalRow({
   value: number;
   target: number;
   unit: string;
-  status: string;
+  status?: string;
   /** Past the target and that's bad (a calorie budget), not good. */
   over?: boolean;
 }) {
@@ -49,7 +49,7 @@ function GoalRow({
       >
         <div style={{ width: `${pct}%` }} />
       </div>
-      <div className={`small ${over ? "goal-over" : "muted"}`}>{status}</div>
+      {status && <div className={`small ${over ? "goal-over" : "muted"}`}>{status}</div>}
     </div>
   );
 }
@@ -134,11 +134,6 @@ export default function SummaryGoals({
               target={targets.kcal}
               unit="kcal"
               over={netKcalPerDay > targets.kcal}
-              status={
-                netKcalPerDay > targets.kcal
-                  ? `${fmt(netKcalPerDay - targets.kcal)} kcal over`
-                  : `${fmt(targets.kcal - netKcalPerDay)} kcal left`
-              }
             />
           )}
           <GoalRow
