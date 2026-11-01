@@ -1758,6 +1758,9 @@ button.rule-row {
 .exercise-goal-body { padding-top: 16px; }
 .exercise-meter { height: 8px; border-radius: 999px; overflow: hidden; background: var(--bg-elev); margin: 10px 0 8px; }
 .exercise-meter > div { height: 100%; background: var(--accent); border-radius: inherit; }
+.goal-row + .goal-row { margin-top: 16px; }
+.goal-meter-over > div { background: var(--warn); }
+.goal-over { color: var(--warn); }
 
 .zone2-toggle { justify-content: space-between; }
 .zone2-toggle:disabled { cursor: default; opacity: 0.6; }

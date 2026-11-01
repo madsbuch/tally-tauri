@@ -8,7 +8,7 @@ import {
 } from "../lib/db";
 import { onAppResume } from "../lib/appLifecycle";
 import { onDiaryChanged } from "../lib/agent";
-import ExerciseGoals from "../components/ExerciseGoals";
+import SummaryGoals from "../components/SummaryGoals";
 import InfoButton from "../components/InfoButton";
 import {
   NUTRIENT_DEFS,
@@ -463,7 +463,14 @@ export default function NutrientsPage() {
       )}
 
       {!loading && !loadError && workouts && (
-        <ExerciseGoals workouts={workouts} days={spanDays} label={navTitle} />
+        <SummaryGoals
+          workouts={workouts}
+          netKcalPerDay={netKcal}
+          proteinPerDay={(totals?.all.protein_g ?? 0) / spanDays}
+          day={day}
+          days={spanDays}
+          label={navTitle}
+        />
       )}
 
       <h2 className="section-title">Nutrition</h2>

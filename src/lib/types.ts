@@ -443,6 +443,8 @@ export const SETTING_KEYS = {
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
   zone2WeeklyTarget: "zone2_weekly_target",
+  /** Daily protein goal in grams (DEFAULT_PROTEIN_TARGET_G when absent). */
+  proteinTarget: "protein_target_g",
   healthConnectLastSyncAt: "health_connect_last_sync_at",
   /** Set once a sync ran WITH history permission — gates the one-time backfill. */
   healthConnectHistorySynced: "health_connect_history_synced",
@@ -487,6 +489,8 @@ export const SETTING_KEYS = {
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
 export const DEFAULT_FAST_HOURS = 16;
+/** Daily protein goal, in grams, until another is stored. */
+export const DEFAULT_PROTEIN_TARGET_G = 150;
 /**
  * Entries at or above this many kcal count as a meal for fasting purposes:
  * they anchor new fasts and break an active one. Below it (black coffee,
