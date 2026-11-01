@@ -1762,6 +1762,9 @@ button.rule-row {
 .exercise-meter { height: 8px; border-radius: 999px; overflow: hidden; background: var(--bg-elev); margin: 10px 0 8px; }
 .exercise-meter > div { height: 100%; background: var(--accent); border-radius: inherit; }
 .goal-row + .goal-row { margin-top: 16px; }
+/* Goal rows: smaller than the card title, and the figures never wrap. */
+.goal-name { font-size: 14px; font-weight: 600; min-width: 0; }
+.goal-value { font-size: 13.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .balance { position: relative; height: 10px; margin: 12px 0 6px; border-radius: 999px; background: var(--bg-elev); }
 /* The side you shouldn't be on: past the target for a maximum, short of it for a minimum. */
 .balance-bad { position: absolute; top: 0; bottom: 0; width: 50%; background: color-mix(in srgb, var(--warn) 28%, transparent); }

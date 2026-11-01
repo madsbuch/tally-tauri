@@ -35,11 +35,10 @@ import { CoachStanceSchema, parseJson } from "./schemas";
 import { gki } from "./readings";
 import { formatStat, orderStats } from "./performance";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
-import { getDayGoal, getProteinTarget, getZone2Target } from "./goals";
-import { DEFAULT_ZONE2_TARGET, diaryZone2Minutes } from "./exerciseGoals";
+import { cardioMinutes, getCardioTarget, getDayGoal, getProteinTarget } from "./goals";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
-import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
+import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
 import type { CoachMemory, LibraryDocument } from "./types";
 import type { z } from "zod";
 
@@ -129,12 +128,10 @@ export interface CoachDigest {
     avgNet: number | null;
     avgProteinG: number | null;
     workouts: number;
-    /** Zone 2 minutes over the 7 days ending today (today included). */
-    zone2Min: number;
-    /** Workouts in those days with no Zone 2 information at all. */
-    zone2Unknown: number;
-    /** The Zone 2 goal, minutes per 7 days. */
-    zone2Target: number;
+    /** Minutes of workouts switched on as cardio, over the 7 days ending today (today included). */
+    cardioMin: number;
+    /** The cardio goal, minutes per 7 days. */
+    cardioTarget: number;
     avgSleepH: number | null;
     /** Nights with sleep data — an average over one night proves nothing. */
     sleepNights: number;
@@ -198,7 +195,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, proteinTarget, zone2Target, stateLogs, readings, perfLogs, incomplete] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, proteinTarget, cardioTarget, stateLogs, readings, perfLogs, incomplete] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -208,7 +205,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       getActiveFast().catch(() => null),
       getDayGoal(day).catch(() => null),
       getProteinTarget().catch(() => DEFAULT_PROTEIN_TARGET_G),
-      getZone2Target().catch(() => DEFAULT_ZONE2_TARGET),
+      getCardioTarget().catch(() => DEFAULT_CARDIO_TARGET_MIN),
       listStateLogsForRange(weekStart, day).catch(() => []),
       listBloodReadingsForRange(weekStart, day).catch(() => []),
       listPerformanceLogsForRange(shiftDay(day, -89), day).catch(() => []),
@@ -333,9 +330,8 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       avgNet: avg(nets) == null ? null : round(avg(nets) as number),
       avgProteinG: avg(proteins) == null ? null : round(avg(proteins) as number),
       workouts: workouts.length,
-      zone2Min: round(workouts.reduce((a, w) => a + (diaryZone2Minutes(w) ?? 0), 0)),
-      zone2Unknown: workouts.filter((w) => diaryZone2Minutes(w) == null).length,
-      zone2Target: round(zone2Target),
+      cardioMin: round(cardioMinutes(workouts)),
+      cardioTarget: round(cardioTarget),
       avgSleepH:
         sleepByDay.size === 0
           ? null
@@ -391,11 +387,8 @@ export function renderCoachDigest(d: CoachDigest): string {
     ...(d.week.incompleteDays.length > 0
       ? [`Days they marked as incomplete tracking (last 7 days): ${d.week.incompleteDays.join(", ")}.`]
       : []),
-    `Zone 2, last 7 days incl. today: ${d.week.zone2Min} of a ${d.week.zone2Target} min goal per 7 days` +
-      (d.week.zone2Unknown > 0
-        ? ` (${d.week.zone2Unknown} workout${d.week.zone2Unknown === 1 ? "" : "s"} with no Zone 2 info — not counted)`
-        : "") +
-      ".",
+    `Cardio, last 7 days incl. today: ${d.week.cardioMin} of a ${d.week.cardioTarget} min goal per 7 days ` +
+      "(workouts they switched on as cardio, full duration).",
   ];
   if (d.weight) {
     lines.push(

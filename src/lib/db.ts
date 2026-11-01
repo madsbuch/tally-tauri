@@ -288,6 +288,7 @@ function toWorkout(r: WorkoutRow): Workout {
     calories_burned: r.caloriesBurned,
     duration_min: r.durationMin,
     zone2_min: zone2Minutes(r.zone2Min, r.durationMin),
+    cardio: r.cardio === 1,
     model_id: r.modelId,
     icon: r.icon,
     source: r.source,
@@ -300,9 +301,9 @@ function toWorkout(r: WorkoutRow): Workout {
 /** Manual/agent entries omit `source`/`external_id` — they default to null. */
 export type NewWorkout = Omit<
   Workout,
-  "id" | "source" | "external_id" | "day" | "tz_offset_min" | "zone2_min"
+  "id" | "source" | "external_id" | "day" | "tz_offset_min" | "zone2_min" | "cardio"
 > &
-  Partial<Pick<Workout, "source" | "external_id" | "zone2_min">>;
+  Partial<Pick<Workout, "source" | "external_id" | "zone2_min" | "cardio">>;
 
 export async function addWorkout(w: NewWorkout): Promise<number> {
   const stamp = stampOf(w.performed_at);
@@ -318,6 +319,7 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
+      cardio: w.cardio ? 1 : 0,
       modelId: w.model_id,
       icon: w.icon,
       source: w.source ?? null,
@@ -333,7 +335,7 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
  * upstream edits (e.g. corrected calories in Garmin) flow through.
  */
 export async function upsertExternalWorkout(
-  w: Omit<Workout, "id" | "day" | "tz_offset_min" | "zone2_min"> & {
+  w: Omit<Workout, "id" | "day" | "tz_offset_min" | "zone2_min" | "cardio"> & {
     zone2_min?: number | null;
     external_id: string;
     /** Offset the source recorded it in; falls back to here. */
@@ -395,10 +397,17 @@ export async function updateWorkout(w: Workout): Promise<void> {
       caloriesBurned: w.calories_burned,
       durationMin: w.duration_min,
       zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
+      // cardio is left out on purpose: only the switch sets it
+      // (setWorkoutCardio), so an edit or an undo can't flip it.
       modelId: w.model_id,
       icon: w.icon,
     })
     .where(eq(workouts.id, w.id));
+}
+
+/** The per-workout cardio switch. A synced re-import leaves it alone. */
+export async function setWorkoutCardio(id: number, cardio: boolean): Promise<void> {
+  await db.update(workouts).set({ cardio: cardio ? 1 : 0 }).where(eq(workouts.id, id));
 }
 
 /** A deliberate toggle wins over text recognition, including an explicit off (0). */

@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
-import { getDayGoal, getProteinTarget, getZone2Target, loadGoalSettings } from "../lib/goals";
+import { exerciseTarget } from "../lib/exerciseGoals";
+import { cardioMinutes, getCardioTarget, getDayGoal, getProteinTarget, loadGoalSettings } from "../lib/goals";
 import type { Workout } from "../lib/types";
 
 interface Targets {
   /** Net kcal per day; null = no calorie target set. */
   kcal: number | null;
   proteinG: number;
-  /** Zone 2 minutes per 7 days. */
-  zone2Week: number;
+  /** Cardio minutes per 7 days. */
+  cardioWeek: number;
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -18,7 +18,7 @@ const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 
  * nothing to fill up, just which side of the line you're on. The target is a
  * marker in the middle of the track; the side you shouldn't be on is shaded —
  * past it for a maximum (calories), short of it for a minimum (protein,
- * Zone 2) — and a dot shows where you are, in the warning colour when it's on
+ * cardio) — and a dot shows where you are, in the warning colour when it's on
  * that side.
  */
 function BalanceRow({
@@ -44,8 +44,8 @@ function BalanceRow({
   return (
     <div className="goal-row">
       <div className="summary-section-heading">
-        <strong>{name}</strong>
-        <span>
+        <span className="goal-name">{name}</span>
+        <span className="goal-value">
           {fmt(value)} <span className="muted">/ {word} {fmt(target)} {unit}</span>
         </span>
       </div>
@@ -64,7 +64,7 @@ function BalanceRow({
 
 /**
  * The goals, as a summary of the Summary range: calories and protein per day
- * (averaged over a multi-day range, like the Energy card), Zone 2 minutes in
+ * (averaged over a multi-day range, like the Energy card), cardio minutes in
  * total. Targets are stored settings with no editor here — they change
  * rarely, and on request.
  */
@@ -91,10 +91,10 @@ export default function SummaryGoals({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [settings, protein, zone2] = await Promise.all([
+      const [settings, protein, cardio] = await Promise.all([
         loadGoalSettings(),
         getProteinTarget(),
-        getZone2Target(),
+        getCardioTarget(),
       ]);
       // A single day carries its own correction; over a range those only move
       // room between days, so the base is the per-day budget (lib/goals.ts).
@@ -102,7 +102,7 @@ export default function SummaryGoals({
       return {
         kcal,
         proteinG: protein,
-        zone2Week: zone2,
+        cardioWeek: cardio,
       };
     })()
       .then((t) => {
@@ -151,25 +151,16 @@ export default function SummaryGoals({
             unit="g"
             limit="min"
           />
-          <ZoneTwoRow workouts={workouts} weeklyTarget={targets.zone2Week} days={days} />
+          <BalanceRow
+            name="Cardio"
+            value={cardioMinutes(workouts)}
+            target={exerciseTarget(targets.cardioWeek, days)}
+            unit="min"
+            limit="min"
+          />
         </div>
       )}
     </section>
   );
 }
 
-function ZoneTwoRow({
-  workouts,
-  weeklyTarget,
-  days,
-}: {
-  workouts: Workout[];
-  weeklyTarget: number;
-  days: number;
-}) {
-  const target = exerciseTarget(weeklyTarget, days);
-  const progress = exerciseProgress(workouts, target);
-  return (
-    <BalanceRow name="Zone 2" value={progress.minutes} target={target} unit="min" limit="min" />
-  );
-}

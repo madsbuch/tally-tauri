@@ -19,8 +19,7 @@
  * A correction moves room between days inside the period, nothing more.
  */
 import { getSetting, listDayGoalAdjustments, todayStr } from "./db";
-import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
-import { DEFAULT_ZONE2_TARGET } from "./exerciseGoals";
+import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
 
 /** Largest per-day correction accepted, either way. */
 export const MAX_MANUAL_ADJUSTMENT = 2000;
@@ -79,11 +78,16 @@ export async function getProteinTarget(): Promise<number> {
   return isFinite(n) && n > 0 ? n : DEFAULT_PROTEIN_TARGET_G;
 }
 
-/** Zone 2 goal in minutes per 7 days: the stored one, else the default. */
-export async function getZone2Target(): Promise<number> {
-  const raw = await getSetting(SETTING_KEYS.zone2WeeklyTarget).catch(() => null);
+/** Cardio goal in minutes per 7 days: the stored one, else the default. */
+export async function getCardioTarget(): Promise<number> {
+  const raw = await getSetting(SETTING_KEYS.cardioWeeklyTarget).catch(() => null);
   const n = raw != null ? Number(raw) : NaN;
-  return Number.isFinite(n) && n >= 1 && n <= 10080 ? n : DEFAULT_ZONE2_TARGET;
+  return Number.isFinite(n) && n >= 1 && n <= 10080 ? n : DEFAULT_CARDIO_TARGET_MIN;
+}
+
+/** Minutes of the workouts switched on as cardio; one without a duration adds nothing. */
+export function cardioMinutes(ws: { cardio: boolean; duration_min: number | null }[]): number {
+  return ws.reduce((a, w) => a + (w.cardio && w.duration_min != null && w.duration_min > 0 ? w.duration_min : 0), 0);
 }
 
 export async function loadGoalSettings(): Promise<GoalSettings> {

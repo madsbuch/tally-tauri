@@ -104,7 +104,7 @@ import AssistantChart from "../components/AssistantChart";
 import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
 import { useUp } from "../lib/navigation";
-import WorkoutZone2Toggle from "../components/WorkoutZone2Toggle";
+import WorkoutCardioToggle from "../components/WorkoutCardioToggle";
 import EntryChat from "../components/EntryChat";
 
 type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading" | "performance";
@@ -566,7 +566,7 @@ export default function EntryPage() {
               }
               onClick={() => setEditing({ field: "duration" })}
             />
-            <WorkoutZone2Toggle workout={workout} onSaved={afterChange} />
+            <WorkoutCardioToggle workout={workout} onSaved={afterChange} />
             {(diaryZone2Minutes(workout) ?? 0) > 0 && diaryZone2Minutes(workout) !== workout.duration_min && (
               <InfoRow
                 label="Zone 2 minutes"

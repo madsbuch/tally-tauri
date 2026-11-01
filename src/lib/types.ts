@@ -152,6 +152,8 @@ export interface Workout {
   duration_min: number | null;
   /** Explicitly recorded Zone 2 minutes; null means unknown. */
   zone2_min: number | null;
+  /** Switched on as cardio by the user: its duration counts toward the cardio goal. */
+  cardio: boolean;
   model_id: string | null;
   /** Icon key shown when there's no photo (see lib/icons.ts); null = guess it. */
   icon: string | null;
@@ -455,6 +457,8 @@ export const SETTING_KEYS = {
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
   zone2WeeklyTarget: "zone2_weekly_target",
+  /** Cardio goal in minutes per 7 days (DEFAULT_CARDIO_TARGET_MIN when absent). */
+  cardioWeeklyTarget: "cardio_weekly_target_min",
   /** Daily protein goal in grams (DEFAULT_PROTEIN_TARGET_G when absent). */
   proteinTarget: "protein_target_g",
   healthConnectLastSyncAt: "health_connect_last_sync_at",
@@ -501,6 +505,8 @@ export const SETTING_KEYS = {
 
 export const DEFAULT_VISION_MODEL = "google/gemini-2.5-flash";
 export const DEFAULT_FAST_HOURS = 16;
+/** Cardio goal, minutes per 7 days, until another is stored. */
+export const DEFAULT_CARDIO_TARGET_MIN = 300;
 /** Daily protein goal, in grams, until another is stored. */
 export const DEFAULT_PROTEIN_TARGET_G = 150;
 /**

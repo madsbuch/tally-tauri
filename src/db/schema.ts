@@ -53,6 +53,8 @@ export const workouts = sqliteTable(
     caloriesBurned: real("calories_burned").notNull().default(0),
     durationMin: real("duration_min"),
     zone2Min: real("zone2_min"),
+    /** 1 = counts toward the cardio goal; set by the user, per workout. */
+    cardio: integer("cardio").notNull().default(0),
     modelId: text("model_id"),
     /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
     icon: text("icon"),
