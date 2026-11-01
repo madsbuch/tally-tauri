@@ -8,12 +8,12 @@ import type { Workout } from "../lib/types";
  * A summary of the Zone 2 goal over the Summary range, from the same workout
  * rows its energy totals use. The workouts themselves live in the Diary.
  */
-export default function ExerciseGoals({ workouts, days, label, rangeText }: {
+export default function ExerciseGoals({ workouts, start, end, days, label }: {
   workouts: Workout[];
+  start: string;
+  end: string;
   days: number;
   label: string;
-  /** The days the range covers, written out. */
-  rangeText: string;
 }) {
   const [weeklyTarget, setWeeklyTarget] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -81,7 +81,7 @@ export default function ExerciseGoals({ workouts, days, label, rangeText }: {
           <div className="small muted">
             {progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}
           </div>
-          <p className="faint small">{rangeText} · Totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
+          <p className="faint small">{start} – {end} · Automatically totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
           {progress.unknown > 0 && <p className="muted small">{progress.unknown} diary workout{progress.unknown === 1 ? " has" : "s have"} no Zone 2 information.</p>}
           {workouts.length === 0 && <p className="muted small">Log a workout in the Diary to get started.</p>}
           <form onSubmit={(e) => void saveTarget(e)} style={{ marginTop: 16 }}>

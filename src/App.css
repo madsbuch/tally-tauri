@@ -992,13 +992,6 @@ textarea.entry-chat-input {
   font-size: 15px;
 }
 
-.day-nav-sub {
-  font-weight: 400;
-  font-size: 12px;
-  color: var(--faint);
-  margin-top: 2px;
-}
-
 .day-nav .btn {
   padding: 8px 14px;
 }
