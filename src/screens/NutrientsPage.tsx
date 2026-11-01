@@ -191,13 +191,6 @@ function RefRow({
 // Page
 // ---------------------------------------------------------------------------
 
-type Source = "all" | "food" | "supplements";
-
-const SOURCE_OPTIONS: { value: Source; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "food", label: "Food only" },
-  { value: "supplements", label: "Supplements" },
-];
 
 export default function NutrientsPage() {
   // `day` is always the LAST day of the visible range.
@@ -209,7 +202,6 @@ export default function NutrientsPage() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [source, setSource] = useState<Source>("all");
   const [carbLimit, setCarbLimit] = useState(DEFAULT_KETO_NET_CARB_LIMIT_G);
 
   const spanDays = SPAN_DAYS[span];
@@ -293,14 +285,8 @@ export default function NutrientsPage() {
     return { food, supp, all: sumNutrients([food, supp]) };
   }, [entries, suppLogs]);
 
-  const filtered: Nutrients =
-    totals == null
-      ? {}
-      : source === "food"
-        ? totals.food
-        : source === "supplements"
-          ? totals.supp
-          : totals.all;
+  // Supplements are food now, so there is one total: everything taken in.
+  const filtered: Nutrients = totals?.all ?? {};
 
   // For multi-day spans every displayed number is a per-day average over the
   // fixed span length (7 or 24), not just the days with data.
@@ -403,7 +389,7 @@ export default function NutrientsPage() {
         </div>
       )}
 
-      {/* Energy — always food + workouts, unaffected by the source filter */}
+      {/* Energy — food + workouts */}
       {!loading && !loadError && totals && hasAnyData && (
         <div className="card">
           <div className="card-title">Energy{avgSuffix}</div>
@@ -490,7 +476,7 @@ export default function NutrientsPage() {
 
       {!loading && !loadError && totals && hasAnyData && (
         <>
-          {/* Keto — food-based, unaffected by the source filter */}
+          {/* Keto — food-based */}
           <div className="card">
             <div
               style={{
@@ -579,19 +565,6 @@ export default function NutrientsPage() {
               </div>
             </div>
 
-          </div>
-
-          {/* Source filter — recomputes the cards below */}
-          <div className="seg" style={{ margin: "12px 0 10px" }}>
-            {SOURCE_OPTIONS.map((o) => (
-              <button
-                key={o.value}
-                className={`seg-item${source === o.value ? " seg-item-active" : ""}`}
-                onClick={() => setSource(o.value)}
-              >
-                {o.label}
-              </button>
-            ))}
           </div>
 
           {/* Macros */}
