@@ -10,11 +10,9 @@ import type {
   Nutrients,
   SleepSession,
   StateLog,
-  Supplement,
   SupplementLogWithSupplement,
   Workout,
 } from "../lib/types";
-import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
 import { NUTRIENT_DEFS, NUTRIENT_KEYS } from "../lib/nutrients";
 import {
   dayOf,
@@ -43,14 +41,10 @@ import RuleSheet, {
 } from "../components/RuleSheet";
 import {
   addFoodEntry,
-  addSupplement,
-  addSupplementLog,
   addWorkout,
   deleteLifeRule,
   deletePhotoIfUnused,
-  deleteSupplement,
   getGlucoseUnit,
-  getSetting,
   listBloodReadingsForRange,
   listPerformanceLogsForRange,
   listCapturesForDay,
@@ -63,13 +57,11 @@ import {
   listStateLogsForDay,
   listSupplementLogsForDay,
   listSupplementLogsForRange,
-  listSupplements,
   listWorkoutsForDay,
   listWorkoutsForRange,
   setDayGoalAdjustment,
   todayStr,
   updateLifeRule,
-  updateSupplement,
 } from "../lib/db";
 import {
   discardCapture,
@@ -78,7 +70,6 @@ import {
   onDiaryChanged,
   retryCapture,
 } from "../lib/agent";
-import { analyzeSupplement } from "../lib/openrouter";
 import { compressImage, savePhoto } from "../lib/photos";
 import { MacroChips } from "../components/NutrientTable";
 import AchievementsSheet from "../components/AchievementsSheet";
@@ -120,25 +111,6 @@ import type { DayGoal, PeriodGoal } from "../lib/goals";
 // ---------------------------------------------------------------------------
 
 const BASE_KEYS: NutrientKey[] = ["calories", "protein_g", "carbs_g", "fat_g"];
-
-/** Nutrient inputs shown by default in the supplement editor. */
-const COMMON_SUPP_KEYS = new Set<NutrientKey>([
-  "sodium_mg",
-  "potassium_mg",
-  "calcium_mg",
-  "magnesium_mg",
-  "zinc_mg",
-  "iron_mg",
-  "selenium_ug",
-  "iodine_ug",
-  "vitamin_d_ug",
-  "vitamin_c_mg",
-  "vitamin_b12_ug",
-  "omega3_g",
-  "omega6_g",
-]);
-
-const DOSE_UNITS = ["mg", "µg", "g", "IU", "ml", "capsule", "tablet", "drop"];
 
 /** Shift a "YYYY-MM-DD" local day string by whole days. */
 function shiftDay(day: string, delta: number): string {
@@ -419,48 +391,6 @@ function GoalAdjustPanel({
         </div>
       )}
 
-    </div>
-  );
-}
-
-/** − / value × dose / + stepper for supplement amounts (step 0.5, min 0.5). */
-function AmountStepper({
-  value,
-  onChange,
-  doseAmount,
-  doseUnit,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  doseAmount: number | null;
-  doseUnit: string | null;
-}) {
-  const doseTxt =
-    doseAmount != null
-      ? `× ${numToInput(doseAmount)}${doseUnit ? ` ${doseUnit}` : ""}`
-      : value === 1
-        ? "dose"
-        : "doses";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <button
-        className="btn btn-sm"
-        onClick={() => onChange(Math.max(0.5, value - 0.5))}
-        disabled={value <= 0.5}
-        aria-label="Decrease amount"
-      >
-        −
-      </button>
-      <div style={{ flex: 1, textAlign: "center", fontWeight: 700 }}>
-        {numToInput(value)} <span className="muted small">{doseTxt}</span>
-      </div>
-      <button
-        className="btn btn-sm"
-        onClick={() => onChange(value + 0.5)}
-        aria-label="Increase amount"
-      >
-        +
-      </button>
     </div>
   );
 }
@@ -844,545 +774,6 @@ function AddSheet({
 }
 
 // ---------------------------------------------------------------------------
-// Supplement editor sheet (new + edit)
-// ---------------------------------------------------------------------------
-
-function SupplementEditorSheet({
-  initial,
-  onClose,
-  onSaved,
-}: {
-  initial: Supplement | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [doseAmount, setDoseAmount] = useState(
-    initial?.dose_amount != null ? numToInput(initial.dose_amount) : "1",
-  );
-  const [doseUnit, setDoseUnit] = useState(initial?.dose_unit ?? "capsule");
-  const [notes, setNotes] = useState(initial?.notes ?? "");
-  const [nutrVals, setNutrVals] = useState<Partial<Record<NutrientKey, string>>>(() => {
-    const vals: Partial<Record<NutrientKey, string>> = {};
-    if (initial) {
-      for (const k of NUTRIENT_KEYS) {
-        const v = initial.nutrients[k];
-        if (v != null) vals[k] = numToInput(v);
-      }
-    }
-    return vals;
-  });
-  const [showAllN, setShowAllN] = useState(false);
-  const [estimating, setEstimating] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const unitOptions = DOSE_UNITS.includes(doseUnit)
-    ? DOSE_UNITS
-    : [doseUnit, ...DOSE_UNITS];
-
-  async function estimate() {
-    const n = name.trim();
-    if (!n) {
-      setError("Give the supplement a name first.");
-      return;
-    }
-    setEstimating(true);
-    setError(null);
-    try {
-      const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
-      if (!apiKey) {
-        setError("Add your OpenRouter API key in Settings first");
-        return;
-      }
-      const model = (await getSetting(SETTING_KEYS.visionModel)) ?? DEFAULT_VISION_MODEL;
-      const dose = doseAmount.trim()
-        ? `${doseAmount.trim()} ${doseUnit}`.trim()
-        : "1 dose";
-      const res = await analyzeSupplement(apiKey, model, `${n}, one dose = ${dose}`);
-      const vals: Partial<Record<NutrientKey, string>> = {};
-      for (const k of NUTRIENT_KEYS) {
-        const v = res.nutrients[k];
-        if (v != null) vals[k] = numToInput(v);
-      }
-      setNutrVals(vals);
-      if (res.notes && !notes.trim()) setNotes(res.notes);
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setEstimating(false);
-    }
-  }
-
-  async function save(archivedOverride?: number) {
-    const n = name.trim();
-    if (!n) {
-      setError("Name is required.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const nutrients: Nutrients = {};
-      for (const k of NUTRIENT_KEYS) {
-        const raw = (nutrVals[k] ?? "").trim();
-        if (!raw) continue;
-        const num = parseFloat(raw);
-        if (isFinite(num) && num >= 0) nutrients[k] = num;
-      }
-      const da = parseFloat(doseAmount);
-      const record = {
-        name: n,
-        dose_amount: isFinite(da) && da > 0 ? da : null,
-        dose_unit: doseUnit.trim() || null,
-        nutrients,
-        notes: notes.trim() || null,
-        archived: archivedOverride ?? initial?.archived ?? 0,
-      };
-      if (initial) {
-        await updateSupplement({ ...record, id: initial.id });
-      } else {
-        await addSupplement(record);
-      }
-      onSaved();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  async function remove() {
-    if (!initial) return;
-    if (
-      !window.confirm(
-        `Delete "${initial.name}" and ALL of its logged doses? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteSupplement(initial.id);
-      onSaved();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  const shownDefs = NUTRIENT_DEFS.filter(
-    (d) =>
-      showAllN || COMMON_SUPP_KEYS.has(d.key) || (nutrVals[d.key] ?? "").trim() !== "",
-  );
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        <h2 className="sheet-title">
-          {initial ? "Edit supplement" : "New supplement"}
-        </h2>
-        <div className="field">
-          <label className="label">Name</label>
-          <input
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Magnesium citrate"
-          />
-        </div>
-        <div className="input-row" style={{ marginBottom: 12 }}>
-          <div>
-            <label className="label">Dose amount</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step="any"
-              inputMode="decimal"
-              value={doseAmount}
-              onChange={(e) => setDoseAmount(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Unit</label>
-            <select
-              className="input"
-              value={doseUnit}
-              onChange={(e) => setDoseUnit(e.target.value)}
-            >
-              {unitOptions.map((u) => (
-                <option key={u} value={u}>
-                  {u || "—"}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="field">
-          <label className="label">Notes (optional)</label>
-          <textarea
-            className="input"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. elemental magnesium per capsule"
-            rows={2}
-          />
-        </div>
-        <button
-          className="btn btn-block"
-          onClick={estimate}
-          disabled={estimating || busy || !name.trim()}
-        >
-          {estimating ? (
-            <>
-              <span className="spinner" /> Estimating…
-            </>
-          ) : (
-            "✨ Estimate with AI"
-          )}
-        </button>
-        <div className="label" style={{ marginTop: 14 }}>
-          Nutrients per dose
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "8px 10px",
-            marginBottom: 8,
-          }}
-        >
-          {shownDefs.map((d) => (
-            <div key={d.key}>
-              <div className="faint small" style={{ margin: "0 2px 3px" }}>
-                {d.label} ({d.unit})
-              </div>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                step="any"
-                inputMode="decimal"
-                placeholder="—"
-                value={nutrVals[d.key] ?? ""}
-                onChange={(e) => setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))}
-              />
-            </div>
-          ))}
-        </div>
-        <button
-          className="btn btn-ghost btn-sm btn-block"
-          onClick={() => setShowAllN((v) => !v)}
-        >
-          {showAllN ? "Common nutrients only" : "All nutrients"}
-        </button>
-        {error && (
-          <div className="error-text" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
-        <button
-          className="btn btn-primary btn-block"
-          style={{ marginTop: 14 }}
-          onClick={() => save()}
-          disabled={busy || estimating}
-        >
-          {busy ? (
-            <>
-              <span className="spinner" /> Saving…
-            </>
-          ) : (
-            "Save supplement"
-          )}
-        </button>
-        {initial && (
-          <div className="btn-row" style={{ marginTop: 8 }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => save(initial.archived ? 0 : 1)}
-              disabled={busy || estimating}
-            >
-              {initial.archived ? "Unarchive" : "Archive"}
-            </button>
-            <button className="btn btn-danger" onClick={remove} disabled={busy || estimating}>
-              Delete
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Supplement picker sheet (log a dose / manage)
-// ---------------------------------------------------------------------------
-
-function SupplementSheet({
-  day,
-  onClose,
-  onLogged,
-  onMutated,
-}: {
-  day: string;
-  onClose: () => void;
-  /** Called after a dose is logged; closes the sheet and refreshes the day. */
-  onLogged: () => void;
-  /** Called after supplements are edited (keeps the sheet open). */
-  onMutated: () => void;
-}) {
-  const [supps, setSupps] = useState<Supplement[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [manage, setManage] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [amount, setAmount] = useState(1);
-  const [time, setTime] = useState(() => nowHhMm());
-  const [logging, setLogging] = useState(false);
-  const [logError, setLogError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Supplement | "new" | null>(null);
-
-  useSheetHistory(editing !== null, () => setEditing(null));
-
-  function load() {
-    setLoadError(null);
-    listSupplements(true)
-      .then(setSupps)
-      .catch((err) => setLoadError(errMsg(err)));
-  }
-
-  useEffect(load, []);
-
-  const active = (supps ?? []).filter((s) => !s.archived);
-  const query = search.trim().toLowerCase();
-  const visible = query
-    ? active.filter((s) => s.name.toLowerCase().includes(query))
-    : active;
-
-  function toggleSelect(s: Supplement) {
-    if (selectedId === s.id) {
-      setSelectedId(null);
-    } else {
-      setSelectedId(s.id);
-      setAmount(1);
-      setTime(nowHhMm());
-      setLogError(null);
-    }
-  }
-
-  async function log(s: Supplement) {
-    setLogging(true);
-    setLogError(null);
-    try {
-      await addSupplementLog(s.id, amount, dayTimeToIso(day, time));
-      onLogged();
-    } catch (err) {
-      setLogError(errMsg(err));
-      setLogging(false);
-    }
-  }
-
-  function doseSub(s: Supplement): string {
-    return s.dose_amount != null
-      ? `${numToInput(s.dose_amount)}${s.dose_unit ? ` ${s.dose_unit}` : ""} per dose`
-      : "Dose size not set";
-  }
-
-  const loading = supps === null && loadError === null;
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          <h2 className="sheet-title" style={{ margin: 0 }}>
-            {manage ? "Manage supplements" : "Log supplement"}
-          </h2>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              setManage((v) => !v);
-              setSelectedId(null);
-            }}
-          >
-            {manage ? "Done" : "Manage"}
-          </button>
-        </div>
-
-        {loadError && (
-          <div className="error-text" style={{ marginBottom: 10 }}>
-            {loadError}
-          </div>
-        )}
-        {loading && (
-          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-            <span className="spinner" />
-          </div>
-        )}
-
-        {supps && !manage && (
-          <>
-            {active.length > 6 && (
-              <div className="field">
-                <input
-                  className="input"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search supplements…"
-                />
-              </div>
-            )}
-            {active.length === 0 ? (
-              <div className="empty">
-                <div className="empty-icon">💊</div>
-                No supplements yet — create one below.
-              </div>
-            ) : visible.length === 0 ? (
-              <div className="empty">No supplements match “{search.trim()}”.</div>
-            ) : (
-              <div className="list">
-                {visible.map((s) => (
-                  <div key={s.id}>
-                    <div
-                      className="list-row"
-                      role="button"
-                      tabIndex={0}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => toggleSelect(s)}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter") toggleSelect(s);
-                      }}
-                    >
-                      <GlyphThumb glyph="💊" />
-                      <div className="row-main">
-                        <div className="row-title">{s.name}</div>
-                        <div className="row-sub">{doseSub(s)}</div>
-                      </div>
-                      <div className="row-end">{selectedId === s.id ? "▾" : "›"}</div>
-                    </div>
-                    {selectedId === s.id && (
-                      <div className="card" style={{ marginTop: 6, marginBottom: 0 }}>
-                        <AmountStepper
-                          value={amount}
-                          onChange={setAmount}
-                          doseAmount={s.dose_amount}
-                          doseUnit={s.dose_unit}
-                        />
-                        <div className="field" style={{ margin: "10px 0 12px" }}>
-                          <label className="label">Taken at</label>
-                          <input
-                            className="input"
-                            type="time"
-                            value={time}
-                            onChange={(e) => setTime(e.target.value)}
-                          />
-                        </div>
-                        {logError && (
-                          <div className="error-text" style={{ marginBottom: 8 }}>
-                            {logError}
-                          </div>
-                        )}
-                        <button
-                          className="btn btn-primary btn-block"
-                          onClick={() => log(s)}
-                          disabled={logging}
-                        >
-                          {logging ? (
-                            <>
-                              <span className="spinner" /> Logging…
-                            </>
-                          ) : (
-                            "Log"
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {supps && manage && (
-          <>
-            {supps.length === 0 ? (
-              <div className="empty">
-                <div className="empty-icon">💊</div>
-                No supplements yet — create one below.
-              </div>
-            ) : (
-              <div className="list">
-                {supps.map((s) => (
-                  <div
-                    key={s.id}
-                    className="list-row"
-                    role="button"
-                    tabIndex={0}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setEditing(s)}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter") setEditing(s);
-                    }}
-                  >
-                    <GlyphThumb glyph="💊" />
-                    <div className="row-main">
-                      <div className="row-title">
-                        {s.name}
-                        {s.archived ? (
-                          <span className="chip" style={{ marginLeft: 8 }}>
-                            archived
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="row-sub">{doseSub(s)}</div>
-                    </div>
-                    <div className="row-end">Edit ›</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {supps && (
-          <button
-            className="btn btn-ghost btn-block"
-            style={{ marginTop: 12 }}
-            onClick={() => setEditing("new")}
-          >
-            + New supplement
-          </button>
-        )}
-
-        {editing && (
-          <SupplementEditorSheet
-            initial={editing === "new" ? null : editing}
-            onClose={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null);
-              setSupps(null);
-              setSelectedId(null);
-              load();
-              onMutated();
-            }}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Failed-capture sheet (retry / discard)
 // ---------------------------------------------------------------------------
 
@@ -1501,7 +892,7 @@ function captureTitle(c: Capture): string {
   return note.length > 48 ? `${note.slice(0, 48).trimEnd()}…` : note;
 }
 
-type SheetKind = "add" | "supp" | "state" | "rule";
+type SheetKind = "add" | "state" | "rule";
 
 /**
  * A rule written down that day, on the timeline. A suggestion carries its
@@ -1620,7 +1011,6 @@ export default function DiaryPage() {
 
   useSheetHistory(detail !== null, () => setDetail(null));
   useSheetHistory(sheet === "add", () => setSheet(null));
-  useSheetHistory(sheet === "supp", () => setSheet(null));
   useSheetHistory(sheet === "state", () => setSheet(null));
   useSheetHistory(sheet === "rule", () => setSheet(null));
   useSheetHistory(showAchievements, () => setShowAchievements(false));
@@ -2614,14 +2004,6 @@ export default function DiaryPage() {
           >
             💭
           </button>
-          <button
-            className="fab fab-secondary"
-            onClick={() => setSheet("supp")}
-            aria-label="Log supplement"
-            title="Log supplement"
-          >
-            💊
-          </button>
         </div>
         <button className="fab" onClick={() => setSheet("add")}>
           ＋ Add
@@ -2666,17 +2048,6 @@ export default function DiaryPage() {
             setSheet(null);
             bump();
           }}
-        />
-      )}
-      {sheet === "supp" && (
-        <SupplementSheet
-          day={day}
-          onClose={() => setSheet(null)}
-          onLogged={() => {
-            setSheet(null);
-            bump();
-          }}
-          onMutated={bump}
         />
       )}
       {showAchievements && (

@@ -32,6 +32,10 @@ export const WORKOUT_FALLBACK_GLYPH = "🏃";
 export const SYNCED_WORKOUT_GLYPH = "⌚";
 
 export const ENTRY_ICONS: IconDef[] = [
+  // -- Supplements: logged as food, by what was taken and how much ----------
+  { key: "supplement", glyph: "💊", label: "Supplement", kind: "meal",
+    keywords: ["supplement", "capsule", "pill", "tablet", "fish oil", "cod liver oil", "omega 3", "vitamin", "multivitamin", "magnesium", "zinc", "creatine", "psyllium", "husk", "iron", "calcium", "probiotic", "collagen", "melatonin", "ashwagandha"] },
+
   // -- Drinks ---------------------------------------------------------------
   { key: "coffee", glyph: "☕", label: "Coffee", kind: "meal",
     keywords: ["coffee", "espresso", "latte", "cappuccino", "americano", "flat white", "macchiato", "mocha", "cortado", "kaffe"] },

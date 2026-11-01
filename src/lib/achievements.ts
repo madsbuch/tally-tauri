@@ -355,7 +355,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       ]);
       const mealDays = new Set(entries.map((e) => dayOf(e, e.eaten_at)));
       const workoutDays = new Set(workouts.map((w) => dayOf(w, w.performed_at)));
-      const suppDays = new Set(supps.map((l) => dayOf(l, l.taken_at)));
+      // Supplements are logged as food now; older ones are supplement logs.
+      const suppDays = new Set([
+        ...supps.map((l) => dayOf(l, l.taken_at)),
+        ...entries.filter((e) => e.icon === "supplement").map((e) => dayOf(e, e.eaten_at)),
+      ]);
       return sleep.some((s) => {
         const d = dayOf(s, s.ended_at);
         return mealDays.has(d) && workoutDays.has(d) && suppDays.has(d);
@@ -512,13 +516,17 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     description: "Log five different supplements in one day.",
     category: "nutrition",
     check: async (ctx) => {
-      const logs = await ctx.suppLogs();
-      const perDay = new Map<string, Set<number>>();
-      for (const l of logs) {
-        const d = dayOf(l, l.taken_at);
-        const set = perDay.get(d) ?? new Set<number>();
-        set.add(l.supplement_id);
+      const [logs, entries] = await Promise.all([ctx.suppLogs(), ctx.foodEntries()]);
+      // By name: supplements are logged as food now, older ones as supplement logs.
+      const perDay = new Map<string, Set<string>>();
+      const add = (d: string, name: string) => {
+        const set = perDay.get(d) ?? new Set<string>();
+        set.add(name.trim().toLowerCase());
         perDay.set(d, set);
+      };
+      for (const l of logs) add(dayOf(l, l.taken_at), l.name);
+      for (const e of entries) {
+        if (e.icon === "supplement") add(dayOf(e, e.eaten_at), e.title);
       }
       return [...perDay.values()].some((s) => s.size >= 5);
     },

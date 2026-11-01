@@ -785,7 +785,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - sleep_sessions(id, started_at, ended_at, day /* the morning it ended on */, tz_offset_min, duration_min, deep_min, rem_min, light_min, awake_min, source)
 - health_metrics(day /* local "YYYY-MM-DD" */, steps, resting_hr, hrv_ms, spo2_pct, weight_kg, vo2_max, calories_total /* kcal, the watch's whole-day burn incl. resting and workouts = burned_total */, updated_at)
 - supplements(id, name, dose_amount, dose_unit, nutrients /* JSON per dose */, notes, archived)
-- supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */)
+- supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */) — older supplement intake only. Supplements are now logged as food: food_entries rows with icon = 'supplement' (title like "Fish oil 800 mg", nutrients for the amount taken). Query both when asked about supplements
 - fasts(id, started_at, goal_hours, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 - state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel

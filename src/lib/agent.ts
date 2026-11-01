@@ -2,9 +2,9 @@
  * Fire-and-forget diary agent.
  *
  * A capture (photo and/or note) is stored instantly and resolved in the
- * background: the model sees the current time, the supplement catalog and the
+ * background: the model sees the current time and the
  * diary around this day, then records entries exclusively through tool calls
- * (log_meal / repeat_meal / log_workout / log_supplement / log_reading /
+ * (log_meal / repeat_meal / log_workout / log_reading /
  * log_performance / log_state /
  * add_rule / log_rule), so phrases like
  * "ate this earlier today" get a concrete timestamp and "one more of those"
@@ -19,8 +19,6 @@ import {
   addPerformanceLog,
   addLifeRuleLog,
   addStateLog,
-  addSupplement,
-  addSupplementLog,
   addWorkout,
   deleteCapture,
   deletePhotoIfUnused,
@@ -35,7 +33,6 @@ import {
   listPendingCaptures,
   listStateCategories,
   listSupplementLogsForDay,
-  listSupplements,
   listWorkoutsForDay,
   setCaptureStatus,
   setGlucoseUnit,
@@ -73,7 +70,6 @@ import type {
   Capture,
   FoodEntry,
   LifeRule,
-  Supplement,
   SupplementLogWithSupplement,
   Workout,
 } from "./types";
@@ -236,24 +232,6 @@ const DIARY_TOOLS: ToolDef[] = [
           zone2_min: { type: "number", description: "Zone 2 minutes from the diary note or screenshot. For a session described as Zone 2 (or Z2), use its duration automatically; for a mixed session, use the Zone 2 portion. Never require a separate log. Do not infer from activity type or average heart rate alone. Omit if unknown." },
         },
         required: ["title", "time", "calories_burned"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "log_supplement",
-      description:
-        "Record taking a dose of a supplement. Use a catalog name when it matches (case-insensitive); unknown names create a new catalog entry automatically.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Supplement name, e.g. 'Magnesium citrate'" },
-          amount: { type: "number", description: "Number of doses taken (default 1)" },
-          time: { type: "string", description: TIME_DESC },
-        },
-        required: ["name", "time"],
         additionalProperties: false,
       },
     },
@@ -596,7 +574,6 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
 
 function buildSystemPrompt(
   capture: Capture,
-  catalog: Supplement[],
   diary: DiaryContext,
   /** Country product searches favour; null = worldwide. */
   foodCountry: string | null,
@@ -607,31 +584,21 @@ function buildSystemPrompt(
     now.getMinutes(),
   ).padStart(2, "0")}`;
   const isToday = capture.day === todayStr();
-  const catalogTxt =
-    catalog.length === 0
-      ? "none yet"
-      : catalog
-          .map(
-            (s) =>
-              `"${s.name}"${s.dose_amount != null ? ` (1 dose = ${s.dose_amount}${s.dose_unit ? ` ${s.dose_unit}` : ""})` : ""}`,
-          )
-          .join(", ");
-
   return [
     "You are Tally's diary agent. The user captured a photo and/or a short note; record what happened using ONLY the provided tools.",
     `Current local date & time: ${weekday} ${local} (${tzOffsetLabel(now)}).`,
     `Diary day being added to: ${capture.day}${isToday ? " (today)" : " (a past day — with no time clue, use 12:00)"}.`,
-    `Supplement catalog: ${catalogTxt}.`,
     "",
     renderDiaryContext(diary, capture.day, isToday),
     "",
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
-    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
+    "- Decide what the capture shows: food/drink → log_meal; supplements count as food (see below) → log_meal; exercise → log_workout; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
     `- Branded/packaged products (wrappers, bottles, cans, labels, barcodes): look them up with search_packaged_food first — by the barcode digits when the photo shows them legibly, else by the name as printed on the package. ${foodCountry == null ? "" : `Searches cover products sold in ${foodCountry} first, then worldwide; prefer a match sold in their country. `}When a result is what was eaten, call log_meal with \`label\` (its barcode plus grams, servings or packages) and let Tally do the label arithmetic; put in \`nutrients\` only what the label lacks (usually the micronutrients). Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself and log without \`label\`.`,
+    "- Supplements are food: \"800mg fish oil\", \"2 tsp psyllium husk\", \"magnesium\" → log_meal with icon \"supplement\", titled by what it is and how much (\"Fish oil 800 mg\"), and `nutrients` for the AMOUNT TAKEN — e.g. the omega-3 in 800 mg of fish oil, the fiber in the husk, the magnesium in the dose. A supplement photo or label shows the dose; with no amount given, assume one typical serving and say so in the description. \"The usual\"/\"same as yesterday\" → repeat_meal like any food.",
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate.",
@@ -834,29 +801,6 @@ async function executeTool(
     return `Logged workout "${title}" at ${time}.`;
   }
 
-  if (name === "log_supplement") {
-    const name_ = str(args["name"]);
-    if (!name_) return "Error: supplement name is required.";
-    const amount = Math.max(0.5, num(args["amount"]) ?? 1);
-    const catalog = await listSupplements(true);
-    let supp = catalog.find((s) => s.name.toLowerCase() === name_.toLowerCase());
-    if (!supp) {
-      const id = await addSupplement({
-        name: name_,
-        dose_amount: null,
-        dose_unit: null,
-        nutrients: {},
-        notes: null,
-        archived: 0,
-      });
-      supp = { id, name: name_, dose_amount: null, dose_unit: null, nutrients: {}, notes: null, archived: 0 };
-    }
-    await addSupplementLog(supp.id, amount, time);
-    ctx.logged++;
-    notifyDiaryChanged();
-    return `Logged ${amount} × "${supp.name}" at ${time}.`;
-  }
-
   if (name === "log_reading") {
     const kind = args["kind"];
     if (!isReadingKind(kind)) return 'Error: kind must be "glucose" or "ketone".';
@@ -1035,8 +979,7 @@ async function runCapture(capture: Capture): Promise<void> {
     throw new Error("Add your OpenRouter API key in Settings first");
   }
   const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
-  const [catalog, diary, region] = await Promise.all([
-    listSupplements(),
+  const [diary, region] = await Promise.all([
     loadDiaryContext(capture.day),
     foodRegion(),
   ]);
@@ -1058,7 +1001,7 @@ async function runCapture(capture: Capture): Promise<void> {
 
   const foodCountry = region.cc ? regionLabel(region) : null;
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(capture, catalog, diary, foodCountry) },
+    { role: "system", content: buildSystemPrompt(capture, diary, foodCountry) },
     { role: "user", content: parts },
   ];
 
@@ -1092,7 +1035,7 @@ async function runCapture(capture: Capture): Promise<void> {
           content:
             "Nothing has been recorded yet. If the capture shows any food, drink, " +
             "exercise, supplement, meter reading, performance stats, feeling or rule for living, record it NOW by calling the " +
-            "matching tool (log_meal / log_workout / log_supplement / log_reading / log_performance / log_state / " +
+            "matching tool (log_meal / log_workout / log_reading / log_performance / log_state / " +
             "add_rule / log_rule) — a rough estimate is better " +
             "than nothing. Only reply in plain text if there is truly nothing to " +
             "record, and say why.",
@@ -1138,7 +1081,7 @@ async function runCapture(capture: Capture): Promise<void> {
 
   // The capture already dissolved above (ctx.logged > 0 is guaranteed here).
   if (ctx.photoToAttach) {
-    // Nothing took the photo (e.g. only a supplement was logged). Guard anyway
+    // Nothing took the photo (e.g. only a state was logged). Guard anyway
     // in case a produced entry happens to share the filename.
     await deletePhotoIfUnused(ctx.photoToAttach);
   }
