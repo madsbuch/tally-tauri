@@ -161,13 +161,7 @@ internal object CoachWorker {
                     (if (y.todayTarget != null) " against a ${num(y.todayTarget)} kcal target" else " (no target set)") +
                     "; ${num(y.todayProteinG)} g protein against a ${num(y.proteinTarget)} g goal; " +
                     "${y.todayItems} items logged. " +
-                    if (y.todayIncomplete) {
-                        "They marked yesterday as incompletely tracked, so these numbers are only part of the day: " +
-                            "don't grade it against the goals. Recap what was logged lightly, and give one " +
-                            "concrete thing to plan today around."
-                    } else {
-                        "Recap how yesterday went against both goals, and give one concrete thing to plan today around."
-                    }
+                    "Recap how yesterday went against both goals, and give one concrete thing to plan today around."
             }
         }
         else -> null

@@ -109,8 +109,8 @@ export const CALORIES_TOOL_DESCRIPTION = [
   describeCalorieFigures(),
   "Each day row also has meals (food entries logged). A day with meals: 0 is usually untracked rather than a day without food, so it has no eaten, net, remaining or energy_balance. Today's row is marked in_progress; days after today are marked upcoming and carry only their target.",
   "totals: the range as the Diary's week/month card adds it up. target is base × days (a correction moves kcal between days, it doesn't change the total) and remaining is that target − net. burned_total sums the days the watch synced; energy_balance sums the days with both food and a watch total.",
-  "A day row with incomplete_tracking: true is one they marked as incompletely tracked (forgot to log, or logged only part of it): its totals are a floor, not the day. Such days are left out of every average and counted in coverage.incomplete_days; they still add to totals.",
-  "averages: per finished day, so today (partial) is left out, as are days marked incomplete_tracking. eaten, burned_workouts, target, net and remaining are averaged over days with meals; burned_total over days the watch synced; energy_balance over days with both.",
+  "A day row with incomplete_tracking: true is one they marked with the Diary's \"Incomplete tracking\" switch; coverage.incomplete_days counts them.",
+  "averages: per finished day, so today (partial) is left out. eaten, burned_workouts, target, net and remaining are averaged over days with meals; burned_total over days the watch synced; energy_balance over days with both.",
   "group_by week (Monday to Sunday, as on the Diary) or month (calendar months) gives periods instead of day rows: each period has its own totals, averages and coverage, worked out the same way. The first and last period are cut to the range and marked clipped, and the one holding today is in_progress, so compare those by their averages, not their totals. For a rolling stretch (\"the last 7 days\", \"the last 30 days\") pass that range and read its totals and averages.",
 ].join("\n");
 
@@ -194,7 +194,7 @@ interface DayTally {
   burnedWorkouts: number;
   burnedTotal: number | null;
   correction: number;
-  /** Marked as incompletely tracked: in the totals, out of the averages. */
+  /** Marked with the Diary's "Incomplete tracking" switch. */
   incomplete: boolean;
 }
 
@@ -270,7 +270,7 @@ function summarize(
         : undefined,
   };
 
-  const finished = tallies.filter((t) => t.day < today && !t.incomplete);
+  const finished = tallies.filter((t) => t.day < today);
   const incomplete = tallies.filter((t) => t.incomplete).length;
   const of = (ts: DayTally[]) => ts.map((t) => dayFigures(t, base, today));
   const logged = of(finished.filter((t) => t.meals > 0));

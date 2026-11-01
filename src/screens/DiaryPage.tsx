@@ -953,7 +953,7 @@ export default function DiaryPage() {
   const [states, setStates] = useState<StateLog[]>([]);
   const [readings, setReadings] = useState<BloodReading[]>([]);
   const [perfLogs, setPerfLogs] = useState<PerformanceLog[]>([]);
-  /** They marked this day as incompletely tracked (the coach reads this). */
+  /** The day's "Incomplete tracking" mark. */
   const [incomplete, setIncomplete] = useState(false);
   const [incompleteSaving, setIncompleteSaving] = useState(false);
   const [glucoseUnit, setGlucoseUnit] = useState<GlucoseUnit>("mmol");
@@ -1990,8 +1990,7 @@ export default function DiaryPage() {
             </div>
           )}
 
-          {/* Said once at the end of the day's list: the coach reads it, and
-              leaves the day out of its averages. */}
+          {/* At the end of the day's list; the coach can see the mark. */}
           <button
             className="info-row zone2-toggle day-incomplete-toggle"
             role="switch"
@@ -2012,9 +2011,7 @@ export default function DiaryPage() {
             <span>
               <span className="zone2-toggle-label">Incomplete tracking</span>
               <span className="small muted zone2-toggle-help">
-                {incomplete
-                  ? "Not everything is logged — the coach won't judge this day by its totals"
-                  : "Turn on if you forgot to log some of this day"}
+                {incomplete ? "Marked: not everything is logged" : "Turn on if you didn't log everything"}
               </span>
             </span>
             <span className={`zone2-switch${incomplete ? " zone2-switch-on" : ""}`} aria-hidden="true">
