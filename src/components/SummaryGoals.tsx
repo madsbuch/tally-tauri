@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { getSetting } from "../lib/db";
 import { DEFAULT_ZONE2_TARGET, exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
-import { getDayGoal, loadGoalSettings } from "../lib/goals";
-import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "../lib/types";
+import { getDayGoal, getProteinTarget, loadGoalSettings } from "../lib/goals";
+import { SETTING_KEYS } from "../lib/types";
 import type { Workout } from "../lib/types";
 
 interface Targets {
@@ -92,7 +92,7 @@ export default function SummaryGoals({
     (async () => {
       const [settings, protein, zone2] = await Promise.all([
         loadGoalSettings(),
-        getSetting(SETTING_KEYS.proteinTarget),
+        getProteinTarget(),
         getSetting(SETTING_KEYS.zone2WeeklyTarget),
       ]);
       // A single day carries its own correction; over a range those only move
@@ -100,7 +100,7 @@ export default function SummaryGoals({
       const kcal = days === 1 ? ((await getDayGoal(day, settings))?.target ?? null) : settings.base;
       return {
         kcal,
-        proteinG: positive(protein, DEFAULT_PROTEIN_TARGET_G),
+        proteinG: protein,
         zone2Week: positive(zone2, DEFAULT_ZONE2_TARGET, 10080),
       };
     })()

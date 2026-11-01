@@ -34,10 +34,10 @@ import { CoachStanceSchema, parseJson } from "./schemas";
 import { gki } from "./readings";
 import { formatStat, orderStats } from "./performance";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
-import { getDayGoal } from "./goals";
+import { getDayGoal, getProteinTarget } from "./goals";
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
-import { SETTING_KEYS } from "./types";
+import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
 import type { CoachMemory, LibraryDocument } from "./types";
 import type { z } from "zod";
 
@@ -113,6 +113,8 @@ export interface CoachDigest {
     /** The day's effective calorie target, or null when none is configured. */
     target: number | null;
     proteinG: number;
+    /** Daily protein goal in grams. */
+    proteinTarget: number;
     itemsLogged: number;
   };
   week: {
@@ -184,7 +186,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs, readings, perfLogs] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, proteinTarget, stateLogs, readings, perfLogs] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -193,6 +195,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       getStreakInfo().catch(() => null),
       getActiveFast().catch(() => null),
       getDayGoal(day).catch(() => null),
+      getProteinTarget().catch(() => DEFAULT_PROTEIN_TARGET_G),
       listStateLogsForRange(weekStart, day).catch(() => []),
       listBloodReadingsForRange(weekStart, day).catch(() => []),
       listPerformanceLogsForRange(shiftDay(day, -89), day).catch(() => []),
@@ -306,6 +309,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       net: round(kcalIn - kcalOut),
       target: goal ? round(goal.target) : null,
       proteinG: round(proteinG),
+      proteinTarget: round(proteinTarget),
       itemsLogged: todayEntries.length + todayWorkouts.length,
     },
     week: {
@@ -361,9 +365,9 @@ export function renderCoachDigest(d: CoachDigest): string {
   const lines = [
     `Today (${d.day}): ${d.today.kcalIn} kcal in, ${d.today.kcalOut} burned, net ${d.today.net}` +
       (d.today.target != null ? ` against a ${d.today.target} kcal target` : " (no target set)") +
-      `; ${d.today.proteinG} g protein; ${d.today.itemsLogged} items logged.`,
+      `; ${d.today.proteinG} g protein against a ${d.today.proteinTarget} g daily goal; ${d.today.itemsLogged} items logged.`,
     `Last 7 days: ${d.week.daysLogged}/7 days with food logged, avg net ${na(d.week.avgNet, " kcal")}, ` +
-      `avg protein ${na(d.week.avgProteinG, " g")}, ${d.week.workouts} workouts, ` +
+      `avg protein ${na(d.week.avgProteinG, " g")} (goal ${d.today.proteinTarget} g/day), ${d.week.workouts} workouts, ` +
       `avg sleep ${na(d.week.avgSleepH, " h")}, avg steps ${na(d.week.avgSteps)}.`,
   ];
   if (d.weight) {

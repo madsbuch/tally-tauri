@@ -188,19 +188,18 @@ export const TRIGGERS: TriggerDef[] = [
     key: "protein_short",
     kind: "condition",
     title: "Protein running low",
-    help: "When the week's average protein sits under your floor.",
-    defaults: { enabled: true, threshold: 100 },
-    thresholdLabel: "Daily protein floor (g)",
+    help: "When the week's average protein sits under your daily protein goal.",
+    defaults: { enabled: true },
     salience: 30,
     cooldownDays: 5,
-    evaluate: ({ digest, config }) => {
+    evaluate: ({ digest }) => {
       const { avgProteinG, daysLogged } = digest.week;
-      const floor = config.threshold ?? 100;
+      const goal = digest.today.proteinTarget;
       if (avgProteinG == null || daysLogged < MIN_DAYS_FOR_TREND) return null;
-      if (avgProteinG >= floor) return null;
+      if (avgProteinG >= goal) return null;
       return (
         `Protein has averaged ${Math.round(avgProteinG)} g/day over ${daysLogged} logged days, ` +
-        `under their ${floor} g floor.`
+        `under their ${goal} g/day goal.`
       );
     },
   },
@@ -258,8 +257,8 @@ export const TRIGGERS: TriggerDef[] = [
         `It's the morning of ${digest.day}. Yesterday (${yesterday.day}): ${y.kcalIn} kcal in, ` +
         `${y.kcalOut} burned, net ${y.net}` +
         (y.target != null ? ` against a ${y.target} kcal target` : " (no target set)") +
-        `; ${y.proteinG} g protein; ${y.itemsLogged} items logged. Recap how yesterday went ` +
-        `against the target, and give one concrete thing to plan today around.`
+        `; ${y.proteinG} g protein against a ${y.proteinTarget} g goal; ${y.itemsLogged} items logged. ` +
+        `Recap how yesterday went against both goals, and give one concrete thing to plan today around.`
       );
     },
   },

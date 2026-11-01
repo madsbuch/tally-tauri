@@ -19,7 +19,7 @@
  * A correction moves room between days inside the period, nothing more.
  */
 import { getSetting, listDayGoalAdjustments, todayStr } from "./db";
-import { SETTING_KEYS } from "./types";
+import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
 
 /** Largest per-day correction accepted, either way. */
 export const MAX_MANUAL_ADJUSTMENT = 2000;
@@ -69,6 +69,13 @@ export function dayTarget(base: number, manual: number): number {
  */
 export function periodTarget(base: number, days: number): number {
   return base * days;
+}
+
+/** Daily protein goal in grams: the stored one, else the default. */
+export async function getProteinTarget(): Promise<number> {
+  const raw = await getSetting(SETTING_KEYS.proteinTarget).catch(() => null);
+  const n = raw != null ? parseFloat(raw) : NaN;
+  return isFinite(n) && n > 0 ? n : DEFAULT_PROTEIN_TARGET_G;
 }
 
 export async function loadGoalSettings(): Promise<GoalSettings> {
