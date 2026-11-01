@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { getSetting } from "../lib/db";
-import { DEFAULT_ZONE2_TARGET, exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
-import { getDayGoal, getProteinTarget, loadGoalSettings } from "../lib/goals";
-import { SETTING_KEYS } from "../lib/types";
+import { exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
+import { getDayGoal, getProteinTarget, getZone2Target, loadGoalSettings } from "../lib/goals";
 import type { Workout } from "../lib/types";
 
 interface Targets {
@@ -11,11 +9,6 @@ interface Targets {
   proteinG: number;
   /** Zone 2 minutes per 7 days. */
   zone2Week: number;
-}
-
-function positive(raw: string | null, fallback: number, max = Infinity): number {
-  const n = raw == null ? NaN : Number(raw);
-  return Number.isFinite(n) && n > 0 && n <= max ? n : fallback;
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -93,7 +86,7 @@ export default function SummaryGoals({
       const [settings, protein, zone2] = await Promise.all([
         loadGoalSettings(),
         getProteinTarget(),
-        getSetting(SETTING_KEYS.zone2WeeklyTarget),
+        getZone2Target(),
       ]);
       // A single day carries its own correction; over a range those only move
       // room between days, so the base is the per-day budget (lib/goals.ts).
@@ -101,7 +94,7 @@ export default function SummaryGoals({
       return {
         kcal,
         proteinG: protein,
-        zone2Week: positive(zone2, DEFAULT_ZONE2_TARGET, 10080),
+        zone2Week: zone2,
       };
     })()
       .then((t) => {

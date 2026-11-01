@@ -20,6 +20,7 @@
  */
 import { getSetting, listDayGoalAdjustments, todayStr } from "./db";
 import { DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
+import { DEFAULT_ZONE2_TARGET } from "./exerciseGoals";
 
 /** Largest per-day correction accepted, either way. */
 export const MAX_MANUAL_ADJUSTMENT = 2000;
@@ -76,6 +77,13 @@ export async function getProteinTarget(): Promise<number> {
   const raw = await getSetting(SETTING_KEYS.proteinTarget).catch(() => null);
   const n = raw != null ? parseFloat(raw) : NaN;
   return isFinite(n) && n > 0 ? n : DEFAULT_PROTEIN_TARGET_G;
+}
+
+/** Zone 2 goal in minutes per 7 days: the stored one, else the default. */
+export async function getZone2Target(): Promise<number> {
+  const raw = await getSetting(SETTING_KEYS.zone2WeeklyTarget).catch(() => null);
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 1 && n <= 10080 ? n : DEFAULT_ZONE2_TARGET;
 }
 
 export async function loadGoalSettings(): Promise<GoalSettings> {
