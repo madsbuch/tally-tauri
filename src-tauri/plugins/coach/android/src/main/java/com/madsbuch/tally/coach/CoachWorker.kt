@@ -47,7 +47,7 @@ internal object CoachWorker {
         Trigger("follow_up_due", "Following up", 50, 1, true, null, null),
         Trigger("target_drift", "Target looks wrong", 40, 7, true, null, 300.0),
         Trigger("sleep_debt", "Sleep debt building", 35, 5, true, null, 7.0),
-        Trigger("protein_short", "Protein running low", 30, 5, true, null, 100.0),
+        Trigger("protein_short", "Protein running low", 30, 5, true, null, null),
         Trigger("streak_risk", "Streak about to break", 20, 1, false, 20, null),
         Trigger("daily_recap", "Yesterday's recap", 10, 1, true, 7, null),
     )
@@ -134,13 +134,14 @@ internal object CoachWorker {
             }
         }
         "protein_short" -> {
+            // Measured against the daily protein goal, as in coachTriggers.ts.
             val avg = d.avgProteinG
-            val floor = thresholdOf(config, t)
-            if (avg == null || d.daysLogged < MIN_DAYS_FOR_TREND || avg >= floor) {
+            val goal = d.proteinTarget
+            if (avg == null || d.daysLogged < MIN_DAYS_FOR_TREND || avg >= goal) {
                 null
             } else {
                 "Protein has averaged ${Math.round(avg)} g/day over ${d.daysLogged} logged days, " +
-                    "under their ${fmt(floor)} g floor."
+                    "under their ${fmt(goal)} g/day goal."
             }
         }
         "streak_risk" ->
@@ -158,8 +159,9 @@ internal object CoachWorker {
                 "It's the morning of ${d.day}. Yesterday (${y.day}): ${num(y.todayKcalIn)} kcal in, " +
                     "${num(y.todayKcalOut)} burned, net ${num(y.todayKcalIn - y.todayKcalOut)}" +
                     (if (y.todayTarget != null) " against a ${num(y.todayTarget)} kcal target" else " (no target set)") +
-                    "; ${num(y.todayProteinG)} g protein; ${y.todayItems} items logged. Recap how " +
-                    "yesterday went against the target, and give one concrete thing to plan today around."
+                    "; ${num(y.todayProteinG)} g protein against a ${num(y.proteinTarget)} g goal; " +
+                    "${y.todayItems} items logged. " +
+                    "Recap how yesterday went against both goals, and give one concrete thing to plan today around."
             }
         }
         else -> null

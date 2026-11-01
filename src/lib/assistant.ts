@@ -7,7 +7,11 @@
 import { diaryZone2Minutes } from "./exerciseGoals";
 import {
   addCoachMemory,
+  addEntryNote,
   addLifeRule,
+  describeNotedEntry,
+  isNotedEntryKind,
+  listEntryNotesFor,
   findLifeRuleByText,
   updateLifeRule,
   deleteCoachMemory,
@@ -26,6 +30,7 @@ import {
   getActiveFast,
 } from "./db";
 import { chatWithTools } from "./openrouter";
+import { notifyDiaryChanged } from "./agent";
 import type { ChatMessage, ToolDef } from "./openrouter";
 import { parseToolArgs } from "./schemas";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
@@ -213,6 +218,41 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           },
         },
         required: ["text"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "annotate_entry",
+      description:
+        "Attach a short note to ONE diary entry: context that explains its number without changing it — " +
+        "\"Taken ~10 min after a coffee with milk\" on a glucose reading that came out high, \"First run " +
+        "after a week sick\" on a slow workout. It shows on that entry for them and comes back to you " +
+        "whenever the entry does (the query_* tools return it as coach_notes; for readings, states and " +
+        "performance logs, join entry_notes in SQL). Use it when you've spotted context in the diary or " +
+        "they've told you something about a specific entry. It never edits the entry; a recurring pattern " +
+        "(\"glucose reads high after coffee\") belongs in `remember` instead. One note per thing — don't " +
+        "repeat what the entry or an earlier note already says.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["meal", "workout", "reading", "state", "performance", "sleep"],
+            description:
+              "Which table the entry is in: meal = food_entries, workout = workouts, reading = blood_readings, " +
+              "state = state_logs, performance = performance_logs, sleep = sleep_sessions.",
+          },
+          id: { type: "number", description: "The entry's id, from a query_* tool or run_sql." },
+          text: {
+            type: "string",
+            description:
+              "One sentence of context, in the third person, specific: what explains the entry, and how you know.",
+          },
+        },
+        required: ["kind", "id", "text"],
         additionalProperties: false,
       },
     },
@@ -519,6 +559,7 @@ export async function executeAssistantTool(
   if (name === "query_meals") {
     const { start, end } = dayArgs(args);
     const meals = await listFoodEntriesForRange(start, end);
+    const notes = await listEntryNotesFor("meal", meals.map((m) => m.id));
     const { items, note } = capList(
       meals.map((m) =>
         compact({
@@ -528,6 +569,7 @@ export async function executeAssistantTool(
           title: m.title,
           description: m.description,
           nutrients: roundNutrients(m.nutrients),
+          coach_notes: notes.get(m.id),
         }),
       ),
     );
@@ -537,6 +579,7 @@ export async function executeAssistantTool(
   if (name === "query_workouts") {
     const { start, end } = dayArgs(args);
     const workouts = await listWorkoutsForRange(start, end);
+    const notes = await listEntryNotesFor("workout", workouts.map((w) => w.id));
     const { items, note } = capList(
       workouts.map((w) =>
         compact({
@@ -549,6 +592,7 @@ export async function executeAssistantTool(
           duration_min: round(w.duration_min, 0),
           zone2_min: diaryZone2Minutes(w),
           source: w.source ?? "manual",
+          coach_notes: notes.get(w.id),
         }),
       ),
     );
@@ -558,9 +602,11 @@ export async function executeAssistantTool(
   if (name === "query_sleep") {
     const { start, end } = dayArgs(args);
     const sessions = await listSleepForRange(start, end);
+    const notes = await listEntryNotesFor("sleep", sessions.map((s) => s.id));
     const { items, note } = capList(
       sessions.map((s) =>
         compact({
+          id: s.id,
           day: s.day,
           started_at: s.started_at,
           ended_at: s.ended_at,
@@ -570,6 +616,7 @@ export async function executeAssistantTool(
           light_min: round(s.light_min, 0),
           awake_min: round(s.awake_min, 0),
           source: s.source,
+          coach_notes: notes.get(s.id),
         }),
       ),
     );
@@ -719,6 +766,23 @@ export async function executeAssistantTool(
     return JSON.stringify({ added_rule: rule.id, text: rule.text });
   }
 
+  if (name === "annotate_entry") {
+    const kind = args["kind"];
+    if (!isNotedEntryKind(kind)) {
+      throw new Error('kind must be one of "meal", "workout", "reading", "state", "performance", "sleep"');
+    }
+    const id = typeof args["id"] === "number" ? Math.round(args["id"]) : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const text = typeof args["text"] === "string" ? args["text"].trim() : "";
+    if (!text) throw new Error("text is required");
+    if (text.length > 500) throw new Error("Keep the note to a sentence or two.");
+    const what = await describeNotedEntry(kind, id);
+    if (what == null) throw new Error(`There is no ${kind} #${id}.`);
+    const noteId = await addEntryNote(kind, id, text);
+    notifyDiaryChanged();
+    return JSON.stringify({ noted: { id: noteId, on: `${kind} #${id} (${what})`, text } });
+  }
+
   if (name === "remember") {
     const kind = args["kind"];
     const text = typeof args["text"] === "string" ? args["text"].trim() : "";
@@ -792,6 +856,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note) — finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)
 - performance_logs(id, measured_at, day, tz_offset_min, title, note /* e.g. HRV status "Balanced", training status */, photo_path, model_id) — fitness stats read off a watch-app screenshot (usually Garmin Connect)
 - performance_stats(id, log_id /* → performance_logs.id */, metric /* "ftp", "vo2max", "vo2max_cycling", "ftp_wkg", "hrv", "hrv_7d", "resting_hr", "max_hr", "lactate_threshold_hr", "lactate_threshold_pace", "lactate_threshold_power", "training_readiness", "endurance_score", "hill_score", "acute_load", "recovery_time", "body_battery", "stress", "fitness_age", "race_5k", "race_10k", "race_half", "race_marathon", or "custom_<slug>" */, label, value /* in unit; paces are SECONDS per km and race predictions SECONDS */, unit) — join on log_id for the day; this is where FTP and lactate threshold live (Health Connect doesn't carry them)
+- entry_notes(id, entry_kind /* "meal" | "workout" | "reading" | "state" | "performance" | "sleep" */, entry_id /* id in food_entries / workouts / blood_readings / state_logs / performance_logs / sleep_sessions */, text, created_at) — notes YOU attached with annotate_entry: context that explains an entry. Join them in whenever you look at readings, states or performance logs
 - life_rules(id, text /* a rule for living in their exact words: "I must always do things perfectly" */, alternative /* the rule they practise instead, or NULL */, status /* "kept" | "suggested" (the diary heard it, they haven't confirmed) | "archived" */, created_at, day, tz_offset_min)
 - life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */) — the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here

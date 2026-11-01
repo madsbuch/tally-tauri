@@ -14,6 +14,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   deleteBloodReading,
+  deleteEntryNote,
+  deleteEntryNotesOf,
   deleteFoodEntry,
   deletePerformanceLog,
   deletePerformanceStat,
@@ -25,6 +27,8 @@ import {
   getFoodEntry,
   getGlucoseUnit,
   getPerformanceLog,
+  isNotedEntryKind,
+  listEntryNotes,
   getSleepSession,
   getStateLog,
   getSupplementLog,
@@ -45,6 +49,7 @@ import { NUTRIENT_DEFS } from "../lib/nutrients";
 import type { NutrientKey } from "../lib/types";
 import type {
   BloodReading,
+  EntryNote,
   FoodEntry,
   Nutrients,
   PerformanceLog,
@@ -258,6 +263,8 @@ export default function EntryPage() {
   const [perf, setPerf] = useState<PerformanceLog | null>(null);
   /** Earlier performance logs, for the trend of each stat on this one. */
   const [perfHistory, setPerfHistory] = useState<PerformanceLog[]>([]);
+  /** What the coach noted on this entry (see annotate_entry). */
+  const [coachNotes, setCoachNotes] = useState<EntryNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -271,6 +278,7 @@ export default function EntryPage() {
       return;
     }
     try {
+      if (isNotedEntryKind(kind)) setCoachNotes(await listEntryNotes(kind, id));
       if (kind === "meal") {
         const e = await getFoodEntry(id);
         setMeal(e);
@@ -355,6 +363,7 @@ export default function EntryPage() {
         await deletePerformanceLog(perf.id);
         await deletePhotoIfUnused(perf.photo_path);
       }
+      if (isNotedEntryKind(kind)) await deleteEntryNotesOf(kind, id);
       notifyDiaryChanged();
       back();
     } catch (e) {
@@ -644,6 +653,31 @@ export default function EntryPage() {
               }
               onClick={() => setEditing({ field: "description" })}
             />
+          </div>
+        </>
+      )}
+
+      {coachNotes.length > 0 && (
+        <>
+          <div className="section-title">Coach notes</div>
+          <div className="list">
+            {coachNotes.map((n) => (
+              <div key={n.id} className="info-row info-row-static coach-note">
+                <span className="coach-note-text">{n.text}</span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  aria-label="Remove this note"
+                  onClick={() => {
+                    if (!window.confirm("Remove this note?")) return;
+                    void deleteEntryNote(n.id)
+                      .then(afterChange)
+                      .catch((e: unknown) => setError(errMsg(e)));
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         </>
       )}

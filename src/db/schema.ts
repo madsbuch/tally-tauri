@@ -568,3 +568,24 @@ export const performanceStats = sqliteTable(
     index("idx_performance_stats_metric").on(t.metric),
   ],
 );
+
+/**
+ * Notes the coach attached to a diary entry: context that explains a number
+ * without changing it — "taken ~10 min after coffee" on a glucose reading
+ * that came out high. Kept apart from the entry's own note/description, which
+ * are the user's words (and which a workout's Zone 2 minutes are read from),
+ * so a note can never alter either. Add-only from the coach's side; the user
+ * deletes them on the entry page.
+ */
+export const entryNotes = sqliteTable(
+  "entry_notes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** "meal" | "workout" | "reading" | "state" | "performance" | "sleep". */
+    entryKind: text("entry_kind").notNull(),
+    entryId: integer("entry_id").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("idx_entry_notes_entry").on(t.entryKind, t.entryId)],
+);

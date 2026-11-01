@@ -11,6 +11,7 @@ import {
   dayGoalAdjustments,
   documents,
   entryMessages,
+  entryNotes,
   fasts,
   foodEntries,
   healthMetrics,
@@ -35,6 +36,7 @@ import type {
   DayGoalAdjustment,
   EntryKind,
   EntryMessage,
+  EntryNote,
   LibraryDocument,
   Fast,
   FoodEntry,
@@ -42,6 +44,7 @@ import type {
   LifeRule,
   LifeRuleLog,
   LifeRuleStatus,
+  NotedEntryKind,
   PerformanceLog,
   PerformanceStat,
   ReadingKind,
@@ -1621,6 +1624,118 @@ export async function listPerformanceLogsForRange(
     .where(and(gte(performanceLogs.day, startDay), lte(performanceLogs.day, endDay)))
     .orderBy(desc(performanceLogs.measuredAt));
   return withStats(rows);
+}
+
+// ---------------------------------------------------------------------------
+// Coach notes on entries
+// ---------------------------------------------------------------------------
+
+export const NOTED_ENTRY_KINDS: NotedEntryKind[] = [
+  "meal",
+  "workout",
+  "reading",
+  "state",
+  "performance",
+  "sleep",
+];
+
+export function isNotedEntryKind(v: unknown): v is NotedEntryKind {
+  return typeof v === "string" && (NOTED_ENTRY_KINDS as string[]).includes(v);
+}
+
+type EntryNoteRow = typeof entryNotes.$inferSelect;
+
+function toEntryNote(r: EntryNoteRow): EntryNote | null {
+  if (!isNotedEntryKind(r.entryKind)) return null;
+  return {
+    id: r.id,
+    entry_kind: r.entryKind,
+    entry_id: r.entryId,
+    text: r.text,
+    created_at: r.createdAt,
+  };
+}
+
+/** Does the entry a note would go on exist? A short title for it when it does. */
+export async function describeNotedEntry(
+  kind: NotedEntryKind,
+  id: number,
+): Promise<string | null> {
+  if (kind === "meal") {
+    const r = await db.select({ t: foodEntries.title }).from(foodEntries).where(eq(foodEntries.id, id)).limit(1);
+    return r[0]?.t ?? null;
+  }
+  if (kind === "workout") {
+    const r = await db.select({ t: workouts.title }).from(workouts).where(eq(workouts.id, id)).limit(1);
+    return r[0]?.t ?? null;
+  }
+  if (kind === "reading") {
+    const r = await db
+      .select({ k: bloodReadings.kind, v: bloodReadings.value })
+      .from(bloodReadings)
+      .where(eq(bloodReadings.id, id))
+      .limit(1);
+    const row = r[0];
+    return row ? `${row.k} ${Math.round(row.v * 10) / 10} mmol/L` : null;
+  }
+  if (kind === "state") {
+    const r = await db.select({ t: stateLogs.label }).from(stateLogs).where(eq(stateLogs.id, id)).limit(1);
+    return r[0]?.t ?? null;
+  }
+  if (kind === "performance") {
+    const r = await db.select({ t: performanceLogs.title }).from(performanceLogs).where(eq(performanceLogs.id, id)).limit(1);
+    return r[0]?.t ?? null;
+  }
+  const r = await db.select({ d: sleepSessions.day }).from(sleepSessions).where(eq(sleepSessions.id, id)).limit(1);
+  return r[0] ? `night ending ${r[0].d ?? "?"}` : null;
+}
+
+export async function addEntryNote(
+  kind: NotedEntryKind,
+  entryId: number,
+  text: string,
+): Promise<number> {
+  const rows = await db
+    .insert(entryNotes)
+    .values({ entryKind: kind, entryId, text, createdAt: new Date().toISOString() })
+    .returning({ id: entryNotes.id });
+  return rows[0]?.id ?? 0;
+}
+
+export async function listEntryNotes(kind: NotedEntryKind, entryId: number): Promise<EntryNote[]> {
+  const rows = await db
+    .select()
+    .from(entryNotes)
+    .where(and(eq(entryNotes.entryKind, kind), eq(entryNotes.entryId, entryId)))
+    .orderBy(entryNotes.createdAt);
+  return rows.map(toEntryNote).filter((n): n is EntryNote => n !== null);
+}
+
+/** Notes on many entries of one kind at once, grouped by entry id. */
+export async function listEntryNotesFor(
+  kind: NotedEntryKind,
+  entryIds: number[],
+): Promise<Map<number, string[]>> {
+  const out = new Map<number, string[]>();
+  if (entryIds.length === 0) return out;
+  const rows = await db
+    .select()
+    .from(entryNotes)
+    .where(and(eq(entryNotes.entryKind, kind), inArray(entryNotes.entryId, entryIds)))
+    .orderBy(entryNotes.createdAt);
+  for (const r of rows) out.set(r.entryId, [...(out.get(r.entryId) ?? []), r.text]);
+  return out;
+}
+
+export async function deleteEntryNote(id: number): Promise<void> {
+  await db.delete(entryNotes).where(eq(entryNotes.id, id));
+}
+
+/** Called when an entry is deleted, so its notes don't outlive it. */
+export async function deleteEntryNotesOf(kind: NotedEntryKind, entryId: number): Promise<void> {
+  await db
+    .delete(entryNotes)
+    .where(and(eq(entryNotes.entryKind, kind), eq(entryNotes.entryId, entryId)));
 }
 
 /** How glucose is typed in and shown; mmol/L until they say otherwise. */

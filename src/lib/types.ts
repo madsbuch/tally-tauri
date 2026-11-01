@@ -218,6 +218,18 @@ export interface BloodReading {
   photo_path: string | null;
 }
 
+/** Which kind of diary entry a coach note is attached to. */
+export type NotedEntryKind = "meal" | "workout" | "reading" | "state" | "performance" | "sleep";
+
+/** A note the coach attached to a diary entry (see db/schema.ts entry_notes). */
+export interface EntryNote {
+  id: number;
+  entry_kind: NotedEntryKind;
+  entry_id: number;
+  text: string;
+  created_at: string;
+}
+
 /** One number off a performance screen (see lib/performance.ts). */
 export interface PerformanceStat {
   id: number;

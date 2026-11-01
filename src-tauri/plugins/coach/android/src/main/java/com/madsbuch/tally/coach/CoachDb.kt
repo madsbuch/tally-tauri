@@ -24,6 +24,9 @@ import java.util.TimeZone
  */
 internal object CoachDb {
 
+    /** Mirrors DEFAULT_PROTEIN_TARGET_G in src/lib/types.ts. */
+    private const val DEFAULT_PROTEIN_TARGET_G = 150.0
+
     // -- time ---------------------------------------------------------------
 
     private fun utcParser(pattern: String) = SimpleDateFormat(pattern, Locale.US).apply {
@@ -275,6 +278,9 @@ internal object CoachDb {
             arrayOf(day),
         ).use { c -> if (c.moveToFirst()) manual = c.getDouble(0) }
         val target = if (base != null && base > 0) maxOf(200.0, base + manual) else null
+        // Daily protein goal, mirroring getProteinTarget() in lib/goals.ts.
+        val proteinTarget = setting(db, "protein_target_g")?.toDoubleOrNull()
+            ?.takeIf { !it.isNaN() && it > 0 } ?: DEFAULT_PROTEIN_TARGET_G
 
         val loggedDays = kcalByDay.keys.toList()
         val nets = loggedDays.map { (kcalByDay[it] ?: 0.0) - (burnedByDay[it] ?: 0.0) }
@@ -402,6 +408,7 @@ internal object CoachDb {
             todayKcalOut = Math.round(todayBurned).toDouble(),
             todayProteinG = Math.round(todayProtein).toDouble(),
             todayTarget = target?.let { Math.round(it).toDouble() },
+            proteinTarget = Math.round(proteinTarget).toDouble(),
             todayItems = todayItems,
             daysLogged = loggedDays.size,
             avgNet = nets.averageOrNull(),
@@ -501,6 +508,8 @@ internal object CoachDb {
         val todayKcalOut: Double,
         val todayProteinG: Double,
         val todayTarget: Double?,
+        /** Daily protein goal in grams. */
+        val proteinTarget: Double,
         val todayItems: Int,
         val daysLogged: Int,
         val avgNet: Double?,
@@ -528,18 +537,24 @@ internal object CoachDb {
         private fun num(v: Double?): String =
             if (v == null) "no data" else if (v == Math.floor(v)) v.toLong().toString() else v.toString()
 
-        /** Mirrors renderCoachDigest() on the TypeScript side. */
+        /**
+         * Mirrors renderCoachDigest() on the TypeScript side — except the
+         * Zone 2 line and the performance stats, which aren't ported: Zone 2
+         * reads minutes out of workout descriptions (diaryZone2Minutes) and a
+         * second copy of that parser would drift. The in-app coach has both.
+         */
         fun render(): String {
             val lines = ArrayList<String>()
             lines.add(
                 "Today ($day): ${num(todayKcalIn)} kcal in, ${num(todayKcalOut)} burned, " +
                     "net ${num(todayKcalIn - todayKcalOut)}" +
                     (if (todayTarget != null) " against a ${num(todayTarget)} kcal target" else " (no target set)") +
-                    "; ${num(todayProteinG)} g protein; $todayItems items logged.",
+                    "; ${num(todayProteinG)} g protein against a ${num(proteinTarget)} g daily goal; " +
+                    "$todayItems items logged.",
             )
             lines.add(
                 "Last 7 days: $daysLogged/7 days with food logged, avg net ${num(avgNet)} kcal, " +
-                    "avg protein ${num(avgProteinG)} g, $workouts workouts, " +
+                    "avg protein ${num(avgProteinG)} g (goal ${num(proteinTarget)} g/day), $workouts workouts, " +
                     "avg sleep ${num(avgSleepH)} h, avg steps ${num(avgSteps)}.",
             )
             if (weightKg != null) {

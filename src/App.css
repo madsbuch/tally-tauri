@@ -745,6 +745,9 @@ textarea.state-note {
   overflow-wrap: anywhere;
 }
 
+.coach-note { align-items: flex-start; }
+.coach-note-text { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+
 .info-chev {
   color: var(--faint);
   flex: 0 0 auto;
