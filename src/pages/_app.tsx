@@ -11,6 +11,7 @@ import {
 import { installAppLifecycle, onAppResume } from "../lib/appLifecycle";
 import { clearStaleBackgroundTask } from "../lib/background";
 import { installDocumentLifecycle, resumePendingDocuments } from "../lib/documents";
+import { convertSupplementLogs } from "../lib/supplementConversion";
 import { runCoachCheckin } from "../lib/coachCheckin";
 import { syncCoachSchedule } from "../lib/coachTriggers";
 import { cacheCoachPromptPrefix } from "../lib/coach";
@@ -132,6 +133,11 @@ export default function App() {
           resyncFastNotification(),
           resumePendingCaptures(),
           resumePendingDocuments(),
+          // Old supplement logs become diary entries (supplements are food).
+          // Retries on every start until each one could be converted.
+          convertSupplementLogs().catch((e) =>
+            console.warn("Supplement conversion failed", e),
+          ),
           syncHealthConnect().catch((e) =>
             console.warn("Health Connect sync failed", e),
           ),

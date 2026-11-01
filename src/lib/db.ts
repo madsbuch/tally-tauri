@@ -881,6 +881,30 @@ export async function deleteSupplementLog(id: number): Promise<void> {
   await db.delete(supplementLogs).where(eq(supplementLogs.id, id));
 }
 
+/**
+ * Turn one old supplement log into a diary entry (supplements are food now).
+ * The entry keeps the log's own day and offset — it happened where it
+ * happened — and the log is removed only once the entry exists, so a crash in
+ * between can at worst leave both, never neither.
+ */
+export async function convertSupplementLogToFood(
+  logId: number,
+  entry: Omit<FoodEntry, "id" | "photo_path">,
+): Promise<void> {
+  await db.insert(foodEntries).values({
+    eatenAt: entry.eaten_at,
+    title: entry.title,
+    description: entry.description,
+    photoPath: null,
+    nutrients: entry.nutrients,
+    modelId: entry.model_id,
+    icon: entry.icon,
+    day: entry.day ?? stampOf(entry.eaten_at).day,
+    tzOffsetMin: entry.tz_offset_min ?? stampOf(entry.eaten_at).tz_offset_min,
+  });
+  await db.delete(supplementLogs).where(eq(supplementLogs.id, logId));
+}
+
 export async function listSupplementLogsForDay(
   day: string,
 ): Promise<SupplementLogWithSupplement[]> {
