@@ -524,6 +524,33 @@ export function parseLabelArgs(raw: unknown): LabelArgs | null {
   return r.success ? r.data : null;
 }
 
+/**
+ * One entry of log_performance's `stats` argument. Forgiving: a number sent
+ * as a string is coerced, and an entry with no usable number or metric is
+ * dropped rather than failing the whole call (see parsePerformanceStatArgs).
+ */
+const optionalText = z
+  .unknown()
+  .optional()
+  .transform((v) => (typeof v === "string" && v.trim() ? v.trim() : null));
+
+const PerformanceStatArgSchema = z.object({
+  metric: z.string().trim().min(1),
+  value: z.coerce.number().finite(),
+  label: optionalText,
+  unit: optionalText,
+});
+export type PerformanceStatArg = z.infer<typeof PerformanceStatArgSchema>;
+
+/** The usable entries of log_performance's `stats`; [] when it isn't a list. */
+export function parsePerformanceStatArgs(raw: unknown): PerformanceStatArg[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const r = PerformanceStatArgSchema.safeParse(item);
+    return r.success ? [r.data] : [];
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Settings blobs
 // ---------------------------------------------------------------------------

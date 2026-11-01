@@ -501,9 +501,70 @@ export const bloodReadings = sqliteTable(
     day: text("day").notNull(),
     /** Minutes east of UTC at that moment. */
     tzOffsetMin: integer("tz_offset_min").notNull(),
+    /**
+     * The photo of the meter screen it was read from. A glucose and a ketone
+     * strip photographed together share the one file.
+     */
+    photoPath: text("photo_path"),
   },
   (t) => [
     index("idx_blood_readings_day").on(t.day),
     index("idx_blood_readings_kind_measured_at").on(t.kind, t.measuredAt),
+  ],
+);
+
+/**
+ * Performance stats read off a watch app's screen — a Garmin screenshot of
+ * FTP, VO₂ max, HRV status, lactate threshold, race predictions. One row per
+ * screenshot (or note), with the numbers it showed in `performance_stats`.
+ *
+ * Kept apart from `health_metrics`, which Health Connect fills one value per
+ * day: these are the numbers Garmin doesn't hand over (FTP, lactate threshold,
+ * endurance score), and the screenshot they came from is kept with them.
+ */
+export const performanceLogs = sqliteTable(
+  "performance_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    measuredAt: text("measured_at").notNull(),
+    /** Short heading, e.g. "Garmin performance stats". */
+    title: text("title").notNull(),
+    note: text("note"),
+    /** Filename inside the app data `photos/` dir: the screenshot itself. */
+    photoPath: text("photo_path"),
+    modelId: text("model_id"),
+    /** Local day it was measured on, stamped where it happened (lib/daystamp.ts). */
+    day: text("day").notNull(),
+    /** Minutes east of UTC at that moment. */
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+  },
+  (t) => [
+    index("idx_performance_logs_day").on(t.day),
+    index("idx_performance_logs_measured_at").on(t.measuredAt),
+  ],
+);
+
+/**
+ * One number from a performance log. `metric` is a key from
+ * lib/performance.ts ("ftp", "vo2max", …) or a slug of the label for anything
+ * else the screen showed; `label` and `unit` are copied in so the row reads
+ * on its own whatever the catalogue later says.
+ */
+export const performanceStats = sqliteTable(
+  "performance_stats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    logId: integer("log_id")
+      .notNull()
+      .references(() => performanceLogs.id),
+    metric: text("metric").notNull(),
+    label: text("label").notNull(),
+    /** In `unit`; paces and times in seconds (see lib/performance.ts). */
+    value: real("value").notNull(),
+    unit: text("unit"),
+  },
+  (t) => [
+    index("idx_performance_stats_log").on(t.logId),
+    index("idx_performance_stats_metric").on(t.metric),
   ],
 );

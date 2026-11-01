@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BloodReading,
+  PerformanceLog,
   Capture,
   FoodEntry,
   LifeRule,
@@ -51,6 +52,7 @@ import {
   getGlucoseUnit,
   getSetting,
   listBloodReadingsForRange,
+  listPerformanceLogsForRange,
   listCapturesForDay,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
@@ -103,6 +105,7 @@ import {
   partnerOf,
 } from "../lib/readings";
 import type { GlucoseUnit } from "../lib/readings";
+import { PERFORMANCE_GLYPH, statsSummary } from "../lib/performance";
 import { ACTED_ON_LABEL, RULE_GLYPH } from "../lib/lifeRules";
 import {
   MAX_MANUAL_ADJUSTMENT,
@@ -1468,6 +1471,7 @@ type TimelineItem =
   | { kind: "supp"; ts: string; log: SupplementLogWithSupplement }
   | { kind: "state"; ts: string; state: StateLog }
   | { kind: "reading"; ts: string; reading: BloodReading }
+  | { kind: "performance"; ts: string; perf: PerformanceLog }
   | { kind: "rule"; ts: string; log: LifeRuleLog }
   | { kind: "rule_new"; ts: string; rule: LifeRule }
   | { kind: "capture"; ts: string; capture: Capture };
@@ -1480,6 +1484,7 @@ function entryPath(item: TimelineItem): string {
   if (item.kind === "supp") return `/entry/supplement/${item.log.id}`;
   if (item.kind === "state") return `/entry/state/${item.state.id}`;
   if (item.kind === "reading") return `/entry/reading/${item.reading.id}`;
+  if (item.kind === "performance") return `/entry/performance/${item.perf.id}`;
   return "/";
 }
 
@@ -1554,6 +1559,7 @@ export default function DiaryPage() {
   const [captures, setCaptures] = useState<Capture[] | null>(null);
   const [states, setStates] = useState<StateLog[]>([]);
   const [readings, setReadings] = useState<BloodReading[]>([]);
+  const [perfLogs, setPerfLogs] = useState<PerformanceLog[]>([]);
   const [glucoseUnit, setGlucoseUnit] = useState<GlucoseUnit>("mmol");
   const [ruleLogs, setRuleLogs] = useState<LifeRuleLog[]>([]);
   const [newRules, setNewRules] = useState<LifeRule[]>([]);
@@ -1681,8 +1687,9 @@ export default function DiaryPage() {
       listLifeRulesCreatedOn(day).catch(() => [] as LifeRule[]),
       listBloodReadingsForRange(day, day).catch(() => [] as BloodReading[]),
       getGlucoseUnit().catch((): GlucoseUnit => "mmol"),
+      listPerformanceLogsForRange(day, day).catch(() => [] as PerformanceLog[]),
     ])
-      .then(([e, w, s, c, sl, st, rl, nr, br, gu]) => {
+      .then(([e, w, s, c, sl, st, rl, nr, br, gu, pl]) => {
         if (!alive) return;
         shownDayRef.current = day;
         setEntries(e);
@@ -1693,6 +1700,7 @@ export default function DiaryPage() {
         setStates(st);
         setReadings(br);
         setGlucoseUnit(gu);
+        setPerfLogs(pl);
         setRuleLogs(rl);
         setNewRules(nr);
       })
@@ -1865,12 +1873,13 @@ export default function DiaryPage() {
       })),
       ...states.map((st) => ({ kind: "state" as const, ts: st.logged_at, state: st })),
       ...readings.map((r) => ({ kind: "reading" as const, ts: r.measured_at, reading: r })),
+      ...perfLogs.map((p) => ({ kind: "performance" as const, ts: p.measured_at, perf: p })),
       ...ruleLogs.map((l) => ({ kind: "rule" as const, ts: l.logged_at, log: l })),
       ...newRules.map((r) => ({ kind: "rule_new" as const, ts: r.created_at, rule: r })),
     ];
     items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
     return items;
-  }, [entries, workouts, suppLogs, captures, sleep, states, readings, ruleLogs, newRules]);
+  }, [entries, workouts, suppLogs, captures, sleep, states, readings, perfLogs, ruleLogs, newRules]);
 
   const today = todayStr();
   const isToday = day === today;
@@ -2464,7 +2473,15 @@ export default function DiaryPage() {
                         if (ev.key === "Enter") openItem(item);
                       }}
                     >
-                      <GlyphThumb glyph={def.glyph} />
+                      {r.photo_path ? (
+                        <PhotoImg
+                          filename={r.photo_path}
+                          className="photo-thumb"
+                          alt={def.label}
+                        />
+                      ) : (
+                        <GlyphThumb glyph={def.glyph} />
+                      )}
                       <div className="row-main">
                         <div className="row-title">
                           {def.label} {formatReading(r.kind, r.value, glucoseUnit)}
@@ -2478,6 +2495,39 @@ export default function DiaryPage() {
                             : ""}
                           {r.note ? ` · ${shorten(r.note)}` : ""}
                         </div>
+                      </div>
+                      <div className="row-end">›</div>
+                    </div>
+                  );
+                }
+                if (item.kind === "performance") {
+                  const p = item.perf;
+                  return (
+                    <div
+                      key={`perf-${p.id}`}
+                      className="list-row"
+                      role="button"
+                      tabIndex={0}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => openItem(item)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") openItem(item);
+                      }}
+                    >
+                      {p.photo_path ? (
+                        <PhotoImg filename={p.photo_path} className="photo-thumb" alt={p.title} />
+                      ) : (
+                        <GlyphThumb glyph={PERFORMANCE_GLYPH} />
+                      )}
+                      <div className="row-main">
+                        <div className="row-title">{p.title}</div>
+                        <div className="row-sub">
+                          {timeOf(p.measured_at, p.tz_offset_min)}
+                          {p.note ? ` · ${shorten(p.note)}` : ""}
+                        </div>
+                        {p.stats.length > 0 && (
+                          <div className="row-sub">{statsSummary(p.stats)}</div>
+                        )}
                       </div>
                       <div className="row-end">›</div>
                     </div>

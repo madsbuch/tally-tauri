@@ -4,7 +4,8 @@
  * A capture (photo and/or note) is stored instantly and resolved in the
  * background: the model sees the current time, the supplement catalog and the
  * diary around this day, then records entries exclusively through tool calls
- * (log_meal / repeat_meal / log_workout / log_supplement / log_reading / log_state /
+ * (log_meal / repeat_meal / log_workout / log_supplement / log_reading /
+ * log_performance / log_state /
  * add_rule / log_rule), so phrases like
  * "ate this earlier today" get a concrete timestamp and "one more of those"
  * gets the same numbers as the first one. Successful captures are deleted;
@@ -15,6 +16,7 @@ import {
   addFoodEntry,
   addLifeRule,
   addBloodReading,
+  addPerformanceLog,
   addLifeRuleLog,
   addStateLog,
   addSupplement,
@@ -42,7 +44,7 @@ import {
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import type { ChatMessage, ContentPart, ToolDef } from "./openrouter";
-import { parseLabelArgs, parseToolArgs } from "./schemas";
+import { parseLabelArgs, parsePerformanceStatArgs, parseToolArgs } from "./schemas";
 import { unlockAchievement } from "./achievements";
 import {
   FOOD_FACTS_TOOL,
@@ -62,6 +64,7 @@ import {
   isReadingKind,
 } from "./readings";
 import type { GlucoseUnit } from "./readings";
+import { STAT_DEFS, customMetricKey, statDef, statKeys } from "./performance";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
@@ -332,6 +335,74 @@ const DIARY_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "log_performance",
+      description:
+        "Record fitness/performance stats read off a watch or training app — usually a Garmin " +
+        "Connect screenshot (Performance Stats, HRV Status, Training Readiness, Race Predictor, " +
+        "a power-meter FTP test) — or numbers in the note. ONE call per screenshot/note with " +
+        "every stat it shows in `stats`. Copy numbers exactly as shown, never estimate one. " +
+        "Use this for stats about fitness, not for a single workout (that is log_workout).",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: 'Short heading, max 5 words, e.g. "Garmin performance stats", "FTP test".',
+          },
+          stats: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                metric: {
+                  type: "string",
+                  enum: [...statKeys(), "other"],
+                  description:
+                    "Which stat. " +
+                    statKeys()
+                      .map((k) => `${k}: ${STAT_DEFS[k].hint}`)
+                      .join("; ") +
+                    '; other: anything else numeric on the screen (give label and unit).',
+                },
+                value: {
+                  type: "number",
+                  description:
+                    "The number shown, in the stat's unit. Paces and race times as SECONDS (see the metric list).",
+                },
+                label: {
+                  type: "string",
+                  description: 'Only for metric "other": the stat\'s name as the screen shows it.',
+                },
+                unit: {
+                  type: "string",
+                  description: 'Only for metric "other": its unit, if any.',
+                },
+              },
+              required: ["metric", "value"],
+              additionalProperties: false,
+            },
+          },
+          note: {
+            type: "string",
+            description:
+              "Anything else worth keeping that isn't a number: HRV status (\"Balanced\"), " +
+              "training status (\"Productive\"), or what they said about it.",
+          },
+          time: {
+            type: "string",
+            description:
+              TIME_DESC + " For a screenshot with no time on it, use the time the capture was made.",
+          },
+        },
+        required: ["title", "stats", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "repeat_meal",
       description:
         "Log another serving of something already in the diary — \"one more cheese cube\", " +
@@ -557,7 +628,7 @@ function buildSystemPrompt(
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
-    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; a blood meter screen (glucose or ketones) → log_reading; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
+    "- Decide what the capture shows: food/drink → log_meal; exercise → log_workout; supplement intake → log_supplement; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
     `- Branded/packaged products (wrappers, bottles, cans, labels, barcodes): look them up with search_packaged_food first — by the barcode digits when the photo shows them legibly, else by the name as printed on the package. ${foodCountry == null ? "" : `Searches cover products sold in ${foodCountry} first, then worldwide; prefer a match sold in their country. `}When a result is what was eaten, call log_meal with \`label\` (its barcode plus grams, servings or packages) and let Tally do the label arithmetic; put in \`nutrients\` only what the label lacks (usually the micronutrients). Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself and log without \`label\`.`,
@@ -626,6 +697,11 @@ interface ToolContext {
   model: string;
   /** Photo filename not yet attached to an entry (attach once, first taker). */
   photoToAttach: string | null;
+  /**
+   * The photo a reading took. A meter photo can show a glucose and a ketone
+   * reading together, and both are read off it, so both keep it.
+   */
+  readingPhoto: string | null;
   logged: number;
 }
 
@@ -801,12 +877,65 @@ async function executeTool(
     if (value < min || value > max) {
       return `Error: ${raw}${unitArg ? ` ${args["unit"]}` : ""} is outside what the meter can read for ${label.toLowerCase()} — check the number and unit.`;
     }
-    await addBloodReading({ kind, value, note: str(args["note"]), measuredAt: time });
+    const photo = ctx.photoToAttach ?? ctx.readingPhoto;
+    ctx.photoToAttach = null;
+    ctx.readingPhoto = photo;
+    await addBloodReading({
+      kind,
+      value,
+      note: str(args["note"]),
+      measuredAt: time,
+      photoPath: photo,
+    });
     // The meter's unit is the one to show glucose in from here on.
     if (kind === "glucose" && unit) await setGlucoseUnit(unit);
     ctx.logged++;
     notifyDiaryChanged();
     return `Logged ${label.toLowerCase()} ${raw}${unitArg ? ` ${args["unit"]}` : ""} at ${time}.`;
+  }
+
+  if (name === "log_performance") {
+    const title = str(args["title"]) ?? "Performance stats";
+    const stats: { metric: string; label: string; value: number; unit: string | null }[] = [];
+    const rejected: string[] = [];
+    for (const { metric, value, label, unit } of parsePerformanceStatArgs(args["stats"])) {
+      const def = statDef(metric);
+      if (def) {
+        if (value < def.min || value > def.max) {
+          rejected.push(`${def.label} ${value}`);
+          continue;
+        }
+        stats.push({ metric, label: def.label, value, unit: def.unit });
+      } else {
+        // "other", or a key the model made up: kept under its own label.
+        const name = label ?? (metric === "other" ? null : metric);
+        if (!name) continue;
+        stats.push({ metric: customMetricKey(name), label: name, value, unit });
+      }
+    }
+    if (stats.length === 0) {
+      return rejected.length > 0
+        ? `Error: ${rejected.join(", ")} is outside what that stat can be — check the number and unit (paces and times in seconds).`
+        : "Error: no stats with a number to record.";
+    }
+    const photo = ctx.photoToAttach;
+    ctx.photoToAttach = null;
+    await addPerformanceLog({
+      title,
+      note: str(args["note"]),
+      photoPath: photo,
+      modelId: ctx.model,
+      measuredAt: time,
+      stats,
+    });
+    ctx.logged++;
+    notifyDiaryChanged();
+    return (
+      `Logged ${stats.length} performance stat${stats.length === 1 ? "" : "s"} at ${time}.` +
+      (rejected.length > 0
+        ? ` Skipped ${rejected.join(", ")}: outside what that stat can be (paces and times are seconds) — call again with the corrected value if you misread it.`
+        : "")
+    );
   }
 
   if (name === "log_state") {
@@ -937,6 +1066,7 @@ async function runCapture(capture: Capture): Promise<void> {
     capture,
     model,
     photoToAttach: capture.photo_path,
+    readingPhoto: null,
     logged: 0,
   };
 
@@ -961,8 +1091,8 @@ async function runCapture(capture: Capture): Promise<void> {
           role: "user",
           content:
             "Nothing has been recorded yet. If the capture shows any food, drink, " +
-            "exercise, supplement, meter reading, feeling or rule for living, record it NOW by calling the " +
-            "matching tool (log_meal / log_workout / log_supplement / log_reading / log_state / " +
+            "exercise, supplement, meter reading, performance stats, feeling or rule for living, record it NOW by calling the " +
+            "matching tool (log_meal / log_workout / log_supplement / log_reading / log_performance / log_state / " +
             "add_rule / log_rule) — a rough estimate is better " +
             "than nothing. Only reply in plain text if there is truly nothing to " +
             "record, and say why.",

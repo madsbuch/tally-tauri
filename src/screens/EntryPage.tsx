@@ -15,6 +15,8 @@ import { useParams } from "react-router-dom";
 import {
   deleteBloodReading,
   deleteFoodEntry,
+  deletePerformanceLog,
+  deletePerformanceStat,
   deletePhotoIfUnused,
   deleteStateLog,
   deleteSupplementLog,
@@ -22,14 +24,18 @@ import {
   getBloodReading,
   getFoodEntry,
   getGlucoseUnit,
+  getPerformanceLog,
   getSleepSession,
   getStateLog,
   getSupplementLog,
   getWorkout,
   listBloodReadingsForRange,
+  listPerformanceLogsForRange,
   todayStr,
   updateBloodReading,
   updateFoodEntry,
+  updatePerformanceLog,
+  updatePerformanceStat,
   updateStateLog,
   updateSupplementLog,
   updateWorkout,
@@ -41,6 +47,8 @@ import type {
   BloodReading,
   FoodEntry,
   Nutrients,
+  PerformanceLog,
+  PerformanceStat,
   SleepSession,
   StateLog,
   SupplementLogWithSupplement,
@@ -78,6 +86,15 @@ import {
   unitLabel,
 } from "../lib/readings";
 import type { GlucoseUnit } from "../lib/readings";
+import {
+  PERFORMANCE_GLYPH,
+  displayUnit,
+  formatStat,
+  formatStatValue,
+  orderStats,
+  parseStatInput,
+  statDef,
+} from "../lib/performance";
 import AssistantChart from "../components/AssistantChart";
 import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
@@ -85,7 +102,7 @@ import { useUp } from "../lib/navigation";
 import WorkoutZone2Toggle from "../components/WorkoutZone2Toggle";
 import EntryChat from "../components/EntryChat";
 
-type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading";
+type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading" | "performance";
 
 /** Nutrients shown without asking; the rest hide behind "all nutrients". */
 const BASE_KEYS: NutrientKey[] = ["calories", "protein_g", "carbs_g", "fat_g"];
@@ -97,7 +114,8 @@ function isKind(v: string | undefined): v is Kind {
     v === "supplement" ||
     v === "sleep" ||
     v === "state" ||
-    v === "reading"
+    v === "reading" ||
+    v === "performance"
   );
 }
 
@@ -214,7 +232,8 @@ type Editing =
   | { field: "duration" }
   | { field: "zone2" }
   | { field: "amount" }
-  | { field: "reading" };
+  | { field: "reading" }
+  | { field: "stat"; stat: PerformanceStat };
 
 // ---------------------------------------------------------------------------
 // The page
@@ -236,6 +255,9 @@ export default function EntryPage() {
   /** The same day's readings (for the GKI partner) and the last 30 days' (for the trend). */
   const [nearby, setNearby] = useState<BloodReading[]>([]);
   const [unit, setUnit] = useState<GlucoseUnit>("mmol");
+  const [perf, setPerf] = useState<PerformanceLog | null>(null);
+  /** Earlier performance logs, for the trend of each stat on this one. */
+  const [perfHistory, setPerfHistory] = useState<PerformanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -277,6 +299,13 @@ export default function EntryPage() {
           setNearby(rows);
           setUnit(u);
         }
+      } else if (kind === "performance") {
+        const p = await getPerformanceLog(id);
+        setPerf(p);
+        setGone(p === null);
+        if (p) {
+          setPerfHistory(await listPerformanceLogsForRange(shiftDay(p.day, -364), p.day));
+        }
       } else {
         const n = await getSleepSession(id);
         setNight(n);
@@ -305,6 +334,7 @@ export default function EntryPage() {
       dose?.name ??
       felt?.label ??
       (reading ? `${READING_DEFS[reading.kind].label} ${formatReading(reading.kind, reading.value, unit)}` : null) ??
+      perf?.title ??
       "this entry";
     if (!window.confirm(`Delete "${what}"? This cannot be undone.`)) return;
     try {
@@ -320,6 +350,10 @@ export default function EntryPage() {
         await deleteStateLog(felt.id);
       } else if (reading) {
         await deleteBloodReading(reading.id);
+        await deletePhotoIfUnused(reading.photo_path);
+      } else if (perf) {
+        await deletePerformanceLog(perf.id);
+        await deletePhotoIfUnused(perf.photo_path);
       }
       notifyDiaryChanged();
       back();
@@ -338,7 +372,7 @@ export default function EntryPage() {
     );
   }
 
-  if (gone || (!meal && !workout && !dose && !night && !felt && !reading)) {
+  if (gone || (!meal && !workout && !dose && !night && !felt && !reading && !perf)) {
     return (
       <div className="page">
         <header className="page-header">
@@ -359,7 +393,8 @@ export default function EntryPage() {
   }
 
   // -- the three shapes, reduced to what the page draws --------------------
-  const photo = meal?.photo_path ?? workout?.photo_path ?? null;
+  const photo =
+    meal?.photo_path ?? workout?.photo_path ?? reading?.photo_path ?? perf?.photo_path ?? null;
   // Meals and workouts were estimated, and an estimate can be argued with. A
   // dose and a night of sleep are measurements — there is nothing to discuss.
   const estimate = meal ?? workout;
@@ -372,6 +407,7 @@ export default function EntryPage() {
     night?.ended_at ??
     felt?.logged_at ??
     reading?.measured_at ??
+    perf?.measured_at ??
     "";
   const offset =
     meal?.tz_offset_min ??
@@ -380,6 +416,7 @@ export default function EntryPage() {
     night?.tz_offset_min ??
     felt?.tz_offset_min ??
     reading?.tz_offset_min ??
+    perf?.tz_offset_min ??
     null;
   const day =
     meal?.day ??
@@ -388,6 +425,7 @@ export default function EntryPage() {
     night?.day ??
     felt?.day ??
     reading?.day ??
+    perf?.day ??
     dayOf(when, offset);
   const title =
     meal?.title ??
@@ -395,6 +433,7 @@ export default function EntryPage() {
     dose?.name ??
     felt?.label ??
     (reading ? READING_DEFS[reading.kind].label : null) ??
+    perf?.title ??
     (night ? (fmtDuration(night.duration_min) ?? "Sleep") : "");
   const glyph = meal
     ? entryGlyph(meal.icon, meal.title, "meal")
@@ -406,7 +445,9 @@ export default function EntryPage() {
           ? stateGlyph(felt.icon)
           : reading
             ? READING_DEFS[reading.kind].glyph
-            : "💊";
+            : perf
+              ? PERFORMANCE_GLYPH
+              : "💊";
   const partner = reading ? partnerOf(reading, nearby.filter((r) => r.id !== reading.id)) : null;
   const index = reading ? gkiOfPair(reading, partner) : null;
 
@@ -426,7 +467,7 @@ export default function EntryPage() {
 
       {night ? (
         <div className="entry-title">Slept {title}</div>
-      ) : meal || workout || felt ? (
+      ) : meal || workout || felt || perf ? (
         <button className="entry-title" onClick={() => setEditing({ field: "title" })}>
           {title}
           <span className="entry-title-edit">✎</span>
@@ -562,14 +603,44 @@ export default function EntryPage() {
 
       {reading && <ReadingTrend reading={reading} rows={nearby} unit={unit} />}
 
-      {(meal || workout || felt || reading) && (
+      {perf && (
         <>
-          <div className="section-title">{felt || reading ? "What was going on" : "Notes"}</div>
+          <div className="section-title">Stats</div>
+          {perf.stats.length === 0 ? (
+            <p className="faint small" style={{ margin: "0 2px" }}>
+              No stats left on this one.
+            </p>
+          ) : (
+            <div className="list">
+              {orderStats(perf.stats).map((st) => (
+                <InfoRow
+                  key={st.id}
+                  label={st.label}
+                  value={formatStat(st)}
+                  onClick={() => setEditing({ field: "stat", stat: st })}
+                />
+              ))}
+            </div>
+          )}
+          <PerformanceTrend log={perf} history={perfHistory} />
+        </>
+      )}
+
+      {(meal || workout || felt || reading || perf) && (
+        <>
+          <div className="section-title">
+            {felt || reading || perf ? "What was going on" : "Notes"}
+          </div>
           <div className="list">
             <InfoRow
-              label={felt || reading ? "Note" : "Description"}
+              label={felt || reading || perf ? "Note" : "Description"}
               value={
-                meal?.description ?? workout?.description ?? felt?.note ?? reading?.note ?? "—"
+                meal?.description ??
+                workout?.description ??
+                felt?.note ??
+                reading?.note ??
+                perf?.note ??
+                "—"
               }
               onClick={() => setEditing({ field: "description" })}
             />
@@ -580,7 +651,9 @@ export default function EntryPage() {
       {estimate && <EntryChat entry={estimate} onChanged={() => void afterChange()} />}
 
       <p className="faint small" style={{ margin: "18px 2px 0" }}>
-        {(meal?.model_id ?? workout?.model_id)
+        {perf?.model_id
+          ? `Read by ${perf.model_id}`
+          : (meal?.model_id ?? workout?.model_id)
           ? `Estimated by ${meal?.model_id ?? workout?.model_id}`
           : (workout?.source ?? night?.source)
             ? `Synced from ${workout?.source ?? night?.source}`
@@ -614,6 +687,7 @@ export default function EntryPage() {
           dose={dose}
           felt={felt}
           reading={reading}
+          perf={perf}
           unit={unit}
           onClose={() => setEditing(null)}
           onSaved={() => void afterChange()}
@@ -724,6 +798,73 @@ function ReadingTrend({
   );
 }
 
+/**
+ * How the stats on this log have moved, one stat at a time. A screenshot is a
+ * snapshot; the line through a year of them is what tells you whether the
+ * training is working. Only stats seen at least twice get a chip.
+ */
+function PerformanceTrend({
+  log,
+  history,
+}: {
+  log: PerformanceLog;
+  history: PerformanceLog[];
+}) {
+  const metrics = orderStats(log.stats)
+    .map((st) => st.metric)
+    .filter((m, i, all) => all.indexOf(m) === i)
+    .filter((m) => history.filter((h) => h.stats.some((st) => st.metric === m)).length >= 2);
+  const [picked, setPicked] = useState<string | null>(null);
+  const metric = picked && metrics.includes(picked) ? picked : (metrics[0] ?? null);
+  if (!metric) return null;
+
+  // One point per log, oldest first; a day with two logs keeps the later one.
+  const byDay = new Map<string, PerformanceStat>();
+  for (const h of [...history].reverse()) {
+    const st = h.stats.find((x) => x.metric === metric);
+    if (st) byDay.set(h.day, st);
+  }
+  const points = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+  const sample = points[0]?.[1];
+  if (!sample) return null;
+  const def = statDef(metric);
+  // Paces and times are charted in minutes, which reads better than seconds.
+  const asMinutes = def?.format === "pace" || def?.format === "duration";
+  const chart: ChartSpec = {
+    type: "line",
+    title: sample.label,
+    unit: asMinutes ? (def?.format === "pace" ? "min/km" : "min") : (sample.unit ?? ""),
+    x_labels: points.map(([d]) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`),
+    series: [
+      {
+        name: sample.label,
+        values: points.map(([, st]) =>
+          asMinutes ? Math.round((st.value / 60) * 100) / 100 : st.value,
+        ),
+      },
+    ],
+  };
+  return (
+    <>
+      <div className="section-title">Over time</div>
+      {metrics.length > 1 && (
+        <div className="chips" style={{ marginBottom: 8 }}>
+          {metrics.map((m) => (
+            <button
+              key={m}
+              className={`chip${m === metric ? " chip-accent" : ""}`}
+              onClick={() => setPicked(m)}
+            >
+              {log.stats.find((st) => st.metric === m)?.label ?? m}
+            </button>
+          ))}
+        </div>
+      )}
+      <AssistantChart chart={chart} />
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The editors, one field each
 // ---------------------------------------------------------------------------
@@ -735,6 +876,7 @@ function FieldEditor({
   dose,
   felt,
   reading,
+  perf,
   unit: glucoseUnit,
   onClose,
   onSaved,
@@ -745,6 +887,7 @@ function FieldEditor({
   dose: SupplementLogWithSupplement | null;
   felt: StateLog | null;
   reading: BloodReading | null;
+  perf: PerformanceLog | null;
   unit: GlucoseUnit;
   onClose: () => void;
   onSaved: () => void;
@@ -755,6 +898,7 @@ function FieldEditor({
     dose?.taken_at ??
     felt?.logged_at ??
     reading?.measured_at ??
+    perf?.measured_at ??
     "";
   const offset =
     meal?.tz_offset_min ??
@@ -762,19 +906,31 @@ function FieldEditor({
     dose?.tz_offset_min ??
     felt?.tz_offset_min ??
     reading?.tz_offset_min ??
+    perf?.tz_offset_min ??
     null;
 
   const [text, setText] = useState(
     () =>
       (editing.field === "title"
-        ? (meal?.title ?? workout?.title ?? felt?.label ?? "")
+        ? (meal?.title ?? workout?.title ?? felt?.label ?? perf?.title ?? "")
         : editing.field === "description"
-          ? (meal?.description ?? workout?.description ?? felt?.note ?? reading?.note ?? "")
+          ? (meal?.description ??
+            workout?.description ??
+            felt?.note ??
+            reading?.note ??
+            perf?.note ??
+            "")
           : "") as string,
   );
   const [date, setDate] = useState(
     () =>
-      meal?.day ?? workout?.day ?? dose?.day ?? felt?.day ?? reading?.day ?? dayOf(when, offset),
+      meal?.day ??
+      workout?.day ??
+      dose?.day ??
+      felt?.day ??
+      reading?.day ??
+      perf?.day ??
+      dayOf(when, offset),
   );
   const [time, setTime] = useState(() => timeOf(when, offset));
   const [icon, setIcon] = useState<string | null>(meal?.icon ?? workout?.icon ?? null);
@@ -797,6 +953,7 @@ function FieldEditor({
     if (editing.field === "reading") {
       return reading ? numToInput(toDisplay(reading.kind, reading.value, glucoseUnit)) : "";
     }
+    if (editing.field === "stat") return formatStatValue(editing.stat);
     return "";
   });
 
@@ -898,6 +1055,24 @@ function FieldEditor({
         patch.measured_at = at;
       }
       await updateBloodReading(patch);
+    } else if (perf) {
+      if (editing.field === "stat") {
+        // Emptied = it wasn't on the screen after all.
+        if (!num.trim()) await deletePerformanceStat(editing.stat.id);
+        else await updatePerformanceStat(editing.stat.id, parseStatInput(editing.stat.metric, num));
+      } else {
+        const patch: PerformanceLog = { ...perf };
+        if (editing.field === "title") {
+          const t = text.trim();
+          if (!t) throw new Error("A title is required.");
+          patch.title = t;
+        } else if (editing.field === "description") {
+          patch.note = text.trim() || null;
+        } else if (editing.field === "when") {
+          patch.measured_at = at;
+        }
+        await updatePerformanceLog(patch);
+      }
     }
     onSaved();
   }
@@ -915,13 +1090,15 @@ function FieldEditor({
               ? "Doses"
               : editing.field === "reading"
                 ? (reading ? READING_DEFS[reading.kind].label : "Reading")
+              : editing.field === "stat"
+                ? editing.stat.label
               : editing.field === "title"
                 ? felt
                   ? "What you felt"
                   : "Title"
                 : editing.field === "icon"
                   ? "Icon"
-                  : felt || reading
+                  : felt || reading || perf
                     ? "Note"
                     : "Description";
 
@@ -934,7 +1111,9 @@ function FieldEditor({
           ? "min"
           : editing.field === "reading" && reading
             ? unitLabel(reading.kind, glucoseUnit)
-            : undefined;
+            : editing.field === "stat"
+              ? (displayUnit(editing.stat) ?? undefined)
+              : undefined;
   const sheetTitle = unit ? `${heading} (${unit})` : heading;
 
   return (
@@ -953,7 +1132,7 @@ function FieldEditor({
           rows={3}
           value={text}
           placeholder={
-            felt || reading ? "What was going on…" : "What it is, portion size…"
+            felt || reading || perf ? "What was going on…" : "What it is, portion size…"
           }
           onChange={(e) => setText(e.target.value)}
         />
@@ -988,6 +1167,29 @@ function FieldEditor({
           value={icon}
           onChange={setIcon}
         />
+      )}
+      {editing.field === "stat" && (
+        <div className="field">
+          <input
+            className="input"
+            type="text"
+            inputMode={
+              statDef(editing.stat.metric)?.format === "number" ||
+              !statDef(editing.stat.metric)
+                ? "decimal"
+                : "text"
+            }
+            autoFocus
+            placeholder="—"
+            value={num}
+            onChange={(e) => setNum(e.target.value)}
+          />
+          <p className="faint small" style={{ margin: "6px 2px 0" }}>
+            {statDef(editing.stat.metric)?.format === "number" || !statDef(editing.stat.metric)
+              ? "Leave it empty to remove this stat."
+              : "As it reads on the watch, e.g. 4:35 or 1:42:10. Leave it empty to remove this stat."}
+          </p>
+        </div>
       )}
       {(editing.field === "nutrient" ||
         editing.field === "calories_burned" ||

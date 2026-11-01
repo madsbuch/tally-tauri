@@ -22,6 +22,7 @@ import {
   listDocuments,
   listFoodEntriesForRange,
   listBloodReadingsForRange,
+  listPerformanceLogsForRange,
   listHealthMetricsForRange,
   listSleepForRange,
   listStateLogsForRange,
@@ -31,6 +32,7 @@ import {
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
 import { gki } from "./readings";
+import { formatStat, orderStats } from "./performance";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
 import { getDayGoal } from "./goals";
 import { getStreakInfo } from "./streak";
@@ -144,6 +146,12 @@ export interface CoachDigest {
     today: { kind: "glucose" | "ketone"; value: number; time: string }[];
     week: { avgGlucose: number | null; avgKetone: number | null; avgGki: number | null; count: number };
   };
+  /**
+   * The latest of each performance stat from the last 90 days (FTP, VO₂ max,
+   * HRV…), already formatted, with the day it was read. Fitness moves slowly,
+   * so the newest value is what matters, and its age says how stale it is.
+   */
+  performance: { label: string; value: string; day: string }[];
 }
 
 function shiftDay(day: string, delta: number): string {
@@ -176,7 +184,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const weekStart = shiftDay(day, -6);
   const monthStart = shiftDay(day, -30);
 
-  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs, readings] =
+  const [entries, workouts, sleep, metrics, streak, fast, goal, stateLogs, readings, perfLogs] =
     await Promise.all([
       listFoodEntriesForRange(weekStart, day),
       listWorkoutsForRange(weekStart, day),
@@ -187,7 +195,18 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
       getDayGoal(day).catch(() => null),
       listStateLogsForRange(weekStart, day).catch(() => []),
       listBloodReadingsForRange(weekStart, day).catch(() => []),
+      listPerformanceLogsForRange(shiftDay(day, -89), day).catch(() => []),
     ]);
+
+  // Logs come newest first, so the first sighting of a metric is its latest.
+  const latestStats = new Map<string, { label: string; value: string; day: string }>();
+  for (const log of perfLogs) {
+    for (const st of orderStats(log.stats)) {
+      if (!latestStats.has(st.metric)) {
+        latestStats.set(st.metric, { label: st.label, value: formatStat(st), day: log.day });
+      }
+    }
+  }
 
   const todayReadings = readings
     .filter((r) => r.day === day)
@@ -330,6 +349,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
         count: readings.length,
       },
     },
+    performance: [...latestStats.values()],
   };
 }
 
@@ -388,6 +408,13 @@ export function renderCoachDigest(d: CoachDigest): string {
     lines.push(
       `Meter, last 7 days (${w.count} readings, mmol/L): avg glucose ${na(w.avgGlucose)}, ` +
         `avg ketones ${na(w.avgKetone)}, avg GKI ${na(w.avgGki)}.`,
+    );
+  }
+  if (d.performance.length > 0) {
+    lines.push(
+      "Latest performance stats (last 90 days): " +
+        d.performance.map((p) => `${p.label} ${p.value} (${p.day})`).join("; ") +
+        ".",
     );
   }
   return lines.join("\n");

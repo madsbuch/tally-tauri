@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { and, desc, eq, gt, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   achievements,
   bloodReadings,
@@ -16,6 +16,8 @@ import {
   healthMetrics,
   lifeRuleLogs,
   lifeRules,
+  performanceLogs,
+  performanceStats,
   settings,
   sleepSessions,
   stateCategories,
@@ -40,6 +42,8 @@ import type {
   LifeRule,
   LifeRuleLog,
   LifeRuleStatus,
+  PerformanceLog,
+  PerformanceStat,
   ReadingKind,
   RuleActedOn,
   SleepSession,
@@ -708,22 +712,27 @@ export async function deleteCapture(id: number): Promise<void> {
 // images (a discarded capture taking its already-logged meal's photo with it).
 
 /**
- * Does any capture, food entry, or workout still reference this photo file?
+ * Does any capture, entry, reading, document or performance log still
+ * reference this photo file?
  * Callers delete the owning row FIRST, then ask — so a file shared only with
  * the just-deleted row reads as unreferenced.
  */
 export async function isPhotoReferenced(filename: string): Promise<boolean> {
-  const [inFood, inWorkouts, inCaptures, inDocuments] = await Promise.all([
+  const [inFood, inWorkouts, inCaptures, inDocuments, inReadings, inPerformance] = await Promise.all([
     db.select({ id: foodEntries.id }).from(foodEntries).where(eq(foodEntries.photoPath, filename)).limit(1),
     db.select({ id: workouts.id }).from(workouts).where(eq(workouts.photoPath, filename)).limit(1),
     db.select({ id: captures.id }).from(captures).where(eq(captures.photoPath, filename)).limit(1),
     db.select({ id: documents.id }).from(documents).where(eq(documents.photoPath, filename)).limit(1),
+    db.select({ id: bloodReadings.id }).from(bloodReadings).where(eq(bloodReadings.photoPath, filename)).limit(1),
+    db.select({ id: performanceLogs.id }).from(performanceLogs).where(eq(performanceLogs.photoPath, filename)).limit(1),
   ]);
   return (
     inFood.length > 0 ||
     inWorkouts.length > 0 ||
     inCaptures.length > 0 ||
-    inDocuments.length > 0
+    inDocuments.length > 0 ||
+    inReadings.length > 0 ||
+    inPerformance.length > 0
   );
 }
 
@@ -1450,6 +1459,7 @@ const toBloodReading = (r: ReadingRow): BloodReading => {
     note: r.note,
     day: r.day,
     tz_offset_min: r.tzOffsetMin,
+    photo_path: r.photoPath,
   };
 };
 
@@ -1458,6 +1468,8 @@ export async function addBloodReading(reading: {
   /** mmol/L. */
   value: number;
   note?: string | null;
+  /** The meter-screen photo it was read from. */
+  photoPath?: string | null;
   /** ISO instant; defaults to now. */
   measuredAt?: string;
 }): Promise<number> {
@@ -1472,6 +1484,7 @@ export async function addBloodReading(reading: {
       note: reading.note?.trim() || null,
       day: stamp.day,
       tzOffsetMin: stamp.tz_offset_min,
+      photoPath: reading.photoPath ?? null,
     })
     .returning({ id: bloodReadings.id });
   return rows[0]?.id ?? 0;
@@ -1513,6 +1526,131 @@ export async function listBloodReadingsForRange(
     .where(and(gte(bloodReadings.day, startDay), lte(bloodReadings.day, endDay)))
     .orderBy(desc(bloodReadings.measuredAt));
   return rows.map(toBloodReading);
+}
+
+// ---------------------------------------------------------------------------
+// Performance stats — FTP, VO2 max, HRV… read off a watch app's screen
+// ---------------------------------------------------------------------------
+
+type PerfLogRow = typeof performanceLogs.$inferSelect;
+type PerfStatRow = typeof performanceStats.$inferSelect;
+
+const toPerformanceStat = (r: PerfStatRow): PerformanceStat => ({
+  id: r.id,
+  log_id: r.logId,
+  metric: r.metric,
+  label: r.label,
+  value: r.value,
+  unit: r.unit,
+});
+
+function toPerformanceLog(r: PerfLogRow, stats: PerfStatRow[]): PerformanceLog {
+  return {
+    id: r.id,
+    measured_at: r.measuredAt,
+    title: r.title,
+    note: r.note,
+    photo_path: r.photoPath,
+    model_id: r.modelId,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+    stats: stats.filter((s) => s.logId === r.id).map(toPerformanceStat),
+  };
+}
+
+async function withStats(rows: PerfLogRow[]): Promise<PerformanceLog[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  const stats = await db
+    .select()
+    .from(performanceStats)
+    .where(inArray(performanceStats.logId, ids))
+    .orderBy(performanceStats.id);
+  return rows.map((r) => toPerformanceLog(r, stats));
+}
+
+export async function addPerformanceLog(log: {
+  title: string;
+  note?: string | null;
+  photoPath?: string | null;
+  modelId?: string | null;
+  /** ISO instant; defaults to now. */
+  measuredAt?: string;
+  stats: { metric: string; label: string; value: number; unit: string | null }[];
+}): Promise<number> {
+  const measuredAt = log.measuredAt ?? new Date().toISOString();
+  const stamp = stampOf(measuredAt);
+  const rows = await db
+    .insert(performanceLogs)
+    .values({
+      measuredAt,
+      title: log.title,
+      note: log.note?.trim() || null,
+      photoPath: log.photoPath ?? null,
+      modelId: log.modelId ?? null,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+    })
+    .returning({ id: performanceLogs.id });
+  const id = rows[0]?.id ?? 0;
+  if (id && log.stats.length > 0) {
+    await db.insert(performanceStats).values(
+      log.stats.map((s) => ({
+        logId: id,
+        metric: s.metric,
+        label: s.label,
+        value: s.value,
+        unit: s.unit,
+      })),
+    );
+  }
+  return id;
+}
+
+export async function getPerformanceLog(id: number): Promise<PerformanceLog | null> {
+  const rows = await db.select().from(performanceLogs).where(eq(performanceLogs.id, id)).limit(1);
+  return (await withStats(rows))[0] ?? null;
+}
+
+/** The log's own fields; its stats are edited one at a time below. */
+export async function updatePerformanceLog(log: PerformanceLog): Promise<void> {
+  await db
+    .update(performanceLogs)
+    .set({
+      measuredAt: log.measured_at,
+      title: log.title,
+      note: log.note,
+      day: dayOf(log.measured_at, log.tz_offset_min),
+      tzOffsetMin: log.tz_offset_min,
+    })
+    .where(eq(performanceLogs.id, log.id));
+}
+
+export async function updatePerformanceStat(id: number, value: number): Promise<void> {
+  await db.update(performanceStats).set({ value }).where(eq(performanceStats.id, id));
+}
+
+export async function deletePerformanceStat(id: number): Promise<void> {
+  await db.delete(performanceStats).where(eq(performanceStats.id, id));
+}
+
+/** Deletes the log and its stats; the caller cleans up the photo after. */
+export async function deletePerformanceLog(id: number): Promise<void> {
+  await db.delete(performanceStats).where(eq(performanceStats.logId, id));
+  await db.delete(performanceLogs).where(eq(performanceLogs.id, id));
+}
+
+/** Logs measured on local days `startDay`..`endDay`, newest first. */
+export async function listPerformanceLogsForRange(
+  startDay: string,
+  endDay: string,
+): Promise<PerformanceLog[]> {
+  const rows = await db
+    .select()
+    .from(performanceLogs)
+    .where(and(gte(performanceLogs.day, startDay), lte(performanceLogs.day, endDay)))
+    .orderBy(desc(performanceLogs.measuredAt));
+  return withStats(rows);
 }
 
 /** How glucose is typed in and shown; mmol/L until they say otherwise. */

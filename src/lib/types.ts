@@ -212,6 +212,36 @@ export interface BloodReading {
   day: string;
   /** Minutes east of UTC at that moment. */
   tz_offset_min: number;
+  /** The photo of the meter screen it was read from, if there was one. */
+  photo_path: string | null;
+}
+
+/** One number off a performance screen (see lib/performance.ts). */
+export interface PerformanceStat {
+  id: number;
+  log_id: number;
+  /** Catalogue key ("ftp", "vo2max", …) or a slug of the label. */
+  metric: string;
+  label: string;
+  /** In `unit`; paces and times are seconds. */
+  value: number;
+  unit: string | null;
+}
+
+/** A screenshot (or note) of performance stats, with the numbers it showed. */
+export interface PerformanceLog {
+  id: number;
+  /** ISO 8601 UTC timestamp. */
+  measured_at: string;
+  title: string;
+  note: string | null;
+  photo_path: string | null;
+  model_id: string | null;
+  /** Local day it was measured on, stamped where it happened. */
+  day: string;
+  /** Minutes east of UTC at that moment. */
+  tz_offset_min: number;
+  stats: PerformanceStat[];
 }
 
 /** Where a rule for living stands (see lib/lifeRules.ts). */
