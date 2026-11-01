@@ -777,63 +777,9 @@ export async function listSupplements(includeArchived = false): Promise<Suppleme
   return rows.map(toSupplement);
 }
 
-export async function addSupplement(s: Omit<Supplement, "id">): Promise<number> {
-  const rows = await db
-    .insert(supplements)
-    .values({
-      name: s.name,
-      doseAmount: s.dose_amount,
-      doseUnit: s.dose_unit,
-      nutrients: s.nutrients,
-      notes: s.notes,
-      archived: s.archived,
-    })
-    .returning({ id: supplements.id });
-  return rows[0]?.id ?? 0;
-}
-
-export async function updateSupplement(s: Supplement): Promise<void> {
-  await db
-    .update(supplements)
-    .set({
-      name: s.name,
-      doseAmount: s.dose_amount,
-      doseUnit: s.dose_unit,
-      nutrients: s.nutrients,
-      notes: s.notes,
-      archived: s.archived,
-    })
-    .where(eq(supplements.id, s.id));
-}
-
-/** Deletes a supplement and all of its logs. */
-export async function deleteSupplement(id: number): Promise<void> {
-  await db.delete(supplementLogs).where(eq(supplementLogs.supplementId, id));
-  await db.delete(supplements).where(eq(supplements.id, id));
-}
-
 // ---------------------------------------------------------------------------
 // Supplement logs
 // ---------------------------------------------------------------------------
-
-export async function addSupplementLog(
-  supplementId: number,
-  amount: number,
-  takenAt: string,
-): Promise<number> {
-  const stamp = stampOf(takenAt);
-  const rows = await db
-    .insert(supplementLogs)
-    .values({
-      supplementId,
-      takenAt,
-      amount,
-      day: stamp.day,
-      tzOffsetMin: stamp.tz_offset_min,
-    })
-    .returning({ id: supplementLogs.id });
-  return rows[0]?.id ?? 0;
-}
 
 export async function updateSupplementLog(
   id: number,
