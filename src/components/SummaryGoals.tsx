@@ -13,43 +13,51 @@ interface Targets {
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
-function GoalRow({
+/**
+ * A goal as a balance rather than a progress bar: over a range there's
+ * nothing to fill up, just which side of the line you're on. The target is a
+ * marker in the middle of the track; the side you shouldn't be on is shaded —
+ * past it for a maximum (calories), short of it for a minimum (protein,
+ * Zone 2) — and a dot shows where you are, in the warning colour when it's on
+ * that side.
+ */
+function BalanceRow({
   name,
   value,
   target,
   unit,
-  status,
-  over,
+  limit,
 }: {
   name: string;
   value: number;
   target: number;
   unit: string;
-  status?: string;
-  /** Past the target and that's bad (a calorie budget), not good. */
-  over?: boolean;
+  /** "max": staying under is the goal. "min": reaching it is. */
+  limit: "max" | "min";
 }) {
-  const pct = target > 0 ? Math.min(100, (value / target) * 100) : 0;
+  // The track spans 0 to twice the target, so the target sits in the middle
+  // and a value far off either way still lands on the track (pinned at the end).
+  const span = target * 2;
+  const pos = span > 0 ? Math.min(100, Math.max(0, (value / span) * 100)) : 0;
+  const bad = limit === "max" ? value > target : value < target;
+  const word = limit === "max" ? "at most" : "at least";
   return (
     <div className="goal-row">
       <div className="summary-section-heading">
         <strong>{name}</strong>
         <span>
-          {fmt(value)} / {fmt(target)} {unit}
+          {fmt(value)} <span className="muted">/ {word} {fmt(target)} {unit}</span>
         </span>
       </div>
       <div
-        className={`exercise-meter${over ? " goal-meter-over" : ""}`}
-        role="progressbar"
-        aria-label={`${name} goal`}
-        aria-valuenow={Math.min(target, value)}
-        aria-valuemin={0}
-        aria-valuemax={target}
-        aria-valuetext={`${fmt(value)} of ${fmt(target)} ${unit}`}
+        className={`balance balance-${limit}`}
+        role="img"
+        aria-label={`${name}: ${fmt(value)} ${unit}, goal ${word} ${fmt(target)} ${unit}${bad ? " — on the wrong side" : ""}`}
       >
-        <div style={{ width: `${pct}%` }} />
+        <div className="balance-bad" />
+        <div className="balance-target" />
+        <div className={`balance-dot${bad ? " balance-dot-bad" : ""}`} style={{ left: `${pos}%` }} />
       </div>
-      {status && <div className={`small ${over ? "goal-over" : "muted"}`}>{status}</div>}
     </div>
   );
 }
@@ -128,24 +136,20 @@ export default function SummaryGoals({
       ) : (
         <div className="exercise-goal-body">
           {targets.kcal != null && (
-            <GoalRow
+            <BalanceRow
               name={`Calories${perDay}`}
               value={Math.max(0, netKcalPerDay)}
               target={targets.kcal}
               unit="kcal"
-              over={netKcalPerDay > targets.kcal}
+              limit="max"
             />
           )}
-          <GoalRow
+          <BalanceRow
             name={`Protein${perDay}`}
             value={proteinPerDay}
             target={targets.proteinG}
             unit="g"
-            status={
-              proteinPerDay >= targets.proteinG
-                ? "Goal reached"
-                : `${fmt(targets.proteinG - proteinPerDay)} g to go`
-            }
+            limit="min"
           />
           <ZoneTwoRow workouts={workouts} weeklyTarget={targets.zone2Week} days={days} />
         </div>
@@ -166,12 +170,6 @@ function ZoneTwoRow({
   const target = exerciseTarget(weeklyTarget, days);
   const progress = exerciseProgress(workouts, target);
   return (
-    <GoalRow
-      name="Zone 2"
-      value={progress.minutes}
-      target={target}
-      unit="min"
-      status={progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}
-    />
+    <BalanceRow name="Zone 2" value={progress.minutes} target={target} unit="min" limit="min" />
   );
 }
