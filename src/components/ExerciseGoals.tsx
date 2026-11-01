@@ -1,26 +1,22 @@
 import { useEffect, useState } from "react";
-import { getSetting, setSetting } from "../lib/db";
+import { getSetting } from "../lib/db";
 import { DEFAULT_ZONE2_TARGET, exerciseProgress, exerciseTarget } from "../lib/exerciseGoals";
 import { SETTING_KEYS } from "../lib/types";
 import type { Workout } from "../lib/types";
 
 /**
  * A summary of the Zone 2 goal over the Summary range, from the same workout
- * rows its energy totals use. The workouts themselves live in the Diary.
+ * rows its energy totals use. The target is a stored setting with no editor
+ * here: it changes rarely, and on request.
  */
-export default function ExerciseGoals({ workouts, start, end, days, label }: {
+export default function ExerciseGoals({ workouts, days, label }: {
   workouts: Workout[];
-  start: string;
-  end: string;
   days: number;
   label: string;
 }) {
   const [weeklyTarget, setWeeklyTarget] = useState<number | null>(null);
-  const [draft, setDraft] = useState("");
   const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   useEffect(() => {
     let cancelled = false;
     getSetting(SETTING_KEYS.zone2WeeklyTarget).then((raw) => {
@@ -33,26 +29,6 @@ export default function ExerciseGoals({ workouts, start, end, days, label }: {
     });
     return () => { cancelled = true; };
   }, [reload]);
-
-  async function saveTarget(e: React.FormEvent) {
-    e.preventDefault();
-    const n = Number(draft);
-    if (!draft.trim() || !Number.isFinite(n) || n < 1 || n > 10080) {
-      setSaveError("Enter a target between 1 and 10,080 minutes.");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await setSetting(SETTING_KEYS.zone2WeeklyTarget, String(n));
-      setWeeklyTarget(n);
-      setDraft("");
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   const target = exerciseTarget(weeklyTarget ?? DEFAULT_ZONE2_TARGET, days);
   const progress = exerciseProgress(workouts, target);
@@ -81,18 +57,6 @@ export default function ExerciseGoals({ workouts, start, end, days, label }: {
           <div className="small muted">
             {progress.remaining > 0 ? `${fmt(progress.remaining)} min remaining` : "Goal reached"}
           </div>
-          <p className="faint small">{start} – {end} · Automatically totals Zone 2 time from your diary, including the duration of workouts described as Zone 2.</p>
-          {progress.unknown > 0 && <p className="muted small">{progress.unknown} diary workout{progress.unknown === 1 ? " has" : "s have"} no Zone 2 information.</p>}
-          {workouts.length === 0 && <p className="muted small">Log a workout in the Diary to get started.</p>}
-          <form onSubmit={(e) => void saveTarget(e)} style={{ marginTop: 16 }}>
-            <label className="label" htmlFor="zone2-target">Target per 7 days (minutes)</label>
-            <div className="btn-row">
-              <input id="zone2-target" className="input" type="number" min="1" max="10080" step="any" placeholder={String(weeklyTarget)} value={draft} onChange={(e) => setDraft(e.target.value)} disabled={saving} />
-              <button className="btn btn-sm" disabled={saving || !draft.trim()}>{saving ? "Saving…" : "Save"}</button>
-            </div>
-            {days === 24 && <p className="faint small">The 24-day target is four times your 7-day target.</p>}
-            {saveError && <p className="error-text" role="alert">{saveError}</p>}
-          </form>
         </div>
       )}
     </section>

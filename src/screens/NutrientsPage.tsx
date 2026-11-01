@@ -463,7 +463,7 @@ export default function NutrientsPage() {
       )}
 
       {!loading && !loadError && workouts && (
-        <ExerciseGoals workouts={workouts} start={startDay} end={day} days={spanDays} label={navTitle} />
+        <ExerciseGoals workouts={workouts} days={spanDays} label={navTitle} />
       )}
 
       <h2 className="section-title">Nutrition</h2>
