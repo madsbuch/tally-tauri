@@ -12,11 +12,16 @@
  * kept: what was asked, what was answered, and — beside the messages that
  * moved something — exactly what they moved, and the entry they moved it from.
  * A number in this app should always be traceable to the sentence that set it.
+ *
+ * A meal can also be kept from here (lib/db.ts `saveMeal`): asked for, or
+ * because the message carried a product's official figures. The diary agent
+ * then logs it with these numbers next time instead of estimating again.
  */
 import {
   addEntryMessage,
   getSetting,
   listEntryMessages,
+  saveMeal,
   updateFoodEntry,
   updateWorkout,
 } from "./db";
@@ -39,6 +44,17 @@ export interface EntryReply {
    * people are actually checking. It's on the page under Notes either way.
    */
   changes: string[];
+}
+
+const SAVED = "Saved meal";
+const UPDATED_SAVED = "Updated saved meal";
+
+/**
+ * A change line that kept the meal for later rather than moving the entry.
+ * The undo chain looks past these: saving isn't something to take back here.
+ */
+export function isSaveLine(line: string): boolean {
+  return line.startsWith(`${SAVED}: `) || line.startsWith(`${UPDATED_SAVED}: `);
 }
 
 const round = (n: number): number => Math.round(n * 100) / 100;
@@ -134,6 +150,7 @@ export async function sendEntryMessage(
   let reply: string;
 
   if ("eaten_at" in entry) {
+    let kept: FoodEntry = entry;
     const answer = await withBackgroundTask("Asking about an entry", () =>
       askAboutMealEntry({
         apiKey,
@@ -163,7 +180,20 @@ export async function sendEntryMessage(
       if (changes.length > 0 || after.description !== entry.description) {
         before = entry;
         await updateFoodEntry(after);
+        kept = after;
       }
+    }
+    if (answer.save) {
+      // What's kept is the entry as this message left it, correction and all.
+      const name = answer.save.name ?? kept.title;
+      const saved = await saveMeal({
+        name,
+        description: kept.description,
+        nutrients: kept.nutrients,
+        icon: kept.icon,
+        source_entry_id: kept.id,
+      });
+      changes.push(`${saved.updated ? UPDATED_SAVED : SAVED}: "${name}"`);
     }
   } else {
     const answer = await withBackgroundTask("Asking about an entry", () =>

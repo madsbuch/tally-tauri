@@ -20,6 +20,7 @@ import {
   lifeRules,
   performanceLogs,
   performanceStats,
+  savedMeals,
   settings,
   sleepSessions,
   stateCategories,
@@ -41,6 +42,7 @@ import type {
   LibraryDocument,
   Fast,
   FoodEntry,
+  SavedMeal,
   HealthMetric,
   LifeRule,
   LifeRuleLog,
@@ -1634,6 +1636,95 @@ export async function listPerformanceLogsForRange(
     .where(and(gte(performanceLogs.day, startDay), lte(performanceLogs.day, endDay)))
     .orderBy(desc(performanceLogs.measuredAt));
   return withStats(rows);
+}
+
+// ---------------------------------------------------------------------------
+// Saved meals
+// ---------------------------------------------------------------------------
+
+type SavedMealRow = typeof savedMeals.$inferSelect;
+
+function toSavedMeal(r: SavedMealRow): SavedMeal {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    nutrients: sanitizeNutrients(r.nutrients),
+    icon: r.icon,
+    source_entry_id: r.sourceEntryId,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Every saved meal, alphabetically. */
+export async function listSavedMeals(): Promise<SavedMeal[]> {
+  const rows = await db.select().from(savedMeals).orderBy(sql`lower(${savedMeals.name})`);
+  return rows.map(toSavedMeal);
+}
+
+export async function getSavedMeal(id: number): Promise<SavedMeal | null> {
+  const rows = await db.select().from(savedMeals).where(eq(savedMeals.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toSavedMeal(row) : null;
+}
+
+/**
+ * Save a meal under a name. A name already saved (in any case) is updated in
+ * place rather than duplicated: saving a correction again means "these are
+ * the right numbers now".
+ */
+export async function saveMeal(meal: {
+  name: string;
+  description: string | null;
+  nutrients: SavedMeal["nutrients"];
+  icon: string | null;
+  source_entry_id: number | null;
+}): Promise<{ id: number; updated: boolean }> {
+  const now = new Date().toISOString();
+  const name = meal.name.trim();
+  const existing = await db
+    .select({ id: savedMeals.id })
+    .from(savedMeals)
+    .where(sql`lower(${savedMeals.name}) = lower(${name})`)
+    .limit(1);
+  const values = {
+    name,
+    description: meal.description,
+    nutrients: sanitizeNutrients(meal.nutrients),
+    icon: meal.icon,
+    sourceEntryId: meal.source_entry_id,
+    updatedAt: now,
+  };
+  const found = existing[0];
+  if (found) {
+    await db.update(savedMeals).set(values).where(eq(savedMeals.id, found.id));
+    return { id: found.id, updated: true };
+  }
+  const rows = await db
+    .insert(savedMeals)
+    .values({ ...values, createdAt: now })
+    .returning({ id: savedMeals.id });
+  return { id: rows[0]?.id ?? 0, updated: false };
+}
+
+/** Rename a saved meal; false when there is no such meal. */
+export async function renameSavedMeal(id: number, name: string): Promise<boolean> {
+  const rows = await db
+    .update(savedMeals)
+    .set({ name: name.trim(), updatedAt: new Date().toISOString() })
+    .where(eq(savedMeals.id, id))
+    .returning({ id: savedMeals.id });
+  return rows.length > 0;
+}
+
+/** False when there was no such meal. */
+export async function deleteSavedMeal(id: number): Promise<boolean> {
+  const rows = await db
+    .delete(savedMeals)
+    .where(eq(savedMeals.id, id))
+    .returning({ id: savedMeals.id });
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
  * A capture (photo and/or note) is stored instantly and resolved in the
  * background: the model sees the current time and the
  * diary around this day, then records entries exclusively through tool calls
- * (log_meal / repeat_meal / log_workout / log_reading /
+ * (log_meal / repeat_meal / log_saved_meal / log_workout / log_reading /
  * log_performance / log_state /
  * add_rule / log_rule), so phrases like
  * "ate this earlier today" get a concrete timestamp and "one more of those"
@@ -26,11 +26,13 @@ import {
   getCapture,
   getLifeRule,
   getFoodEntry,
+  getSavedMeal,
   getSetting,
   listFoodEntriesForDay,
   listFoodEntriesForRange,
   listLifeRules,
   listPendingCaptures,
+  listSavedMeals,
   listStateCategories,
   listSupplementLogsForDay,
   listWorkoutsForDay,
@@ -70,6 +72,7 @@ import type {
   Capture,
   FoodEntry,
   LifeRule,
+  SavedMeal,
   SupplementLogWithSupplement,
   Workout,
 } from "./types";
@@ -417,6 +420,31 @@ const DIARY_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "log_saved_meal",
+      description:
+        "Log one of their SAVED MEALS (listed by #id in your instructions): meals they kept with " +
+        "exact numbers, often a shop's official values. Whenever what they ate is one of those — " +
+        "by name, brand, or a photo of it — use this instead of log_meal or a product search, so it " +
+        "counts exactly as saved.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "Saved meal id (the #number) from your instructions" },
+          portion: {
+            type: "number",
+            description:
+              "Multiple of the saved portion: 1 (default) for one, 2 for two, 0.5 for half.",
+          },
+          time: { type: "string", description: TIME_DESC },
+        },
+        required: ["id", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "add_rule",
       description:
         "Write down a RULE FOR LIVING (\"leveregel\"): a standing belief about how they must be " +
@@ -498,6 +526,8 @@ interface DiaryContext {
   recentMeals: FoodEntry[];
   /** Their rules for living, suggestions included, archived ones not. */
   rules: LifeRule[];
+  /** Meals they saved for reuse, with exact numbers. */
+  savedMeals: SavedMeal[];
 }
 
 const RECENT_DAYS = 7;
@@ -505,12 +535,13 @@ const MAX_RECENT = 10;
 
 async function loadDiaryContext(day: string): Promise<DiaryContext> {
   const before = shiftDay(day, -RECENT_DAYS);
-  const [meals, workouts, supplements, week, allRules] = await Promise.all([
+  const [meals, workouts, supplements, week, allRules, savedMeals] = await Promise.all([
     listFoodEntriesForDay(day).catch(() => []),
     listWorkoutsForDay(day).catch(() => []),
     listSupplementLogsForDay(day).catch(() => []),
     listFoodEntriesForRange(before, shiftDay(day, -1)).catch(() => []),
     listLifeRules().catch(() => [] as LifeRule[]),
+    listSavedMeals().catch(() => [] as SavedMeal[]),
   ]);
   const rules = allRules.filter((r) => r.status !== "archived");
 
@@ -525,7 +556,7 @@ async function loadDiaryContext(day: string): Promise<DiaryContext> {
     recentMeals.push(m);
     if (recentMeals.length >= MAX_RECENT) break;
   }
-  return { meals, workouts, supplements, recentMeals, rules };
+  return { meals, workouts, supplements, recentMeals, rules, savedMeals };
 }
 
 const kcalOf = (e: FoodEntry): number => Math.round(e.nutrients.calories ?? 0);
@@ -568,6 +599,14 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
     );
   }
 
+  if (ctx.savedMeals.length > 0) {
+    lines.push("Saved meals (for log_saved_meal — exact numbers they kept):");
+    for (const m of ctx.savedMeals) {
+      const kcal = Math.round(m.nutrients.calories ?? 0);
+      lines.push(`  #${m.id} "${m.name}" — ${kcal} kcal${m.description ? `: ${m.description}` : ""}`);
+    }
+  }
+
   if (ctx.rules.length === 0) {
     lines.push("Rules for living they have written down: none yet.");
   } else {
@@ -601,6 +640,7 @@ function buildSystemPrompt(
     "Rules:",
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries — \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\" — call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
+    "- When what they ate is one of their saved meals listed above (by name, brand or what the photo shows) → log_saved_meal with its #id, before considering log_meal or search_packaged_food. A saved meal holds numbers they checked; never re-estimate it.",
     "- Decide what the capture shows: food/drink → log_meal; supplements count as food (see below) → log_meal; exercise → log_workout; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; how they FEEL (a symptom, a mood, a state — \"bloated\", \"low all afternoon\", \"headache\") → log_state; a RULE FOR LIVING → add_rule / log_rule (below).",
     "- Rules for living (\"leveregler\") are standing beliefs about how they must be or what they are: \"I must always…\", \"I'm X, so I'm Y\", \"if I…, then…\". When the note points at one already listed above (same idea, even in other words) → log_rule with its #id. When they declare a new one (\"new rule: …\", \"ny leveregel: …\") → add_rule with explicit=true. When they state a rule-shaped belief that isn't listed and didn't call it a rule → add_rule with explicit=false (it becomes a suggestion they confirm). A feeling about one moment (\"felt useless today\") is a state, not a rule; when unsure, use log_state.",
     "- A rule's text is THEIR words, copied verbatim in the language they wrote it in. Never translate, tidy, soften or rephrase it. Don't argue with a rule, reassure them about it or comment on it in your confirmation — only say what was recorded.",
@@ -784,6 +824,32 @@ async function executeTool(
     ctx.logged++;
     notifyDiaryChanged();
     return `Logged "${title}" at ${time}, copied from #${source.id}.`;
+  }
+
+  if (name === "log_saved_meal") {
+    const rawId = num(args["id"]);
+    if (rawId == null) return "Error: id is required.";
+    const saved = await getSavedMeal(Math.round(rawId));
+    if (!saved) {
+      return `Error: there is no saved meal #${Math.round(rawId)} — log it with log_meal instead.`;
+    }
+    const portion = Math.min(20, Math.max(0.05, num(args["portion"]) ?? 1));
+    const title = portion === 1 ? saved.name : `${saved.name} (${round2(portion)}×)`;
+    const photo = ctx.photoToAttach;
+    ctx.photoToAttach = null;
+    await addFoodEntry({
+      eaten_at: time,
+      title,
+      description: saved.description,
+      photo_path: photo,
+      nutrients: sanitizeNutrients(scaleNutrients(saved.nutrients, portion)),
+      // The numbers are the saved meal's, not this model's guess.
+      model_id: null,
+      icon: saved.icon,
+    });
+    ctx.logged++;
+    notifyDiaryChanged();
+    return `Logged saved meal "${title}" at ${time}.`;
   }
 
   if (name === "log_workout") {

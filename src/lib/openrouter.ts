@@ -516,9 +516,10 @@ export async function askAboutMealEntry(
 ): Promise<z.infer<typeof MealChatSchema>> {
   const system = [
     ...ENTRY_CHAT_RULES,
-    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}}}`,
+    `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}}, "save": {"name": string}}`,
     "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
     "Nutrients are TOTALS for the whole portion as corrected. Include every key you can reasonably estimate; omit the rest rather than guessing zeros.",
+    'Saved meals: they can keep a meal for reuse, so the next time they eat it it is logged with exactly these numbers. Add `"save": {"name": string}` when they ask you to save, remember or keep this meal for later ("gem den", "save this"), AND when their message hands you a specific product\'s official nutrition values (a label, a shop\'s website, a chain\'s nutrition table) — those are worth keeping without being asked. The name is what they would call it, including the brand or shop (e.g. "7-Eleven surdejsbolle med smør og ost"). What is saved is the entry as it stands after this message, so include any correction in `entry` as usual. Omit `save` otherwise. When you save, say so in `reply`, and that they can ask the coach for their saved meals.',
   ].join("\n");
   return MealChatSchema.parse(extractJsonObject(await askAboutEntry(opts, system)));
 }

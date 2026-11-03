@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { listEntryMessages } from "../lib/db";
-import { sendEntryMessage, undoEntryChange } from "../lib/entryChat";
+import { isSaveLine, sendEntryMessage, undoEntryChange } from "../lib/entryChat";
 import InfoButton from "./InfoButton";
 import { errMsg } from "./EntryBits";
 import type { EntryMessage, FoodEntry, Workout } from "../lib/types";
@@ -106,7 +106,9 @@ export default function EntryChat({
   // asking a follow-up question shouldn't cost you the ability to take a
   // correction back. A newer change replaces it, and an undo — which carries
   // no snapshot of its own — ends the chain rather than starting a loop.
-  const lastChange = messages.filter((m) => m.changes.length > 0).pop();
+  const lastChange = messages
+    .filter((m) => m.changes.some((c) => !isSaveLine(c)))
+    .pop();
   const undoable = lastChange?.before ?? null;
 
   return (
@@ -124,6 +126,11 @@ export default function EntryChat({
             — and it re-estimates the whole entry around that, because a portion
             change moves every nutrient with it. What it changed is listed under
             the reply, and the last change can be undone.
+          </p>
+          <p>
+            Paste a product&apos;s official values, or ask it to save the meal,
+            and it&apos;s kept as a saved meal: the next time you log it, it
+            gets exactly these numbers. Ask the coach what you have saved.
           </p>
           <p>
             The conversation stays on this entry, so months later you can still

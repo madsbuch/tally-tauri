@@ -28,6 +28,11 @@ import {
   listSupplements,
   listWorkoutsForRange,
   getActiveFast,
+  getFoodEntry,
+  listSavedMeals,
+  saveMeal,
+  renameSavedMeal,
+  deleteSavedMeal,
 } from "./db";
 import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
@@ -253,6 +258,58 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           },
         },
         required: ["kind", "id", "text"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_saved_meals",
+      description:
+        "List their SAVED MEALS: meals kept for reuse with exact numbers (often a shop's official " +
+        "values, saved from an entry they corrected). The diary logs these with the saved numbers " +
+        "whenever they eat them again. Use when they ask what's saved, or to check one before advising.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_meal",
+      description:
+        "Save a diary meal entry for reuse, under a name — when they ask you to keep one " +
+        "(\"save yesterday's 7-Eleven bun\"). Saving under a name that already exists updates it " +
+        "with this entry's numbers. Find the entry id with query_meals first.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The food entry's id (food_entries.id)." },
+          name: {
+            type: "string",
+            description: "What they'd call it, brand or shop included. Omit to use the entry's title.",
+          },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_saved_meal",
+      description:
+        "Rename or delete one of their saved meals (by id from list_saved_meals). ONLY when they ask. " +
+        "Deleting never touches diary entries already logged from it.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "Saved meal id." },
+          action: { type: "string", enum: ["rename", "delete"] },
+          name: { type: "string", description: "The new name, for rename." },
+        },
+        required: ["id", "action"],
         additionalProperties: false,
       },
     },
@@ -784,6 +841,67 @@ export async function executeAssistantTool(
     return JSON.stringify({ noted: { id: noteId, on: `${kind} #${id} (${what})`, text } });
   }
 
+  if (name === "list_saved_meals") {
+    const meals = await listSavedMeals();
+    return JSON.stringify({
+      saved_meals: meals.map((m) =>
+        compact({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          nutrients: roundNutrients(m.nutrients),
+          saved_from_entry: m.source_entry_id,
+          updated: m.updated_at.slice(0, 10),
+        }),
+      ),
+      ...(meals.length === 0
+        ? {
+            note:
+              "Nothing saved yet. A meal is saved from its entry's \"Ask about it\" box (correct it, or paste the official values, and ask to save it), or with save_meal.",
+          }
+        : {}),
+    });
+  }
+
+  if (name === "save_meal") {
+    const id = typeof args["id"] === "number" ? Math.round(args["id"]) : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const entry = await getFoodEntry(id);
+    if (!entry) throw new Error(`There is no meal #${id}.`);
+    const given = typeof args["name"] === "string" ? args["name"].trim() : "";
+    const mealName = given || entry.title;
+    const saved = await saveMeal({
+      name: mealName,
+      description: entry.description,
+      nutrients: entry.nutrients,
+      icon: entry.icon,
+      source_entry_id: entry.id,
+    });
+    return JSON.stringify({
+      [saved.updated ? "updated_saved_meal" : "saved_meal"]: {
+        id: saved.id,
+        name: mealName,
+        kcal: round(entry.nutrients.calories ?? null, 0),
+      },
+    });
+  }
+
+  if (name === "edit_saved_meal") {
+    const id = typeof args["id"] === "number" ? Math.round(args["id"]) : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    if (args["action"] === "delete") {
+      const ok = await deleteSavedMeal(id);
+      return JSON.stringify(ok ? { deleted_saved_meal: id } : { error: `No saved meal #${id}.` });
+    }
+    if (args["action"] === "rename") {
+      const newName = typeof args["name"] === "string" ? args["name"].trim() : "";
+      if (!newName) throw new Error("name is required to rename");
+      const ok = await renameSavedMeal(id, newName);
+      return JSON.stringify(ok ? { renamed_saved_meal: id, name: newName } : { error: `No saved meal #${id}.` });
+    }
+    throw new Error('action must be "rename" or "delete"');
+  }
+
   if (name === "remember") {
     const kind = args["kind"];
     const text = typeof args["text"] === "string" ? args["text"].trim() : "";
@@ -861,6 +979,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - entry_notes(id, entry_kind /* "meal" | "workout" | "reading" | "state" | "performance" | "sleep" */, entry_id /* id in food_entries / workouts / blood_readings / state_logs / performance_logs / sleep_sessions */, text, created_at) — notes YOU attached with annotate_entry: context that explains an entry. Join them in whenever you look at readings, states or performance logs
 - life_rules(id, text /* a rule for living in their exact words: "I must always do things perfectly" */, alternative /* the rule they practise instead, or NULL */, status /* "kept" | "suggested" (the diary heard it, they haven't confirmed) | "archived" */, created_at, day, tz_offset_min)
 - life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */) — the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
+- saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at) — meals kept for reuse with exact numbers; prefer list_saved_meals
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;

@@ -49,6 +49,19 @@ import type { DocumentValue } from "./schemas";
 /** Sparse map of nutrient amounts. Missing key = unknown / not estimated. */
 export type Nutrients = Partial<Record<NutrientKey, number>>;
 
+/** A meal kept for reuse (the `saved_meals` table). */
+export interface SavedMeal {
+  id: number;
+  name: string;
+  description: string | null;
+  /** Totals for one portion. */
+  nutrients: Nutrients;
+  icon: string | null;
+  source_entry_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FoodEntry {
   id: number;
   /** ISO 8601 UTC timestamp of when the food was eaten. */

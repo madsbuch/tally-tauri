@@ -601,3 +601,29 @@ export const incompleteDays = sqliteTable("incomplete_days", {
   day: text("day").primaryKey(),
   updatedAt: text("updated_at").notNull(),
 });
+
+/**
+ * Meals kept for reuse: a 7-Eleven sourdough bun with its official label
+ * values, "my usual breakfast". Saved from an entry the user corrected (the
+ * entry's conversation saves it when they ask, or when they hand over a
+ * product's official figures), and offered to the diary agent so the next
+ * time it's eaten it's logged with the same numbers rather than re-estimated.
+ * No screen of its own — the coach lists and removes them on request.
+ */
+export const savedMeals = sqliteTable(
+  "saved_meals",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** What they call it; matched case-insensitively, so saving again updates. */
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Totals for one portion, as saved. */
+    nutrients: text("nutrients", { mode: "json" }).$type<Nutrients>().notNull().default({}),
+    icon: text("icon"),
+    /** The food entry it was saved from, when it came from one. */
+    sourceEntryId: integer("source_entry_id"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [index("idx_saved_meals_name").on(t.name)],
+);

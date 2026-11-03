@@ -267,9 +267,29 @@ function revisedEntry<T extends z.ZodObject>(fields: T) {
     });
 }
 
+/**
+ * Whether to keep the meal (as it stands after this turn) for reuse, and
+ * under what name. Models say yes in several shapes — `true`, a bare name,
+ * `{"name": …}` — and all of them mean the same; anything else is a no.
+ * `{name: null}` means "save it under the entry's title".
+ */
+const saveRequest = z
+  .unknown()
+  .optional()
+  .transform((v): { name: string | null } | null => {
+    if (v === true) return { name: null };
+    if (typeof v === "string") return v.trim() ? { name: v.trim() } : null;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const name = "name" in v ? v.name : undefined;
+      return { name: typeof name === "string" && name.trim() ? name.trim() : null };
+    }
+    return null;
+  });
+
 export const MealChatSchema = z.object({
   reply: looseDescription,
   entry: revisedEntry(MealEntryFields),
+  save: saveRequest,
 });
 
 export const WorkoutChatSchema = z.object({
