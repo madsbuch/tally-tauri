@@ -28,7 +28,7 @@ import { closeSheets, pageIndex, unwindHistory } from "./sheetHistory";
 export const TAB_ROOTS = [
   "/",
   "/nutrients",
-  "/fasting",
+  "/body",
   "/assistant",
   "/settings",
 ] as const satisfies readonly Path[];

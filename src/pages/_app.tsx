@@ -64,8 +64,8 @@ const TABS: { to: TabRoot; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    to: "/fasting",
-    label: "Fasting",
+    to: "/body",
+    label: "Body",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
         <path

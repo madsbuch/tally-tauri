@@ -40,6 +40,17 @@ import type { ChatMessage, ToolDef } from "./openrouter";
 import { parseToolArgs } from "./schemas";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import {
+  CAFFEINE_SLEEP_MG,
+  levelsAt,
+  loadBodySnapshot,
+  loadIntake,
+  loadProfile,
+  localStamp,
+  parseLocalMoment,
+} from "./body";
+import { GRAMS_PER_DRINK } from "./bodyModel";
+import { shiftDay } from "./daystamp";
+import {
   CALORIE_FIGURE_KEYS,
   CALORIE_GROUPINGS,
   CALORIES_TOOL_DESCRIPTION,
@@ -260,6 +271,40 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         required: ["kind", "id", "text"],
         additionalProperties: false,
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_body_levels",
+      description:
+        "What's in their body at one moment, modelled from the diary (the Body tab shows the same): " +
+        `caffeine (mg in the body, and when it drops under ${CAFFEINE_SLEEP_MG} mg — roughly where it stops costing deep sleep), ` +
+        "alcohol (g, rough ‰, and when it's cleared), creatine (how full the muscle store is from supplements) and " +
+        "vitamin D (how much the logged intake adds to the blood level, nmol/L — on top of sun and baseline, NOT the level " +
+        "itself; a blood test in query_documents is the real number). Estimates from average kinetics: say so when it matters.",
+      parameters: {
+        type: "object",
+        properties: {
+          at: {
+            type: "string",
+            description:
+              'Local time to look at, "YYYY-MM-DD HH:MM" or "HH:MM" (today). Omit for right now. A future time forecasts from what is logged.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_levels_at_sleep",
+      description:
+        "For each night in the range: caffeine (mg) and alcohol (g) still in the body when they fell asleep, next to " +
+        "that night's sleep (duration, deep, REM, awake). Use it to look for what late coffee or drinks do to THEIR " +
+        "sleep — compare nights with more against nights with less, and say how many nights the pattern rests on.",
+      parameters: DAY_RANGE_SCHEMA,
     },
   },
   {
@@ -839,6 +884,68 @@ export async function executeAssistantTool(
     const noteId = await addEntryNote(kind, id, text);
     notifyDiaryChanged();
     return JSON.stringify({ noted: { id: noteId, on: `${kind} #${id} (${what})`, text } });
+  }
+
+  if (name === "query_body_levels") {
+    const raw = typeof args["at"] === "string" ? args["at"] : "";
+    const atMs = raw ? parseLocalMoment(raw) : Date.now();
+    if (atMs == null) throw new Error('at must be "YYYY-MM-DD HH:MM" or "HH:MM"');
+    const b = await loadBodySnapshot(new Date(atMs));
+    const stamp = (ms: number | null) => (ms == null ? "not within 48 h" : localStamp(ms));
+    return JSON.stringify({
+      at: localStamp(b.at),
+      caffeine: compact({
+        mg_in_body: round(b.caffeine.now, 0),
+        [`under_${CAFFEINE_SLEEP_MG}mg_at`]: stamp(b.caffeine.belowSleepAt),
+        half_life_h: b.profile.caffeineHalfLifeH,
+        doses_last_8h: b.caffeine.doses.map((d) => `${localStamp(d.at).slice(11)} ${round(d.amount, 0)} mg`),
+      }),
+      alcohol: compact({
+        g_in_body: round(b.alcohol.now, 1),
+        drinks_in_body: round(b.alcohol.now / GRAMS_PER_DRINK, 1),
+        promille_rough: round(b.alcohol.promille, 2),
+        cleared_at: b.alcohol.now > 0.1 ? stamp(b.alcohol.goneAt) : undefined,
+      }),
+      creatine: compact({
+        store_full_pct: round(b.creatine.fraction * 100, 0),
+        avg_g_per_day_last_7d: round(b.creatine.avg7, 1),
+        days_to_90pct_at_that_pace: b.creatine.daysToFull,
+        last_taken: b.creatine.lastDay,
+      }),
+      vitamin_d: {
+        logged_intake_adds_nmol_l: round(b.vitaminD.contribution, 0),
+        avg_ug_per_day_last_30d: round(b.vitaminD.avg30, 1),
+        settles_at_nmol_l: round(b.vitaminD.steady, 0),
+      },
+      weight_kg_used: b.profile.weightKnown ? round(b.profile.weightKg, 1) : `${b.profile.weightKg} (assumed; none synced)`,
+    });
+  }
+
+  if (name === "query_levels_at_sleep") {
+    const { start, end } = dayArgs(args);
+    const [sessions, intake, profile] = await Promise.all([
+      listSleepForRange(start, end),
+      loadIntake(shiftDay(start, -3), end),
+      loadProfile(),
+    ]);
+    const levels = levelsAt(intake, profile, sessions.map((s) => Date.parse(s.started_at)));
+    const { items, note } = capList(
+      sessions.map((s, i) =>
+        compact({
+          night_ending: s.day,
+          fell_asleep: localStamp(Date.parse(s.started_at)),
+          caffeine_mg_at_sleep: round(levels[i]?.caffeineMg, 0),
+          alcohol_g_at_sleep: round(levels[i]?.alcoholG, 1),
+          duration_min: round(s.duration_min, 0),
+          deep_min: round(s.deep_min, 0),
+          rem_min: round(s.rem_min, 0),
+          awake_min: round(s.awake_min, 0),
+        }),
+      ),
+    );
+    return JSON.stringify(
+      compact({ caffeine_half_life_h: profile.caffeineHalfLifeH, nights: items, note }),
+    );
   }
 
   if (name === "list_saved_meals") {

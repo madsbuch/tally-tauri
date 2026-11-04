@@ -245,7 +245,11 @@ function StageTimeline({ elapsedMs }: { elapsedMs: number | null }) {
   );
 }
 
-export default function FastingPage() {
+/**
+ * The fasting half of the Body tab: the timer, its stages, records and
+ * history. Rendered inside BodyPage, under what's in the body right now.
+ */
+export default function FastingSection() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Fast | null>(null);
   const [lastMealAt, setLastMealAt] = useState<string | null>(null);
@@ -424,14 +428,12 @@ export default function FastingPage() {
 
   if (loading) {
     return (
-      <div className="page">
-        <header className="page-header">
-          <h1 className="page-title">Fasting</h1>
-        </header>
+      <>
+        <div className="section-title">Fasting</div>
         <div className="empty" style={{ display: "flex", justifyContent: "center" }}>
           <span className="spinner" />
         </div>
-      </div>
+      </>
     );
   }
 
@@ -676,11 +678,16 @@ export default function FastingPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <h1 className="page-title">Fasting</h1>
-        <span className="page-sub">{active ? "Fast in progress" : "Not fasting"}</span>
-      </header>
+    <>
+      <div
+        className="section-title"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+      >
+        Fasting
+        <span className={`chip${active ? " chip-accent" : ""}`}>
+          {active ? "Fast in progress" : "Not fasting"}
+        </span>
+      </div>
 
       {body}
 
@@ -765,6 +772,6 @@ export default function FastingPage() {
           })}
         </div>
       )}
-    </div>
+    </>
   );
 }

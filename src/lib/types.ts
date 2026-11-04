@@ -469,6 +469,8 @@ export const SETTING_KEYS = {
   modelsCache: "models_cache",
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",
+  /** Personal caffeine half-life in hours (DEFAULT_CAFFEINE_HALF_LIFE_H when absent). */
+  caffeineHalfLife: "caffeine_half_life_h",
   zone2WeeklyTarget: "zone2_weekly_target",
   /** Cardio goal in minutes per 7 days (DEFAULT_CARDIO_TARGET_MIN when absent). */
   cardioWeeklyTarget: "cardio_weekly_target_min",

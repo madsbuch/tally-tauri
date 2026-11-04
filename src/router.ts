@@ -8,8 +8,8 @@ export type Path =
   | `/assistant`
   | `/assistant/:chatId`
   | `/assistant/library`
+  | `/body`
   | `/entry/:kind/:id`
-  | `/fasting`
   | `/nutrients`
   | `/settings`
 

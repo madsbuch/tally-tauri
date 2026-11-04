@@ -635,6 +635,18 @@ export async function listAllHealthMetrics(): Promise<HealthMetric[]> {
   return rows.map(toHealthMetric);
 }
 
+/** The most recent weight on record (kg), or null when none has been synced. */
+export async function getLatestWeightKg(): Promise<number | null> {
+  const rows = await db
+    .select({ w: healthMetrics.weightKg })
+    .from(healthMetrics)
+    .where(isNotNull(healthMetrics.weightKg))
+    .orderBy(desc(healthMetrics.day))
+    .limit(1);
+  const w = rows[0]?.w;
+  return typeof w === "number" && w > 20 && w < 400 ? w : null;
+}
+
 /** Metrics from local day `startDay` through `endDay`, both inclusive. */
 export async function listHealthMetricsForRange(
   startDay: string,
