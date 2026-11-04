@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Fast, FoodEntry } from "../lib/types";
 import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
 import { onDiaryChanged } from "../lib/agent";
@@ -171,76 +171,67 @@ function computeRecords(all: Fast[]): FastRecords {
   return { longestMs, totalHours: totalMs / HOUR_MS, completed, goalsHit };
 }
 
-const STAGE_HAIRLINE = "1px solid color-mix(in srgb, var(--border) 55%, transparent)";
-
 /**
- * Autophagy & fasting-stage overview. With an active fast (`elapsedMs`
- * non-null) the current stage is highlighted, earlier stages are ticked off,
- * and the countdown to the next stage is shown; otherwise it reads as a
- * static reference.
+ * Autophagy & fasting stages as a strip you scroll sideways. Where you are —
+ * the running fast, or the time since your last meal when there isn't one —
+ * is highlighted and scrolled into the middle; what a stage means stays
+ * folded away until you tap it, so the strip is one row high.
  */
-function StageTimeline({ elapsedMs }: { elapsedMs: number | null }) {
+function StageStrip({ elapsedMs }: { elapsedMs: number | null }) {
   const activeIdx = elapsedMs == null ? -1 : fastingStageIndex(elapsedMs / HOUR_MS);
-  return (
-    <div className="card">
-      {FASTING_STAGES.map((s, i) => {
-        const isPast = activeIdx >= 0 && i < activeIdx;
-        const isNow = i === activeIdx;
-        const next = FASTING_STAGES[i + 1];
-        return (
-          <div
-            key={s.fromH}
-            style={{
-              display: "flex",
-              gap: 10,
-              padding: "9px 0",
-              borderBottom: i === FASTING_STAGES.length - 1 ? "none" : STAGE_HAIRLINE,
-              opacity: isPast ? 0.55 : 1,
-            }}
-          >
-            <span style={{ fontSize: 18, lineHeight: "22px", flexShrink: 0 }}>
-              {s.emoji}
-            </span>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <span style={{ fontWeight: 650, fontSize: 13.5 }}>{s.title}</span>
-                <span
-                  className="faint small"
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  {stageHoursLabel(s)}
-                </span>
-                {isNow && <span className="chip chip-accent">Now</span>}
-                {isPast && (
-                  <span className="faint small" aria-label="Stage passed">
-                    ✓
-                  </span>
-                )}
-              </div>
-              <div className="muted small" style={{ marginTop: 2 }}>
-                {s.blurb}
-              </div>
-              {isNow && elapsedMs != null && next && (
-                <div
-                  className="small"
-                  style={{ marginTop: 4, color: "var(--accent)", fontWeight: 600 }}
-                >
-                  Next: {next.title} in{" "}
-                  {formatDurationDays(Math.max(0, next.fromH * HOUR_MS - elapsedMs))}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
 
+  // Bring the current stage to the middle — instantly on first show, then
+  // smoothly as the fast moves into the next one.
+  const firstScroll = useRef(true);
+  useEffect(() => {
+    const strip = stripRef.current;
+    const el = strip?.children[activeIdx] as HTMLElement | undefined;
+    if (!strip || !el) return;
+    strip.scrollTo({
+      left: el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2,
+      behavior: firstScroll.current ? "auto" : "smooth",
+    });
+    firstScroll.current = false;
+  }, [activeIdx]);
+
+  const open = openIdx == null ? null : FASTING_STAGES[openIdx];
+  const next = FASTING_STAGES[activeIdx + 1];
+  return (
+    <div className="card stage-card">
+      <div className="stage-strip" ref={stripRef}>
+        {FASTING_STAGES.map((s, i) => {
+          const state = i < activeIdx ? "past" : i === activeIdx ? "now" : "ahead";
+          return (
+            <button
+              key={s.fromH}
+              type="button"
+              className={`stage-pill stage-${state}${openIdx === i ? " stage-open" : ""}`}
+              aria-expanded={openIdx === i}
+              onClick={() => setOpenIdx(openIdx === i ? null : i)}
+            >
+              <span className="stage-emoji">{s.emoji}</span>
+              <span className="stage-name">{s.title}</span>
+              <span className="stage-hours">
+                {state === "past" ? "✓ " : ""}
+                {stageHoursLabel(s)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {elapsedMs != null && next && (
+        <div className="small stage-next">
+          Next: {next.emoji} {next.title} in{" "}
+          {formatDurationDays(Math.max(0, next.fromH * HOUR_MS - elapsedMs))}
+        </div>
+      )}
+      {open && (
+        <div className="muted small stage-blurb" key={open.fromH}>
+          <strong>{open.title}</strong> · {open.blurb}
+        </div>
+      )}
     </div>
   );
 }
@@ -681,7 +672,15 @@ export default function FastingSection() {
           </p>
         </InfoButton>
       </div>
-      <StageTimeline elapsedMs={active ? fastProgress(active, now).elapsedMs : null} />
+      <StageStrip
+        elapsedMs={
+          active
+            ? fastProgress(active, now).elapsedMs
+            : lastMealMs != null && lastMealMs > 0
+              ? lastMealMs
+              : null
+        }
+      />
 
       {records.completed > 0 && (
         <>

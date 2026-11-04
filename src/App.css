@@ -2020,3 +2020,90 @@ button.rule-row {
     transition: none;
   }
 }
+
+/* Fasting stages: a sideways strip, current stage in the middle ---------- */
+
+.stage-card {
+  padding: 12px 0;
+}
+
+.stage-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 14px 4px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stage-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.stage-pill {
+  flex: 0 0 auto;
+  width: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  scroll-snap-align: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.stage-emoji {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.stage-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.stage-hours {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-past {
+  opacity: 0.55;
+}
+
+.stage-now {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--card));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.stage-now .stage-hours {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stage-open {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.stage-next {
+  margin: 8px 14px 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stage-blurb {
+  margin: 8px 14px 0;
+  animation: fade-in 0.25s ease both;
+}
