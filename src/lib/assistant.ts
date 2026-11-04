@@ -41,6 +41,7 @@ import { parseToolArgs } from "./schemas";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import {
   CAFFEINE_SLEEP_MG,
+  CREATINE_WORKING,
   levelsAt,
   loadBodySnapshot,
   loadIntake,
@@ -910,6 +911,7 @@ export async function executeAssistantTool(
         store_full_pct: round(b.creatine.fraction * 100, 0),
         avg_g_per_day_last_7d: round(b.creatine.avg7, 1),
         days_to_90pct_at_that_pace: b.creatine.daysToFull,
+        [`drops_under_${Math.round(CREATINE_WORKING * 100)}pct_on_if_stopped`]: b.creatine.belowWorkingOn ?? "already under",
         last_taken: b.creatine.lastDay,
       }),
       vitamin_d: {

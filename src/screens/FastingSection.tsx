@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Fast, FoodEntry } from "../lib/types";
-import { DEFAULT_FAST_HOURS, FAST_BREAK_KCAL, SETTING_KEYS } from "../lib/types";
+import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
 import { onDiaryChanged } from "../lib/agent";
 import {
   deleteFast,
@@ -437,14 +437,8 @@ export default function FastingSection() {
     );
   }
 
-  // New fasts anchor to the last logged meal (when it falls inside the goal
-  // window) — mirror resolveFastStart so the card can say what will happen.
+  // Time since the last real meal (see getLastMealAt) — the fast already running.
   const lastMealMs = lastMealAt ? now.getTime() - new Date(lastMealAt).getTime() : null;
-  const anchorsToMeal =
-    lastMealMs != null &&
-    lastMealMs > 0 &&
-    isFinite(chosenHours) &&
-    lastMealMs < chosenHours * HOUR_MS;
 
   let body: React.ReactNode;
   if (active) {
@@ -647,32 +641,11 @@ export default function FastingSection() {
           {starting ? <span className="spinner" /> : "Start fasting"}
         </button>
 
-        <div className="muted small" style={{ marginTop: 10 }}>
-          {anchorsToMeal && lastMealAt && lastMealMs != null ? (
-            <>
-              Counts from your last meal at{" "}
-              {formatDayStamp(new Date(lastMealAt), lastMealMs > 6 * DAY_MS)} — you're
-              already {formatDurationDays(lastMealMs)} in.
-            </>
-          ) : lastMealMs != null && lastMealMs > 0 ? (
-            <>
-              Your last logged meal was {formatDurationDays(lastMealMs)} ago — longer than
-              this goal, so the fast starts from now.
-            </>
-          ) : (
-            <>No meals logged — the fast starts from now.</>
-          )}
-        </div>
-
-        <div className="muted small" style={{ marginTop: 6 }}>
-          Entries under {FAST_BREAK_KCAL} kcal — black coffee, diet soda, broth — don't
-          count as meals: log them freely without affecting your fast.
-        </div>
-
-        <div className="muted small" style={{ marginTop: 6 }}>
-          While fasting, a pinned notification shows the live time remaining — even when the
-          app is closed.
-        </div>
+        {lastMealAt && lastMealMs != null && lastMealMs > 0 && (
+          <div className="muted small" style={{ marginTop: 10 }}>
+            Fasting since: {formatDayStamp(new Date(lastMealAt), lastMealMs > 6 * DAY_MS)}
+          </div>
+        )}
       </div>
     );
   }

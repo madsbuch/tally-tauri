@@ -1954,6 +1954,33 @@ button.rule-row {
   white-space: nowrap;
 }
 
+.tank-wrap {
+  position: relative;
+  margin-top: 24px;
+}
+
+.tank-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.45;
+}
+
+.tank-mark-label {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
 .tank {
   height: 12px;
   border-radius: 999px;

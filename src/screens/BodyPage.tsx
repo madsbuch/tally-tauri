@@ -24,6 +24,7 @@ import {
   CAFFEINE_HALF_LIVES,
   CAFFEINE_SLEEP_MG,
   CREATINE,
+  CREATINE_WORKING,
   GRAMS_PER_DRINK,
   VITAMIN_D,
   WIDMARK_R,
@@ -66,6 +67,18 @@ function clockDay(ms: number, now: number): string {
   if (day === today) return clock(ms);
   if (day === shiftDay(today, 1)) return `tomorrow ${clock(ms)}`;
   return new Date(ms).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const WORKING_PCT = Math.round(CREATINE_WORKING * 100);
+
+/** "Thu 12 Nov" for a local "YYYY-MM-DD". */
+function dayLabel(day: string): string {
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString([], {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 const VB_W = 300;
@@ -192,24 +205,59 @@ function hourTicks(from: number, to: number, now: number): number[] {
 }
 
 /** A store that fills over weeks: a tank bar, and its last two months. */
-function StoreBar({ fraction, series, color }: { fraction: number; series: number[]; color: string }) {
+function StoreBar({
+  fraction,
+  series,
+  color,
+  threshold,
+  thresholdLabel,
+  scaleMax,
+}: {
+  fraction: number;
+  series: number[];
+  color: string;
+  /** A line across bar and history, as a fraction of `scaleMax`. */
+  threshold?: number;
+  thresholdLabel?: string;
+  /** Top of the history's scale; defaults to its own peak. */
+  scaleMax?: number;
+}) {
   // Starts empty and fills to where it is, so the eye reads it as a level.
   const [shown, setShown] = useState(0);
   useEffect(() => {
     const id = requestAnimationFrame(() => setShown(fraction));
     return () => cancelAnimationFrame(id);
   }, [fraction]);
-  const max = Math.max(1e-9, ...series);
+  const peak = Math.max(...series, 0);
+  const max = scaleMax ?? Math.max(1e-9, peak);
+  const yOf = (v: number) => 30 - (v / max) * 28;
   const pts = series
-    .map((v, i) => `${((i / Math.max(1, series.length - 1)) * 100).toFixed(1)},${(30 - (v / max) * 28).toFixed(1)}`)
+    .map((v, i) => `${((i / Math.max(1, series.length - 1)) * 100).toFixed(1)},${yOf(v).toFixed(1)}`)
     .join(" ");
   return (
     <div style={{ ["--level" as string]: color }}>
-      <div className="tank">
-        <div className="tank-fill" style={{ width: `${Math.min(1, Math.max(0, shown)) * 100}%` }} />
+      <div className="tank-wrap">
+        <div className="tank">
+          <div className="tank-fill" style={{ width: `${Math.min(1, Math.max(0, shown)) * 100}%` }} />
+        </div>
+        {threshold != null && (
+          <span className="tank-mark" style={{ left: `${threshold * 100}%` }}>
+            {thresholdLabel && <span className="tank-mark-label">{thresholdLabel}</span>}
+          </span>
+        )}
       </div>
-      {max > 1e-6 && (
+      {peak > 1e-6 && (
         <svg className="store-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
+          {threshold != null && (
+            <line
+              x1={0}
+              x2={100}
+              y1={yOf(threshold * max)}
+              y2={yOf(threshold * max)}
+              className="level-threshold"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           <polyline points={pts} vectorEffect="non-scaling-stroke" />
         </svg>
       )}
@@ -413,8 +461,10 @@ export default function BodyPage() {
                     Roughly: 3–5 g a day fills it in about four weeks, a 20 g
                     loading week in five or six days. Stop, and it drains back over
                     four to six weeks (half in about {CREATINE.halfLifeDays} days).
-                    An average model — nobody&apos;s store is measured without a
-                    biopsy.
+                    The line at {WORKING_PCT}% is roughly where it&apos;s working: the
+                    card tells you until when you stay over it if you stopped
+                    today. An average model — nobody&apos;s store is measured
+                    without a biopsy.
                   </p>
                 </InfoButton>
               </div>
@@ -426,18 +476,17 @@ export default function BodyPage() {
             <div className="muted small level-caption">
               {snap.creatine.lastDay == null
                 ? "No creatine logged in the last four months."
-                : snap.creatine.avg7 < 0.1
-                  ? `Draining — last taken ${snap.creatine.lastDay}.`
-                  : snap.creatine.daysToFull === 0
-                    ? `Topped up · ${snap.creatine.avg7.toFixed(1)} g/day this week keeps it there.`
-                    : snap.creatine.daysToFull == null
-                      ? `${snap.creatine.avg7.toFixed(1)} g/day this week won't fill it — 3–5 g daily does.`
-                      : `${snap.creatine.avg7.toFixed(1)} g/day this week · full in ~${snap.creatine.daysToFull} days.`}
+                : snap.creatine.belowWorkingOn == null
+                  ? `Under ${WORKING_PCT}% — about ${snap.creatine.daysToWorking} days of 5 g a day gets it back over.`
+                  : `Over ${WORKING_PCT}% until ${dayLabel(snap.creatine.belowWorkingOn)} without more.`}
             </div>
             <StoreBar
               fraction={snap.creatine.fraction}
               series={snap.creatine.series}
               color="var(--accent)"
+              threshold={CREATINE_WORKING}
+              thresholdLabel={`${WORKING_PCT}%`}
+              scaleMax={1}
             />
           </div>
 

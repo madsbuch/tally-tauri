@@ -207,6 +207,23 @@ export function creatineStore(dailyGrams: number[], weightKg = DEFAULT_WEIGHT_KG
 }
 
 /**
+ * Where the creatine store counts as working — the line the card draws, like
+ * caffeine's sleep line. Studies see the benefit once the store is most of
+ * the way to full; below that it's tapering off.
+ */
+export const CREATINE_WORKING = 0.7;
+
+/**
+ * Days from a store at `from` until it drops under `threshold` with no more
+ * creatine. 0 when it's already under.
+ */
+export function creatineDaysUntilBelow(from: number, threshold = CREATINE_WORKING): number {
+  if (from < threshold) return 0;
+  const keep = Math.pow(0.5, 1 / CREATINE.halfLifeDays);
+  return Math.floor(Math.log(threshold / from) / Math.log(keep)) + 1;
+}
+
+/**
  * Days until the creatine store is ≥ `target` full at `gramsPerDay`, or null
  * when that pace never gets there (within a year). 0 when it's there already.
  */

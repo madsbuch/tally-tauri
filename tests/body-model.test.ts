@@ -4,6 +4,7 @@ import {
   alcoholKinetics,
   caffeineKinetics,
   creatineDaysTo,
+  creatineDaysUntilBelow,
   creatineStore,
   levelAt,
   vitaminDContribution,
@@ -70,6 +71,14 @@ describe("creatine store", () => {
     const drained = creatineStore([...days(6, 20), ...days(10, 0)]).now;
     expect(drained).toBeCloseTo(loaded / 2, 1);
     expect(creatineStore([...days(6, 20), ...days(42, 0)]).now).toBeLessThan(0.1);
+  });
+
+  test("days until it drops under the working line", () => {
+    expect(creatineDaysUntilBelow(0.5, 0.7)).toBe(0);
+    // Half-life 10 days: 1.0 → 0.7 takes a bit over five.
+    expect(creatineDaysUntilBelow(1, 0.7)).toBe(6);
+    const store = creatineStore([...Array.from({ length: 30 }, () => 5), ...Array.from({ length: 6 }, () => 0)]).now;
+    expect(store).toBeLessThan(0.7);
   });
 
   test("days to full", () => {

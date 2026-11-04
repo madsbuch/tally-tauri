@@ -27,7 +27,9 @@ import {
   HOUR_MS,
   alcoholKinetics,
   caffeineKinetics,
+  CREATINE_WORKING,
   creatineDaysTo,
+  creatineDaysUntilBelow,
   creatineStore,
   levelAt,
   promille,
@@ -172,6 +174,10 @@ export interface BodySnapshot {
     avg7: number;
     /** Days to 90% at that pace; 0 = already there; null = never at this pace. */
     daysToFull: number | null;
+    /** Local day it drops under CREATINE_WORKING if none is taken from today; null = already under. */
+    belowWorkingOn: string | null;
+    /** Days of 5 g a day to get back over CREATINE_WORKING; 0 = already over. */
+    daysToWorking: number;
     /** Local day of the last creatine logged, within the history. */
     lastDay: string | null;
   };
@@ -248,6 +254,11 @@ export function snapshotOf(
       series: creatine.series.slice(-STORE_SHOWN_DAYS),
       avg7,
       daysToFull: creatineDaysTo(creatine.now, avg7, 0.9, profile.weightKg),
+      belowWorkingOn:
+        creatine.now >= CREATINE_WORKING
+          ? shiftDay(day, creatineDaysUntilBelow(creatine.now))
+          : null,
+      daysToWorking: creatineDaysTo(creatine.now, 5, CREATINE_WORKING, profile.weightKg) ?? 0,
       lastDay,
     },
     vitaminD: {
@@ -312,4 +323,4 @@ export function parseLocalMoment(raw: string, now = new Date()): number | null {
   return isNaN(iso) ? null : iso;
 }
 
-export { CAFFEINE_SLEEP_MG, DAY_MS, HOUR_MS };
+export { CAFFEINE_SLEEP_MG, CREATINE_WORKING, DAY_MS, HOUR_MS };
