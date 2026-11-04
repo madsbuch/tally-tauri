@@ -68,8 +68,9 @@ const TABS: { to: TabRoot; label: string; icon: JSX.Element }[] = [
     label: "Body",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <circle cx="12" cy="4.6" r="2.3" />
         <path
-          d="M6 2.5h12M6 21.5h12M7 2.5c0 5 4 6.5 5 9.5 1-3 5-4.5 5-9.5M7 21.5c0-5 4-6.5 5-9.5 1 3 5 4.5 5 9.5"
+          d="M5 9.2c2.3.8 4.6 1.2 7 1.2s4.7-.4 7-1.2M12 10.4v4.6M8.6 21.5l3.4-6.5 3.4 6.5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
