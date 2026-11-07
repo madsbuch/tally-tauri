@@ -1,4 +1,5 @@
 import {
+  blob,
   index,
   integer,
   real,
@@ -246,7 +247,7 @@ export const documents = sqliteTable(
     title: text("title").notNull(),
     /** "lab" | "imaging" | "report" | "note" | "other". */
     kind: text("kind").notNull().default("other"),
-    /** Filename inside the app data `photos/` dir. */
+    /** Filename of a row in the `photos` table. */
     photoPath: text("photo_path"),
     /** Whatever the user typed when adding it. */
     note: text("note"),
@@ -261,7 +262,7 @@ export const documents = sqliteTable(
     error: text("error"),
     modelId: text("model_id"),
     /**
-     * Every page of the document, in order, as filenames in `photos/`. A PDF
+     * Every page of the document, in order, as filenames in the `photos` table. A PDF
      * arrives as several; a photograph as one. Empty on rows written before
      * multi-page documents existed, where `photoPath` is the only page.
      */
@@ -532,7 +533,7 @@ export const performanceLogs = sqliteTable(
     /** Short heading, e.g. "Garmin performance stats". */
     title: text("title").notNull(),
     note: text("note"),
-    /** Filename inside the app data `photos/` dir: the screenshot itself. */
+    /** Filename of a row in the `photos` table: the screenshot itself. */
     photoPath: text("photo_path"),
     modelId: text("model_id"),
     /** Local day it was measured on, stamped where it happened (lib/daystamp.ts). */
@@ -627,3 +628,19 @@ export const savedMeals = sqliteTable(
   },
   (t) => [index("idx_saved_meals_name").on(t.name)],
 );
+
+/**
+ * Every stored image — meal photos, workout and performance screenshots,
+ * captures, document pages, meter readings — so the whole app lives in the one
+ * database file. Rows elsewhere point here by `filename` (their `photo_path`
+ * and `page_paths` columns); several rows may share one image, so a photo is
+ * only deleted once nothing references it (`deletePhotoIfUnused`). The bytes
+ * are written and read by the Rust `save_photo` / `read_photo` commands, which
+ * bind them as a real BLOB rather than shipping them through the SQL plugin.
+ */
+export const photos = sqliteTable("photos", {
+  /** e.g. "1730987654321.jpg" — the key `photo_path` columns hold. */
+  filename: text("filename").primaryKey(),
+  /** The JPEG itself. */
+  data: blob("data", { mode: "buffer" }).notNull(),
+});

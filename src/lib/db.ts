@@ -1,4 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
+import { invoke } from "@tauri-apps/api/core";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
@@ -83,7 +84,20 @@ const DB_URL = "sqlite:tally.db";
 let sqlitePromise: Promise<Database> | null = null;
 
 function sqlite(): Promise<Database> {
-  if (!sqlitePromise) sqlitePromise = Database.load(DB_URL);
+  if (!sqlitePromise) {
+    sqlitePromise = Database.load(DB_URL).then(async (conn) => {
+      // Photos used to be loose files in app data `photos/`; move any still
+      // there into the `photos` table before anything reads one. A no-op
+      // once the folder is gone; on failure the rest retry next start.
+      try {
+        const moved = await invoke<number>("import_photo_files");
+        if (moved > 0) console.info(`Moved ${moved} photo(s) into the database`);
+      } catch (e) {
+        console.warn("Moving photo files into the database failed", e);
+      }
+      return conn;
+    });
+  }
   return sqlitePromise;
 }
 
@@ -728,19 +742,19 @@ export async function deleteCapture(id: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Photo files (shared by filename across rows)
+// Stored photos (shared by filename across rows)
 // ---------------------------------------------------------------------------
 //
-// A photo is stored once on disk and referenced by bare filename. When a
+// A photo is stored once (a row in `photos`) and referenced by filename. When a
 // capture resolves into an entry, that filename is passed THROUGH to the
-// food/workout entry (see agent.ts) — so the same file is pointed at by the
+// food/workout entry (see agent.ts) — so the same photo is pointed at by the
 // capture and the entry it produced, and can outlive either one. Deleting the
-// file whenever a single referrer goes away is what orphaned surviving entries'
+// photo whenever a single referrer goes away is what orphaned surviving entries'
 // images (a discarded capture taking its already-logged meal's photo with it).
 
 /**
  * Does any capture, entry, reading, document or performance log still
- * reference this photo file?
+ * reference this photo?
  * Callers delete the owning row FIRST, then ask — so a file shared only with
  * the just-deleted row reads as unreferenced.
  */
@@ -764,9 +778,9 @@ export async function isPhotoReferenced(filename: string): Promise<boolean> {
 }
 
 /**
- * Delete a stored photo from disk only when no diary row still points at it.
+ * Delete a stored photo only when no diary row still points at it.
  * This is the safe replacement for a bare `deletePhoto` after removing a row:
- * delete the row first, then call this so a file another entry still uses is
+ * delete the row first, then call this so a photo another entry still uses is
  * preserved. A no-op for a null/empty filename.
  */
 export async function deletePhotoIfUnused(

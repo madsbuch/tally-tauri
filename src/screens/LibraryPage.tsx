@@ -22,7 +22,7 @@ import {
   retryDocument,
 } from "../lib/documents";
 import { updateDocument } from "../lib/db";
-import { compressImage, photoSrc } from "../lib/photos";
+import { compressImage, readPhotoDataUrl } from "../lib/photos";
 import { MAX_PDF_PAGES, isPdf, pdfToImages } from "../lib/pdf";
 import InfoButton from "../components/InfoButton";
 import { useUp } from "../lib/navigation";
@@ -62,9 +62,11 @@ function PhotoImg({ filename, className }: { filename: string; className?: strin
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    void photoSrc(filename).then((s) => {
-      if (alive) setSrc(s);
-    });
+    readPhotoDataUrl(filename)
+      .then((s) => {
+        if (alive) setSrc(s);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };

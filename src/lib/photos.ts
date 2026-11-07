@@ -1,5 +1,5 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { appDataDir, join } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
+import { getDb } from "./db";
 
 /**
  * Decode an image file to an ImageBitmap.
@@ -56,40 +56,57 @@ export async function compressImage(
   }
 }
 
-/** Persist a base64 JPEG via the Rust backend; returns the stored filename. */
-export function savePhoto(base64: string): Promise<string> {
+// ---------------------------------------------------------------------------
+// Stored photos live in the `photos` table of the app database, keyed by
+// filename (what `photo_path` columns hold). The bytes go through the Rust
+// commands rather than drizzle so they're bound as a BLOB, not JSON. Each
+// call waits for the DB to be loaded: the commands borrow the SQL plugin's
+// connection, which only exists once `getDb()` has run.
+// ---------------------------------------------------------------------------
+
+/** Persist a base64 JPEG; returns the filename it's stored under. */
+export async function savePhoto(base64: string): Promise<string> {
+  await getDb();
   return invoke<string>("save_photo", { dataBase64: base64 });
 }
 
 /**
- * Read a stored photo back as a data URL, via Rust. (Fetching the asset URL
- * from the WebView is blocked by CSP connect-src on Android.)
+ * Recently read photos, as data URLs. Thumbnails in a scrolling diary are
+ * re-read on every remount otherwise; a stored photo never changes under its
+ * filename, so the only invalidation is deletion.
  */
-export async function readPhotoDataUrl(filename: string): Promise<string> {
-  const base64 = await invoke<string>("read_photo", { filename });
-  return `data:image/jpeg;base64,${base64}`;
+const cache = new Map<string, Promise<string>>();
+const CACHE_SIZE = 48;
+
+/** Read a stored photo back as a data URL (for `<img>` or a vision model). */
+export function readPhotoDataUrl(filename: string): Promise<string> {
+  const hit = cache.get(filename);
+  if (hit) {
+    // Re-insert so it counts as recently used.
+    cache.delete(filename);
+    cache.set(filename, hit);
+    return hit;
+  }
+  const read = getDb()
+    .then(() => invoke<string>("read_photo", { filename }))
+    .then((base64) => `data:image/jpeg;base64,${base64}`);
+  cache.set(filename, read);
+  read.catch(() => cache.delete(filename));
+  while (cache.size > CACHE_SIZE) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return read;
 }
 
 /** Delete a stored photo by filename. Never throws. */
 export async function deletePhoto(filename: string): Promise<void> {
+  cache.delete(filename);
   try {
+    await getDb();
     await invoke("delete_photo", { filename });
   } catch (e) {
     console.warn("Failed to delete photo", filename, e);
   }
-}
-
-let photosDirPromise: Promise<string> | null = null;
-
-function photosDir(): Promise<string> {
-  if (!photosDirPromise) {
-    photosDirPromise = appDataDir().then((dir) => join(dir, "photos"));
-  }
-  return photosDirPromise;
-}
-
-/** Resolve a stored photo filename to a webview-displayable URL. */
-export async function photoSrc(filename: string): Promise<string> {
-  const dir = await photosDir();
-  return convertFileSrc(await join(dir, filename));
 }
