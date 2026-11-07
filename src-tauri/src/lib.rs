@@ -2,6 +2,7 @@ use base64::Engine;
 use tauri::Manager;
 use tauri_plugin_sql::{DbInstances, DbPool, Migration, MigrationKind};
 
+mod garmin;
 mod photos;
 
 const DB_URL: &str = "sqlite:tally.db";
@@ -176,6 +177,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0026_progress_photos.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 28,
+            description: "garmin_connect",
+            sql: include_str!("../migrations/0027_garmin_connect.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -276,12 +283,18 @@ pub fn run() {
         .plugin(tauri_plugin_fasting::init())
         .plugin(tauri_plugin_health_connect::init())
         .plugin(tauri_plugin_share::init())
+        .manage(garmin::GarminState::new())
         .invoke_handler(tauri::generate_handler![
             save_photo,
             read_photo,
             delete_photo,
             import_photo_files,
-            prepare_db_export
+            prepare_db_export,
+            garmin::garmin_status,
+            garmin::garmin_login,
+            garmin::garmin_mfa,
+            garmin::garmin_logout,
+            garmin::garmin_get
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

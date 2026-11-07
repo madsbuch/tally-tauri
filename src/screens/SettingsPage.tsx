@@ -32,6 +32,7 @@ import {
 import type { HealthConnectStatus } from "../lib/healthConnect";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
+import GarminConnectSettings from "../components/GarminConnectSettings";
 import FoodCountrySetting from "../components/FoodCountrySetting";
 import ThemeSetting from "../components/ThemeSetting";
 
@@ -956,6 +957,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <GarminConnectSettings />
 
       {/* Coach -------------------------------------------------------------- */}
       <CoachSettings />

@@ -8,7 +8,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type { FoodEntry, Nutrients, Workout } from "../lib/types";
-import type { ChatMessage, DocumentValue } from "../lib/schemas";
+import type { ChatMessage, DocumentValue, GarminLap } from "../lib/schemas";
 
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
@@ -70,6 +70,12 @@ export const workouts = sqliteTable(
     day: text("day"),
     /** Minutes east of UTC at that moment, so the time reads as it was lived. */
     tzOffsetMin: integer("tz_offset_min"),
+    /**
+     * The writing app's own id for a Health Connect record (`clientRecordId`)
+     * — Garmin's, when Garmin wrote it. Lets the Garmin Connect sync match
+     * exactly instead of by time, when it carries the activity id.
+     */
+    sourceRecordId: text("source_record_id"),
   },
   (t) => [
     index("idx_workouts_performed_at").on(t.performedAt),
@@ -154,6 +160,8 @@ export const sleepSessions = sqliteTable(
     day: text("day"),
     /** Minutes east of UTC where the night was slept. */
     tzOffsetMin: integer("tz_offset_min"),
+    /** The writing app's own id for the Health Connect record, when set. */
+    sourceRecordId: text("source_record_id"),
   },
   (t) => [
     index("idx_sleep_sessions_day").on(t.day),
@@ -666,3 +674,119 @@ export const progressPhotos = sqliteTable(
   },
   (t) => [index("idx_progress_photos_taken_at").on(t.takenAt)],
 );
+
+/**
+ * Activities pulled straight from Garmin Connect (unofficial login, see
+ * lib/garmin.ts) — everything Health Connect doesn't carry: Training Effect,
+ * training load, time in HR zones, power, laps. Each one is linked to the
+ * `workouts` row it is (usually the one Health Connect already synced, matched
+ * by time — see lib/syncMatch.ts), so edits made to that row stay put; a
+ * Garmin-only activity gets a row of its own, keyed `garmin:<id>`.
+ */
+export const garminActivities = sqliteTable(
+  "garmin_activities",
+  {
+    /** Garmin's activity id. */
+    activityId: text("activity_id").primaryKey(),
+    /** The diary workout it is; null once the user deleted that workout. */
+    workoutId: integer("workout_id"),
+    /** 1 = its workout was deleted by hand — don't create it again. */
+    dismissed: integer("dismissed").notNull().default(0),
+    /** How it was linked: "exact" | "time" | "created". */
+    linkedBy: text("linked_by"),
+    startedAt: text("started_at").notNull(),
+    durationSec: real("duration_sec"),
+    /** Garmin's type key, e.g. "running", "strength_training". */
+    typeKey: text("type_key"),
+    name: text("name"),
+    distanceM: real("distance_m"),
+    avgHr: real("avg_hr"),
+    maxHr: real("max_hr"),
+    calories: real("calories"),
+    aerobicTe: real("aerobic_te"),
+    anaerobicTe: real("anaerobic_te"),
+    /** Garmin's label for the session's main benefit, e.g. "TEMPO". */
+    teLabel: text("te_label"),
+    trainingLoad: real("training_load"),
+    avgPower: real("avg_power"),
+    maxPower: real("max_power"),
+    normPower: real("norm_power"),
+    avgCadence: real("avg_cadence"),
+    elevationGainM: real("elevation_gain_m"),
+    avgSpeedMps: real("avg_speed_mps"),
+    vo2Max: real("vo2_max"),
+    /** Seconds in HR zones 1–5, `[z1, z2, z3, z4, z5]`. */
+    zoneSecs: text("zone_secs", { mode: "json" }).$type<number[]>(),
+    /** Per-lap summaries; null until fetched (recent activities only). */
+    laps: text("laps", { mode: "json" }).$type<GarminLap[]>(),
+    /** Garmin's full activity summary, verbatim — nothing it said is lost. */
+    summary: text("summary", { mode: "json" }).$type<Record<string, unknown>>(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    index("idx_garmin_activities_workout").on(t.workoutId),
+    index("idx_garmin_activities_started_at").on(t.startedAt),
+  ],
+);
+
+/**
+ * One row per day of Garmin Connect wellness data — what Health Connect has
+ * no record type for (Body Battery, stress, training readiness and status,
+ * sleep score, HRV status) plus Garmin's own numbers for what it does have.
+ * Health Connect stays the source for `health_metrics`; these only fill its
+ * gaps (see fillHealthMetricsFromGarmin).
+ */
+export const garminDays = sqliteTable("garmin_days", {
+  /** Garmin's calendar date "YYYY-MM-DD" (the watch's local day). */
+  day: text("day").primaryKey(),
+  steps: integer("steps"),
+  caloriesTotal: real("calories_total"),
+  caloriesActive: real("calories_active"),
+  restingHr: real("resting_hr"),
+  minHr: real("min_hr"),
+  maxHr: real("max_hr"),
+  stressAvg: real("stress_avg"),
+  stressMax: real("stress_max"),
+  bodyBatteryHigh: real("body_battery_high"),
+  bodyBatteryLow: real("body_battery_low"),
+  bodyBatteryCharged: real("body_battery_charged"),
+  bodyBatteryDrained: real("body_battery_drained"),
+  bodyBatteryWake: real("body_battery_wake"),
+  respirationAvg: real("respiration_avg"),
+  spo2Avg: real("spo2_avg"),
+  spo2Low: real("spo2_low"),
+  floorsUp: real("floors_up"),
+  intensityMinModerate: real("intensity_min_moderate"),
+  intensityMinVigorous: real("intensity_min_vigorous"),
+  readinessScore: real("readiness_score"),
+  readinessLevel: text("readiness_level"),
+  trainingStatus: text("training_status"),
+  acuteLoad: real("acute_load"),
+  chronicLoad: real("chronic_load"),
+  hrvLastNight: real("hrv_last_night"),
+  hrvWeeklyAvg: real("hrv_weekly_avg"),
+  hrvStatus: text("hrv_status"),
+  vo2Max: real("vo2_max"),
+  weightKg: real("weight_kg"),
+  sleepScore: real("sleep_score"),
+  sleepStress: real("sleep_stress"),
+  sleepRespiration: real("sleep_respiration"),
+  /** Body Battery gained overnight. */
+  sleepBodyBattery: real("sleep_body_battery"),
+  /** Garmin's sleep session id for the night ending this day. */
+  sleepId: text("sleep_id"),
+  sleepStartedAt: text("sleep_started_at"),
+  sleepEndedAt: text("sleep_ended_at"),
+  /** Minutes east of UTC where that night was slept. */
+  sleepTzOffsetMin: integer("sleep_tz_offset_min"),
+  sleepDeepMin: real("sleep_deep_min"),
+  sleepRemMin: real("sleep_rem_min"),
+  sleepLightMin: real("sleep_light_min"),
+  sleepAwakeMin: real("sleep_awake_min"),
+  /**
+   * The endpoints' answers, verbatim apart from per-minute series (keyed
+   * "summary" | "sleep" | "hrv" | "readiness" | "trainingStatus").
+   */
+  raw: text("raw", { mode: "json" }).$type<Record<string, unknown>>(),
+  fetchedAt: text("fetched_at").notNull(),
+});

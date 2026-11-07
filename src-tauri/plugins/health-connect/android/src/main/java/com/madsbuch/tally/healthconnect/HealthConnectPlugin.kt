@@ -356,6 +356,10 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         if (lightMs > 0) obj.put("lightMin", lightMs / 60_000.0)
         if (awakeMs > 0) obj.put("awakeMin", awakeMs / 60_000.0)
         obj.put("sourcePackage", s.metadata.dataOrigin.packageName)
+        // The writer's own id for the record (Garmin's, when Garmin wrote it):
+        // the exact key for matching against what the Garmin Connect sync
+        // pulls directly, when the writer sets one.
+        s.metadata.clientRecordId?.let { obj.put("clientRecordId", it) }
         return obj
     }
 
@@ -501,6 +505,10 @@ class HealthConnectPlugin(private val activity: Activity) : Plugin(activity) {
         distanceMeters?.let { obj.put("distanceMeters", it) }
         avgHeartRate?.let { obj.put("avgHeartRate", it) }
         obj.put("sourcePackage", s.metadata.dataOrigin.packageName)
+        // The writer's own id for the record (Garmin's, when Garmin wrote it):
+        // the exact key for matching against what the Garmin Connect sync
+        // pulls directly, when the writer sets one.
+        s.metadata.clientRecordId?.let { obj.put("clientRecordId", it) }
         return obj
     }
 

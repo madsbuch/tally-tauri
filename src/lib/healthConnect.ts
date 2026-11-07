@@ -11,6 +11,7 @@ import {
 import { SETTING_KEYS } from "./types";
 import { notifyDiaryChanged } from "./agent";
 import { dayOf } from "./daystamp";
+import { adoptGarminSleep, adoptGarminWorkout, fillHealthMetricsFromGarmin } from "./garminDb";
 
 // ---------------------------------------------------------------------------
 // Health Connect sync — pulls what the Garmin Connect app writes into Android
@@ -52,6 +53,8 @@ interface HCExerciseSession {
   sourcePackage?: string | null;
   /** Minutes east of UTC where it was done, when the record carries it. */
   startOffsetMin?: number | null;
+  /** The writing app's own id for the record (Garmin's, when it sets one). */
+  clientRecordId?: string | null;
 }
 
 interface HCSleepSession {
@@ -66,6 +69,7 @@ interface HCSleepSession {
   sourcePackage?: string | null;
   /** Minutes east of UTC where the night was slept, when recorded. */
   endOffsetMin?: number | null;
+  clientRecordId?: string | null;
 }
 
 interface HCDailyMetric {
@@ -243,9 +247,19 @@ async function runSync(): Promise<HealthConnectSyncResult> {
   // Only once every read above has succeeded, so a failed read loses nothing.
   if (fullResync) await purgeSyncedDataNotFrom("Garmin", dayOf(windowStart.toISOString()));
 
+  // What Garmin puts in clientRecordId decides whether the Garmin Connect
+  // sync can match exactly; Settings shows it too.
+  const withRecordId = sessions.find((s) => s.clientRecordId);
+  if (withRecordId) {
+    console.info("Health Connect clientRecordId example:", withRecordId.clientRecordId);
+  }
+
   let workoutCount = 0;
   for (const s of sessions) {
     const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
+    // A session the Garmin Connect sync got to first is taken over, not
+    // written twice.
+    await adoptGarminWorkout(s.id, s.clientRecordId, { startMs: s.startMs, endMs: s.endMs });
     await upsertExternalWorkout({
       performed_at: new Date(s.startMs).toISOString(),
       title: s.title?.trim() || s.exerciseType,
@@ -262,6 +276,7 @@ async function runSync(): Promise<HealthConnectSyncResult> {
       // The watch knows where you were; without that the day would be read in
       // whatever zone the phone is in when the sync happens to run.
       tz_offset_min: num(s.startOffsetMin),
+      source_record_id: s.clientRecordId ?? null,
     });
     workoutCount++;
   }
@@ -270,6 +285,7 @@ async function runSync(): Promise<HealthConnectSyncResult> {
   for (const s of sleepSessions) {
     const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
     if (durationMin <= 0) continue;
+    await adoptGarminSleep(s.id, { startMs: s.startMs, endMs: s.endMs });
     await upsertSleepSession({
       external_id: s.id,
       started_at: new Date(s.startMs).toISOString(),
@@ -281,6 +297,7 @@ async function runSync(): Promise<HealthConnectSyncResult> {
       awake_min: num(s.awakeMin),
       source: sourceLabel(s.sourcePackage),
       tz_offset_min: num(s.endOffsetMin),
+      source_record_id: s.clientRecordId ?? null,
     });
     sleepCount++;
   }
@@ -299,6 +316,9 @@ async function runSync(): Promise<HealthConnectSyncResult> {
     });
     dayCount++;
   }
+  // Days and fields Health Connect has nothing for come from the Garmin
+  // Connect sync, when it's on — a full resync above just wiped them.
+  await fillHealthMetricsFromGarmin();
 
   await setSetting(SETTING_KEYS.healthConnectLastSyncAt, new Date(now).toISOString());
   if (status.historyGranted) {

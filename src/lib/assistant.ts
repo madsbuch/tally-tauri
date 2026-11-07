@@ -38,6 +38,8 @@ import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
 import type { ChatMessage, ToolDef } from "./openrouter";
 import { parseToolArgs } from "./schemas";
+import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
+import type { GarminWorkoutDetail } from "./garminDb";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
 import {
   CAFFEINE_SLEEP_MG,
@@ -125,7 +127,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_workouts",
       description:
-        "Exercise sessions in a day range — manual entries and Garmin/Health Connect synced ones (calories burned, duration, distance/HR in the description).",
+        "Exercise sessions in a day range — manual entries and Garmin/Health Connect synced ones (calories burned, duration, distance/HR in the description). Synced ones carry `garmin` when the direct Garmin Connect sync has them: Training Effect (aerobic/anaerobic, 0–5), training load, minutes in HR zones 1–5, power, cadence, pace, elevation, and laps.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },
@@ -144,6 +146,15 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       name: "query_health_metrics",
       description:
         "Daily wellness metrics (from Garmin/Health Connect) per local day: steps, resting heart rate, HRV (RMSSD ms), blood oxygen %, weight kg, VO2 max, total calories burned (burned_total; query_calories sets it against what was eaten).",
+      parameters: DAY_RANGE_SCHEMA,
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_garmin_wellness",
+      description:
+        "Garmin Connect's own daily numbers (direct sync, not Health Connect) per day: Body Battery (high/low/charged/drained/at wake), stress (avg/max, 0–100), training readiness (score + level), training status (e.g. PRODUCTIVE, MAINTAINING, UNPRODUCTIVE), acute/chronic training load, HRV last night + weekly avg + status, sleep score/stress/respiration and Body Battery gained overnight, intensity minutes, floors, respiration, SpO2, resting HR, steps, VO2 max.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },
@@ -604,6 +615,43 @@ function capList<T>(items: T[]): { items: T[]; note?: string } {
   };
 }
 
+/** A nested group, or nothing when every field in it was empty. */
+function group(obj: Record<string, unknown>): Record<string, unknown> | undefined {
+  const c = compact(obj);
+  return Object.keys(c).length > 0 ? c : undefined;
+}
+
+/** What the direct Garmin sync knows about a workout, for the model. */
+function garminForCoach(d: GarminWorkoutDetail | undefined): Record<string, unknown> | undefined {
+  if (!d) return undefined;
+  return group({
+    type: d.typeKey,
+    distance_km: d.distanceM != null ? round(d.distanceM / 1000, 2) : null,
+    avg_hr: round(d.avgHr, 0),
+    max_hr: round(d.maxHr, 0),
+    aerobic_te: d.aerobicTe,
+    anaerobic_te: d.anaerobicTe,
+    te_label: d.teLabel,
+    training_load: round(d.trainingLoad, 0),
+    zone_min: d.zoneSecs?.map((s) => round(s / 60, 0)),
+    avg_power: round(d.avgPower, 0),
+    norm_power: round(d.normPower, 0),
+    avg_cadence: round(d.avgCadence, 0),
+    elevation_gain_m: round(d.elevationGainM, 0),
+    avg_speed_kmh: d.avgSpeedMps != null ? round(d.avgSpeedMps * 3.6) : null,
+    vo2_max: d.vo2Max,
+    laps: d.laps?.slice(0, 30).map((l) =>
+      compact({
+        lap: l.index,
+        km: l.distanceM != null ? round(l.distanceM / 1000, 2) : null,
+        min: l.durationSec != null ? round(l.durationSec / 60) : null,
+        avg_hr: round(l.avgHr, 0),
+        avg_power: round(l.avgPower, 0),
+      }),
+    ),
+  });
+}
+
 function dayArgs(args: Record<string, unknown>): { start: string; end: string } {
   const re = /^\d{4}-\d{2}-\d{2}$/;
   const start = typeof args["start_day"] === "string" ? args["start_day"] : "";
@@ -688,6 +736,7 @@ export async function executeAssistantTool(
     const { start, end } = dayArgs(args);
     const workouts = await listWorkoutsForRange(start, end);
     const notes = await listEntryNotesFor("workout", workouts.map((w) => w.id));
+    const garmin = await garminDetailsForWorkouts(workouts.map((w) => w.id));
     const { items, note } = capList(
       workouts.map((w) =>
         compact({
@@ -702,6 +751,7 @@ export async function executeAssistantTool(
           cardio: w.cardio || undefined,
           source: w.source ?? "manual",
           coach_notes: notes.get(w.id),
+          garmin: garminForCoach(garmin.get(w.id)),
         }),
       ),
     );
@@ -730,6 +780,55 @@ export async function executeAssistantTool(
       ),
     );
     return JSON.stringify(compact({ sleep_sessions: items, note }));
+  }
+
+  if (name === "query_garmin_wellness") {
+    const { start, end } = dayArgs(args);
+    const days = await listGarminDaysForRange(start, end);
+    const { items, note } = capList(
+      days.map((d) =>
+        compact({
+          day: d.day,
+          body_battery: group({
+            high: d.bodyBatteryHigh,
+            low: d.bodyBatteryLow,
+            charged: d.bodyBatteryCharged,
+            drained: d.bodyBatteryDrained,
+            at_wake: d.bodyBatteryWake,
+          }),
+          stress_avg: d.stressAvg,
+          stress_max: d.stressMax,
+          readiness: d.readinessScore,
+          readiness_level: d.readinessLevel,
+          training_status: d.trainingStatus,
+          acute_load: round(d.acuteLoad, 0),
+          chronic_load: round(d.chronicLoad, 0),
+          hrv_last_night: d.hrvLastNight,
+          hrv_weekly_avg: d.hrvWeeklyAvg,
+          hrv_status: d.hrvStatus,
+          sleep: group({
+            score: d.sleepScore,
+            stress: d.sleepStress,
+            respiration: d.sleepRespiration,
+            body_battery_gained: d.sleepBodyBattery,
+          }),
+          intensity_min: group({
+            moderate: d.intensityMinModerate,
+            vigorous: d.intensityMinVigorous,
+          }),
+          resting_hr: d.restingHr,
+          steps: d.steps,
+          calories_total: round(d.caloriesTotal, 0),
+          calories_active: round(d.caloriesActive, 0),
+          floors: round(d.floorsUp, 0),
+          respiration_avg: d.respirationAvg,
+          spo2_avg: d.spo2Avg,
+          vo2_max: d.vo2Max,
+          weight_kg: round(d.weightKg),
+        }),
+      ),
+    );
+    return JSON.stringify(compact({ days: items, note }));
   }
 
   if (name === "query_health_metrics") {
@@ -1139,6 +1238,8 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 - state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
 - blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note) — finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)
+- garmin_activities(activity_id, workout_id /* → workouts.id; NULL once they deleted it */, dismissed, linked_by /* "exact" | "time" | "created" */, started_at, duration_sec, type_key, name, distance_m, avg_hr, max_hr, calories, aerobic_te, anaerobic_te /* Training Effect 0–5 */, te_label, training_load, avg_power, max_power, norm_power, avg_cadence, elevation_gain_m, avg_speed_mps, vo2_max, zone_secs /* JSON [z1..z5] seconds */, laps /* JSON array, recent activities only */, summary /* JSON: Garmin's full activity summary */) — direct Garmin Connect sync; join on workout_id for the extras Health Connect doesn't carry
+- garmin_days(day, steps, calories_total, calories_active, resting_hr, min_hr, max_hr, stress_avg, stress_max, body_battery_high, body_battery_low, body_battery_charged, body_battery_drained, body_battery_wake, respiration_avg, spo2_avg, spo2_low, floors_up, intensity_min_moderate, intensity_min_vigorous, readiness_score, readiness_level, training_status, acute_load, chronic_load, hrv_last_night, hrv_weekly_avg, hrv_status, vo2_max, weight_kg, sleep_score, sleep_stress, sleep_respiration, sleep_body_battery, sleep_started_at, sleep_ended_at, raw /* JSON: the endpoints' answers */) — Garmin's own daily numbers; prefer query_garmin_wellness
 - performance_logs(id, measured_at, day, tz_offset_min, title, note /* e.g. HRV status "Balanced", training status */, photo_path, model_id) — fitness stats read off a watch-app screenshot (usually Garmin Connect)
 - performance_stats(id, log_id /* → performance_logs.id */, metric /* "ftp", "vo2max", "vo2max_cycling", "ftp_wkg", "hrv", "hrv_7d", "resting_hr", "max_hr", "lactate_threshold_hr", "lactate_threshold_pace", "lactate_threshold_power", "training_readiness", "endurance_score", "hill_score", "acute_load", "recovery_time", "body_battery", "stress", "fitness_age", "race_5k", "race_10k", "race_half", "race_marathon", or "custom_<slug>" */, label, value /* in unit; paces are SECONDS per km and race predictions SECONDS */, unit) — join on log_id for the day; this is where FTP and lactate threshold live (Health Connect doesn't carry them)
 - incomplete_days(day /* local "YYYY-MM-DD" */, updated_at) — days they marked with the Diary's "Incomplete tracking" switch

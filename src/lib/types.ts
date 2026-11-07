@@ -498,6 +498,18 @@ export const SETTING_KEYS = {
   healthConnectHistorySynced: "health_connect_history_synced",
   /** Sync-logic version of the last full resync (see RESYNC_VERSION). */
   healthConnectResyncVersion: "health_connect_resync_version",
+  /** Garmin Connect sync (lib/garmin.ts) — when it last finished. */
+  garminLastSyncAt: "garmin_last_sync_at",
+  /** Garmin's displayName for the signed-in user (some endpoints need it). */
+  garminDisplayName: "garmin_display_name",
+  /** "1" once the whole activity history has been read and linked. */
+  garminActivitiesBackfilled: "garmin_activities_backfilled",
+  /** Latest day of wellness data read ("YYYY-MM-DD"). */
+  garminWellnessThrough: "garmin_wellness_through",
+  /** Earliest day of wellness data read so far — the backfill's bookmark. */
+  garminWellnessBackTo: "garmin_wellness_back_to",
+  /** ISO time a rate-limit pause ends; no requests until then. */
+  garminPausedUntil: "garmin_paused_until",
   ketoNetCarbLimit: "keto_net_carb_limit_g",
   /** Daily calorie budget (net kcal). Absent = no target set. */
   calorieTarget: "calorie_target_kcal",
