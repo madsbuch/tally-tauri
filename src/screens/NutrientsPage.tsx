@@ -81,6 +81,7 @@ const MACRO_ROW_KEYS: NutrientKey[] = [
   "fiber_g",
   "sugar_g",
   "omega3_g",
+  "epa_dha_g",
   "omega6_g",
   "alcohol_g",
 ];

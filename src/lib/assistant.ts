@@ -284,7 +284,11 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         "alcohol (g, rough ‰, and when it's cleared), creatine (how full the muscle store is from supplements) and " +
         "vitamin D (estimated 25(OH)D blood level in nmol/L: a seasonal northern-European sun baseline plus logged intake, " +
         "pinned to the newest blood test in the library when there is one — otherwise it's an average, not their number; " +
-        "includes the µg/day that keeps them over 50 / 75 nmol/L through winter). Estimates from average kinetics: say so when it matters.",
+        "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L) — " +
+        "both pinned to a library blood test when there is one — beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
+        "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, pinned by ketone meter readings; when the liver " +
+        "drops under 30% with no more carbs), training load (fitness, fatigue and their ratio) and sleep debt (hours). " +
+        "Estimates from average kinetics: say so when it matters.",
       parameters: {
         type: "object",
         properties: {
@@ -919,13 +923,58 @@ export async function executeAssistantTool(
         estimated_level_nmol_l: round(b.vitaminD.level, 0),
         band: b.vitaminD.band.label,
         pinned_to_blood_test: b.vitaminD.test
-          ? `${b.vitaminD.test.day}: ${round(b.vitaminD.test.nmol, 0)} nmol/L`
+          ? `${b.vitaminD.test.day}: ${round(b.vitaminD.test.value, 0)} nmol/L`
           : "none — average sun assumed",
         logged_intake_adds_nmol_l: round(b.vitaminD.contribution, 0),
         avg_ug_per_day_last_30d: round(b.vitaminD.avg30, 1),
         [`projected_nmol_l_on_${b.vitaminD.projectedDay}_at_that_pace`]: round(b.vitaminD.projected, 0),
         ug_per_day_to_stay_over_50_through_winter: Math.ceil(b.vitaminD.ugForEnough),
         ug_per_day_to_stay_over_75_through_winter: Math.ceil(b.vitaminD.ugForTarget),
+      }),
+      omega3_index: compact({
+        estimated_pct: round(b.omega3.index, 1),
+        band: b.omega3.band.label,
+        pinned_to_test: b.omega3.test ? `${b.omega3.test.day}: ${round(b.omega3.test.value, 1)}%` : "none",
+        avg_epa_dha_g_per_day_last_30d: round(b.omega3.avg30, 2),
+        settles_at_pct: round(b.omega3.settles, 1),
+        epa_dha_g_per_day_for_8pct: round(b.omega3.gramsForTarget, 1),
+      }),
+      ferritin: compact({
+        estimated_ug_l: round(b.ferritin.level, 0),
+        band: b.ferritin.band.label,
+        pinned_to_test: b.ferritin.test ? `${b.ferritin.test.day}: ${round(b.ferritin.test.value, 0)} µg/L` : "none",
+        avg_iron_mg_per_day_last_30d: round(b.ferritin.avg30, 1),
+        settles_at_ug_l: round(b.ferritin.settles, 0),
+      }),
+      beta_alanine: compact({
+        loaded_pct: round(b.betaAlanine.fraction * 100, 0),
+        avg_g_per_day_last_7d: round(b.betaAlanine.avg7, 1),
+        last_taken: b.betaAlanine.lastDay,
+      }),
+      reserves_pct_of_full: Object.fromEntries(
+        b.reserves.map((r) => [r.def.label, round(r.fraction * 100, 0)]),
+      ),
+      glycogen: compact({
+        liver_pct: round(b.glycogen.liver * 100, 0),
+        muscle_pct: round(b.glycogen.muscle * 100, 0),
+        liver_under_30pct_at_if_no_more_carbs:
+          b.glycogen.ketosisAt == null ? "not within 24 h" : localStamp(b.glycogen.ketosisAt),
+        last_ketone_reading: b.glycogen.lastKetone
+          ? `${localStamp(b.glycogen.lastKetone.at)} ${round(b.glycogen.lastKetone.value, 1)} mmol/L`
+          : undefined,
+      }),
+      training_load: compact({
+        fitness: round(b.training.fitness, 0),
+        fatigue: round(b.training.fatigue, 0),
+        fatigue_to_fitness_ratio: b.training.ratio == null ? "too little history" : round(b.training.ratio, 2),
+        band: b.training.band?.label,
+        workouts_last_7d: b.training.sessions7,
+      }),
+      sleep: compact({
+        debt_h: round(b.sleep.debtH, 1),
+        band: b.sleep.band.label,
+        avg_h_last_7_nights: b.sleep.avg7H == null ? undefined : round(b.sleep.avg7H, 1),
+        need_h: b.sleep.needH,
       }),
       weight_kg_used: b.profile.weightKnown ? round(b.profile.weightKg, 1) : `${b.profile.weightKg} (assumed; none synced)`,
     });

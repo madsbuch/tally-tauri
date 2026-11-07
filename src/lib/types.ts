@@ -10,6 +10,8 @@ export type NutrientKey =
   | "fiber_g"
   | "sugar_g"
   | "omega3_g"
+  /** The marine omega-3s (fish, fish oil, algae) — the part the body uses. */
+  | "epa_dha_g"
   | "omega6_g"
   /** Grams of ethanol (7 kcal/g). */
   | "alcohol_g"
@@ -42,6 +44,7 @@ export type NutrientKey =
   | "choline_mg"
   // Other compounds (no classic macro/micro role)
   | "creatine_g"
+  | "beta_alanine_g"
   | "caffeine_mg";
 
 import type { DocumentValue } from "./schemas";
@@ -471,6 +474,8 @@ export const SETTING_KEYS = {
   fastDefaultHours: "fast_default_hours",
   /** Personal caffeine half-life in hours (DEFAULT_CAFFEINE_HALF_LIFE_H when absent). */
   caffeineHalfLife: "caffeine_half_life_h",
+  /** Hours of sleep a night the sleep-debt card counts against (SLEEP.defaultNeedH when absent). */
+  sleepNeed: "sleep_need_h",
   zone2WeeklyTarget: "zone2_weekly_target",
   /** Cardio goal in minutes per 7 days (DEFAULT_CARDIO_TARGET_MIN when absent). */
   cardioWeeklyTarget: "cardio_weekly_target_min",

@@ -199,6 +199,8 @@ const OFF_IDS: Record<NutrientKey, string | null> = {
   sugar_g: "sugars",
   omega3_g: "omega-3-fat",
   omega6_g: "omega-6-fat",
+  // OFF lists EPA and DHA apart — summed below.
+  epa_dha_g: null,
   // OFF's alcohol field is % vol, not grams — converted below.
   alcohol_g: null,
   sodium_mg: "sodium",
@@ -228,6 +230,7 @@ const OFF_IDS: Record<NutrientKey, string | null> = {
   folate_ug: "folates",
   choline_mg: "choline",
   creatine_g: null,
+  beta_alanine_g: null,
   caffeine_mg: "caffeine",
 };
 
@@ -265,6 +268,11 @@ export function mapOffNutriments(raw: unknown): Nutrients {
     if (def.key === "alcohol_g") {
       const vol = num(n["alcohol_100g"]) ?? num(n["alcohol"]);
       v = vol != null && vol <= 100 ? vol * ETHANOL_G_PER_ML : null;
+    }
+    if (def.key === "epa_dha_g") {
+      const epa = num(n["eicosapentaenoic-acid_100g"]);
+      const dha = num(n["docosahexaenoic-acid_100g"]);
+      v = epa != null || dha != null ? (epa ?? 0) + (dha ?? 0) : null;
     }
     if (v != null && v >= 0) out[def.key] = v * unitFactor(def.unit);
   }

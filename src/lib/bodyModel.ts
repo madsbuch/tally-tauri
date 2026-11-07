@@ -208,11 +208,11 @@ export const VITAMIN_D = {
  * to gain (harm starts well above, around 250).
  */
 export const VITAMIN_D_BANDS = [
-  { upTo: 30, key: "deficient", label: "Deficient" },
-  { upTo: 50, key: "low", label: "Low" },
-  { upTo: 75, key: "enough", label: "Enough" },
-  { upTo: 150, key: "good", label: "Good" },
-  { upTo: Infinity, key: "high", label: "High" },
+  { upTo: 30, key: "deficient", label: "Deficient", tone: "bad" },
+  { upTo: 50, key: "low", label: "Low", tone: "warn" },
+  { upTo: 75, key: "enough", label: "Enough", tone: "ok" },
+  { upTo: 150, key: "good", label: "Good", tone: "good" },
+  { upTo: Infinity, key: "high", label: "High", tone: "warn" },
 ] as const;
 export type VitaminDBand = (typeof VITAMIN_D_BANDS)[number];
 export const VITAMIN_D_ENOUGH = 50;

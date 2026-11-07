@@ -21,6 +21,7 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "fiber_g", label: "Fiber", unit: "g", group: "macro", dp: 1 },
   { key: "sugar_g", label: "Sugar", unit: "g", group: "macro", dp: 1 },
   { key: "omega3_g", label: "Omega-3", unit: "g", group: "macro", dp: 2 },
+  { key: "epa_dha_g", label: "EPA + DHA", unit: "g", group: "macro", dp: 2 },
   { key: "omega6_g", label: "Omega-6", unit: "g", group: "macro", dp: 2 },
   { key: "alcohol_g", label: "Alcohol", unit: "g", group: "macro", dp: 1 },
   { key: "sodium_mg", label: "Sodium", unit: "mg", group: "micro", dp: 0 },
@@ -50,6 +51,7 @@ export const NUTRIENT_DEFS: NutrientDef[] = [
   { key: "folate_ug", label: "Folate", unit: "µg", group: "micro", dp: 0 },
   { key: "choline_mg", label: "Choline", unit: "mg", group: "micro", dp: 0 },
   { key: "creatine_g", label: "Creatine", unit: "g", group: "other", dp: 1 },
+  { key: "beta_alanine_g", label: "Beta-alanine", unit: "g", group: "other", dp: 1 },
   { key: "caffeine_mg", label: "Caffeine", unit: "mg", group: "other", dp: 0 },
 ];
 
