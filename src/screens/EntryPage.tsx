@@ -105,6 +105,7 @@ import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
 import { useUp } from "../lib/navigation";
 import WorkoutCardioToggle from "../components/WorkoutCardioToggle";
+import GarminWorkoutDetails from "../components/GarminWorkoutDetails";
 import EntryChat from "../components/EntryChat";
 
 type Kind = "meal" | "workout" | "supplement" | "sleep" | "state" | "reading" | "performance";
@@ -577,6 +578,8 @@ export default function EntryPage() {
           </>
         )}
       </div>
+
+      {workout?.source && <GarminWorkoutDetails workoutId={workout.id} />}
 
       {meal && (
         <>

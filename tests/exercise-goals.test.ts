@@ -1,28 +1,15 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { sqlite } from "./testDb";
 import { exerciseProgress, zone2Minutes, exerciseTarget, diaryZone2Minutes } from "../src/lib/exerciseGoals";
 import { shiftDay } from "../src/lib/daystamp";
 import { parseEntrySnapshot, WorkoutChatSchema } from "../src/lib/schemas";
 
-const sqlite = new Database(":memory:");
-const rust = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
-for (const match of rust.matchAll(/include_str!\("\.\.\/migrations\/([^\"]+)"\)/g)) {
-  sqlite.exec(readFileSync(new URL(`../src-tauri/migrations/${match[1]}`, import.meta.url), "utf8"));
-}
-mock.module("@tauri-apps/plugin-sql", () => ({ default: {
-  load: async () => ({
-    execute: async (sql: string, params: never[]) => sqlite.query(sql).run(...params),
-    select: async (sql: string, params: never[]) => sqlite.query(sql).all(...params),
-  }),
-} }));
 const { addWorkout, getWorkout, updateWorkout, upsertExternalWorkout, listWorkoutsForRange, deleteWorkout, getSetting, setSetting, setWorkoutZone2 } = await import("../src/lib/db");
 const workout = {
   performed_at: "2026-10-28T12:00:00Z", title: "Cycling", description: null,
   photo_path: null, calories_burned: 250, duration_min: 60, model_id: null, icon: null,
 };
 beforeEach(() => { sqlite.exec("DELETE FROM workouts; DELETE FROM settings;"); });
-afterAll(() => sqlite.close());
 
 describe("rolling exercise goals", () => {
   test("unknown time never counts; explicit zero stays distinct", () => {

@@ -176,6 +176,13 @@
       "when": 1793737245459,
       "tag": "0024_saved_meals",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794070647455,
+      "tag": "0025_garmin_connect",
+      "breakpoints": true
     }
   ]
 }

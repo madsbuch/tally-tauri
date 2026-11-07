@@ -33,4 +33,5 @@ tauri-plugin-coach = { path = "plugins/coach" }
 tauri-plugin-fasting = { path = "plugins/fasting" }
 tauri-plugin-health-connect = { path = "plugins/health-connect" }
 tauri-plugin-share = { path = "plugins/share" }
+garmin-connect = { path = "garmin" }
 

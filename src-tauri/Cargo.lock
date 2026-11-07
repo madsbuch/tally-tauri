@@ -1382,6 +1382,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "garmin-connect"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "percent-encoding",
+ "rand 0.8.7",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1",
+ "thiserror 2.0.19",
+ "url",
+]
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4426,6 +4443,7 @@ name = "tally"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "garmin-connect",
  "serde",
  "serde_json",
  "tauri",

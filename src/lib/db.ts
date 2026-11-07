@@ -14,6 +14,7 @@ import {
   entryNotes,
   fasts,
   foodEntries,
+  garminActivities,
   healthMetrics,
   incompleteDays,
   lifeRuleLogs,
@@ -342,6 +343,8 @@ export async function upsertExternalWorkout(
     external_id: string;
     /** Offset the source recorded it in; falls back to here. */
     tz_offset_min?: number | null;
+    /** The writing app's own id for the record (Health Connect clientRecordId). */
+    source_record_id?: string | null;
   },
 ): Promise<void> {
   // Health Connect carries the offset the session was recorded in, so a run
@@ -364,6 +367,7 @@ export async function upsertExternalWorkout(
       icon: w.icon,
       source: w.source,
       externalId: w.external_id,
+      sourceRecordId: w.source_record_id ?? null,
     })
     .onConflictDoUpdate({
       target: workouts.externalId,
@@ -383,6 +387,7 @@ export async function upsertExternalWorkout(
           and ${w.duration_min} > 0 then ${w.duration_min}
           else ${workouts.zone2Min} end`,
         source: w.source,
+        sourceRecordId: w.source_record_id ?? null,
       },
     });
 }
@@ -431,6 +436,12 @@ export async function getWorkout(id: number): Promise<Workout | null> {
 export async function deleteWorkout(id: number): Promise<void> {
   await db.delete(workouts).where(eq(workouts.id, id));
   await deleteEntryMessages("workout", id);
+  // A Garmin activity whose workout was deleted stays known, so the Garmin
+  // Connect sync doesn't put it back (see lib/garmin.ts).
+  await db
+    .update(garminActivities)
+    .set({ workoutId: null, dismissed: 1 })
+    .where(eq(garminActivities.workoutId, id));
 }
 
 export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
@@ -441,7 +452,8 @@ export async function listWorkoutsForDay(day: string): Promise<Workout[]> {
  * Drop what Health Connect sync wrote that didn't come from `keepSource` —
  * workouts and nights from other apps, and every day of metrics from
  * `fromDay` on (the caller re-reads those right after). Hand-logged workouts
- * are never touched.
+ * are never touched, and neither is anything the Garmin Connect sync created
+ * or linked: it isn't Health Connect's to purge.
  */
 export async function purgeSyncedDataNotFrom(
   keepSource: string,
@@ -450,11 +462,23 @@ export async function purgeSyncedDataNotFrom(
   const stale = await db
     .select({ id: workouts.id })
     .from(workouts)
-    .where(and(isNotNull(workouts.externalId), sql`${workouts.source} IS NOT ${keepSource}`));
+    .where(
+      and(
+        isNotNull(workouts.externalId),
+        sql`${workouts.source} IS NOT ${keepSource}`,
+        sql`${workouts.externalId} NOT LIKE 'garmin:%'`,
+        sql`NOT EXISTS (SELECT 1 FROM ${garminActivities} WHERE ${garminActivities.workoutId} = ${workouts.id})`,
+      ),
+    );
   for (const w of stale) await deleteWorkout(w.id);
   await db
     .delete(sleepSessions)
-    .where(sql`${sleepSessions.source} IS NOT ${keepSource}`);
+    .where(
+      and(
+        sql`${sleepSessions.source} IS NOT ${keepSource}`,
+        sql`${sleepSessions.externalId} NOT LIKE 'garmin-sleep:%'`,
+      ),
+    );
   await db.delete(healthMetrics).where(gte(healthMetrics.day, fromDay));
 }
 
@@ -509,6 +533,8 @@ export async function upsertSleepSession(
   s: Omit<SleepSession, "id" | "day" | "tz_offset_min"> & {
     /** Offset the night was slept in; falls back to here. */
     tz_offset_min?: number | null;
+    /** The writing app's own id for the record (Health Connect clientRecordId). */
+    source_record_id?: string | null;
   },
 ): Promise<void> {
   // Filed under the morning it ended, in the zone it was slept in.
@@ -525,6 +551,7 @@ export async function upsertSleepSession(
     lightMin: s.light_min,
     awakeMin: s.awake_min,
     source: s.source,
+    sourceRecordId: s.source_record_id ?? null,
   };
   // As above: a night keeps the day it was slept on unless the source tells us
   // which zone that was, so a re-sync run abroad can't move it.

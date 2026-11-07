@@ -30,6 +30,7 @@ import {
 import { STALE_CHAT_MS, chatIdOf, chatPath, tabOf, useGo } from "../lib/navigation";
 import type { TabRoot } from "../lib/navigation";
 import { syncHealthConnect, syncHealthConnectIfStale } from "../lib/healthConnect";
+import { syncGarmin, syncGarminIfStale } from "../lib/garmin";
 import { scanAchievements } from "../lib/achievements";
 import AchievementToast from "../components/AchievementToast";
 
@@ -139,9 +140,14 @@ export default function App() {
           convertSupplementLogs().catch((e) =>
             console.warn("Supplement conversion failed", e),
           ),
-          syncHealthConnect().catch((e) =>
-            console.warn("Health Connect sync failed", e),
-          ),
+          // Garmin Connect after Health Connect — it attaches to the rows
+          // Health Connect wrote, so it should see them first — but not
+          // waited for: a first sync's backfill takes a minute.
+          syncHealthConnect()
+            .catch((e) => console.warn("Health Connect sync failed", e))
+            .then(() => {
+              void syncGarmin().catch((e) => console.warn("Garmin Connect sync failed", e));
+            }),
         ]),
       )
       // After sync: fresh Garmin data may complete achievements.
@@ -169,9 +175,10 @@ export default function App() {
     // The watch kept counting while the app was away; read it again.
     const offHealth = onAppResume(
       () =>
-        void syncHealthConnectIfStale().catch((e) =>
-          console.warn("Health Connect sync failed", e),
-        ),
+        void syncHealthConnectIfStale()
+          .catch((e) => console.warn("Health Connect sync failed", e))
+          .then(() => syncGarminIfStale())
+          .catch((e) => console.warn("Garmin Connect sync failed", e)),
     );
     return () => {
       offHealth();

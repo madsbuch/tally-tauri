@@ -55,6 +55,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_workouts: "workouts",
   query_sleep: "sleep",
   query_health_metrics: "health metrics",
+  query_garmin_wellness: "Garmin wellness",
   query_supplements: "supplements",
   query_fasts: "fasts",
   run_sql: "database",
