@@ -6,7 +6,10 @@
  * by halves (a half-life), alcohol at a steady rate however much is there,
  * which is why a fifth beer takes as long to clear as the first. Creatine and
  * vitamin D build up over weeks: a store that fills with every dose and slowly
- * drains when the doses stop, so a single day barely moves them.
+ * drains when the doses stop, so a single day barely moves them. Vitamin D
+ * also rides on the seasons — sun fills it in summer and winter drains it —
+ * so its estimate starts from a seasonal baseline and a blood test, when
+ * there is one, shifts that to the person.
  *
  * These are textbook models with average parameters, not measurements. People
  * clear caffeine anywhere from 3 to 7 hours (hence the setting), alcohol by
@@ -183,7 +186,64 @@ export const VITAMIN_D = {
   halfLifeDays: 15,
   /** nmol/L the blood level settles higher per µg taken daily. */
   nmolPerUgDaily: 1,
+  /**
+   * Where an unsupplemented northern-European level sits through the year
+   * (sun, mostly): highest at the end of summer, lowest at the end of
+   * winter. Danish population studies land around 70 nmol/L in late August
+   * and 40 in late February. Without a blood test this stands in for
+   * everything the diary can't see.
+   */
+  baselineMean: 55,
+  baselineSwing: 15,
+  /** Day of the year the baseline peaks (late August). */
+  baselinePeakDoy: 240,
+  /** ng/mL → nmol/L, for lab reports from places that use the former. */
+  nmolPerNg: 2.496,
 };
+
+/**
+ * What a 25(OH)D number means, by the usual cut-offs: under 30 nmol/L is a
+ * deficiency, 50 is enough for bones (the Nordic and IOM line), 75 is the
+ * higher target some guidelines aim for, and past 150 there is little more
+ * to gain (harm starts well above, around 250).
+ */
+export const VITAMIN_D_BANDS = [
+  { upTo: 30, key: "deficient", label: "Deficient" },
+  { upTo: 50, key: "low", label: "Low" },
+  { upTo: 75, key: "enough", label: "Enough" },
+  { upTo: 150, key: "good", label: "Good" },
+  { upTo: Infinity, key: "high", label: "High" },
+] as const;
+export type VitaminDBand = (typeof VITAMIN_D_BANDS)[number];
+export const VITAMIN_D_ENOUGH = 50;
+export const VITAMIN_D_TARGET = 75;
+
+export function vitaminDBand(nmol: number): VitaminDBand {
+  return VITAMIN_D_BANDS.find((b) => nmol < b.upTo) ?? VITAMIN_D_BANDS[VITAMIN_D_BANDS.length - 1]!;
+}
+
+function dayOfYear(ms: number): number {
+  const d = new Date(ms);
+  return (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 0)) / DAY_MS;
+}
+
+/** The unsupplemented level for the time of year at `ms`, nmol/L. */
+export function vitaminDBaseline(ms: number): number {
+  const angle = (2 * Math.PI * (dayOfYear(ms) - VITAMIN_D.baselinePeakDoy)) / 365;
+  return VITAMIN_D.baselineMean + VITAMIN_D.baselineSwing * Math.cos(angle);
+}
+
+/** The lowest the baseline gets: late winter. */
+export const VITAMIN_D_BASELINE_LOW = VITAMIN_D.baselineMean - VITAMIN_D.baselineSwing;
+
+/**
+ * µg a day that keep the level at or over `target` even at the bottom of
+ * winter, given how far this person sits from the average (`offset`, from a
+ * blood test; 0 without one). 0 when sun alone gets there.
+ */
+export function vitaminDUgFor(target: number, offset = 0): number {
+  return Math.max(0, (target - VITAMIN_D_BASELINE_LOW - offset) / VITAMIN_D.nmolPerUgDaily);
+}
 
 /** Per-day totals: index 0 is the oldest day. */
 export interface DailyStore {
@@ -259,9 +319,4 @@ export function vitaminDContribution(dailyUg: number[]): DailyStore {
     return level;
   });
   return { series, now: series[series.length - 1] ?? 0 };
-}
-
-/** Where the vitamin D contribution settles at a steady daily intake. */
-export function vitaminDSteady(ugPerDay: number): number {
-  return VITAMIN_D.nmolPerUgDaily * Math.max(0, ugPerDay);
 }

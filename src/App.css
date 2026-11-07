@@ -2009,6 +2009,67 @@ button.rule-row {
   stroke-linejoin: round;
 }
 
+/* Vitamin D: a gauge in nmol/L with its cut-off bands tinted behind. */
+.vitd-tank {
+  position: relative;
+}
+
+.vitd-tank .tank-fill {
+  position: relative;
+}
+
+.vitd-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.vitd-band-deficient {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.vitd-band-low {
+  background: color-mix(in srgb, var(--vitd) 16%, transparent);
+}
+
+.vitd-band-enough,
+.vitd-band-good {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.vitd-status {
+  font-size: 13px;
+  font-weight: 650;
+  margin-top: 2px;
+  color: var(--level, var(--text));
+}
+
+.vitd-status-deficient {
+  color: var(--danger);
+}
+
+.vitd-status-low,
+.vitd-status-high {
+  color: var(--warn);
+}
+
+.vitd-status-enough,
+.vitd-status-good {
+  color: var(--accent);
+}
+
+.vitd-status .muted {
+  font-weight: 400;
+}
+
+.vitd-add-test {
+  margin-top: 10px;
+  padding: 6px 0;
+  border: none;
+  font-size: 13px;
+  color: var(--accent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .level-reveal,
   .level-dot,

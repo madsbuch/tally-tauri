@@ -282,8 +282,9 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         "What's in their body at one moment, modelled from the diary (the Body tab shows the same): " +
         `caffeine (mg in the body, and when it drops under ${CAFFEINE_SLEEP_MG} mg — roughly where it stops costing deep sleep), ` +
         "alcohol (g, rough ‰, and when it's cleared), creatine (how full the muscle store is from supplements) and " +
-        "vitamin D (how much the logged intake adds to the blood level, nmol/L — on top of sun and baseline, NOT the level " +
-        "itself; a blood test in query_documents is the real number). Estimates from average kinetics: say so when it matters.",
+        "vitamin D (estimated 25(OH)D blood level in nmol/L: a seasonal northern-European sun baseline plus logged intake, " +
+        "pinned to the newest blood test in the library when there is one — otherwise it's an average, not their number; " +
+        "includes the µg/day that keeps them over 50 / 75 nmol/L through winter). Estimates from average kinetics: say so when it matters.",
       parameters: {
         type: "object",
         properties: {
@@ -914,11 +915,18 @@ export async function executeAssistantTool(
         [`drops_under_${Math.round(CREATINE_WORKING * 100)}pct_on_if_stopped`]: b.creatine.belowWorkingOn ?? "already under",
         last_taken: b.creatine.lastDay,
       }),
-      vitamin_d: {
+      vitamin_d: compact({
+        estimated_level_nmol_l: round(b.vitaminD.level, 0),
+        band: b.vitaminD.band.label,
+        pinned_to_blood_test: b.vitaminD.test
+          ? `${b.vitaminD.test.day}: ${round(b.vitaminD.test.nmol, 0)} nmol/L`
+          : "none — average sun assumed",
         logged_intake_adds_nmol_l: round(b.vitaminD.contribution, 0),
         avg_ug_per_day_last_30d: round(b.vitaminD.avg30, 1),
-        settles_at_nmol_l: round(b.vitaminD.steady, 0),
-      },
+        [`projected_nmol_l_on_${b.vitaminD.projectedDay}_at_that_pace`]: round(b.vitaminD.projected, 0),
+        ug_per_day_to_stay_over_50_through_winter: Math.ceil(b.vitaminD.ugForEnough),
+        ug_per_day_to_stay_over_75_through_winter: Math.ceil(b.vitaminD.ugForTarget),
+      }),
       weight_kg_used: b.profile.weightKnown ? round(b.profile.weightKg, 1) : `${b.profile.weightKg} (assumed; none synced)`,
     });
   }

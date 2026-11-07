@@ -5,21 +5,24 @@
  * where they'll take you if nothing else goes in — because the question
  * people bring is about the future: when can I sleep, when is it out of me.
  * Creatine and vitamin D move over weeks, so they get a store instead: how
- * full, and which way it's heading.
+ * full, and which way it's heading. Vitamin D is shown as an estimated blood
+ * level against the usual cut-offs, because "enough?" is the question.
  *
  * All of it is read from the diary (lib/body.ts); nothing here is logged.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onDiaryChanged } from "../lib/agent";
+import { useGo } from "../lib/navigation";
 import { setSetting } from "../lib/db";
 import { SETTING_KEYS } from "../lib/types";
 import {
   STORE_SHOWN_DAYS,
+  intakeStartDay,
   loadIntake,
   loadProfile,
   snapshotOf,
 } from "../lib/body";
-import type { BodyProfile, HourlyLevel, Intake } from "../lib/body";
+import type { BodyProfile, BodySnapshot, HourlyLevel, Intake } from "../lib/body";
 import {
   CAFFEINE_HALF_LIVES,
   CAFFEINE_SLEEP_MG,
@@ -27,6 +30,9 @@ import {
   CREATINE_WORKING,
   GRAMS_PER_DRINK,
   VITAMIN_D,
+  VITAMIN_D_BANDS,
+  VITAMIN_D_ENOUGH,
+  VITAMIN_D_TARGET,
   WIDMARK_R,
 } from "../lib/bodyModel";
 import { shiftDay } from "../lib/daystamp";
@@ -269,6 +275,101 @@ function StoreBar({
   );
 }
 
+/** Top of the vitamin D gauge, nmol/L: past this there's little to gain. */
+const VITD_SCALE = 150;
+
+const BAND_COLOR: Record<string, string> = {
+  deficient: "var(--danger)",
+  low: "var(--vitd)",
+  enough: "var(--accent)",
+  good: "var(--accent)",
+  high: "var(--vitd)",
+};
+
+/**
+ * Vitamin D as a blood level on a gauge: the cut-off bands tinted behind it,
+ * ticks at 30 / 50 / 75, and the last two months underneath with the 50 line.
+ */
+function VitaminDGauge({ v }: { v: BodySnapshot["vitaminD"] }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShown(v.level));
+    return () => cancelAnimationFrame(id);
+  }, [v.level]);
+  const pct = (n: number) => `${(Math.min(VITD_SCALE, Math.max(0, n)) / VITD_SCALE) * 100}%`;
+  const yOf = (n: number) => 30 - (Math.min(VITD_SCALE, n) / VITD_SCALE) * 28;
+  const pts = v.series
+    .map((n, i) => `${((i / Math.max(1, v.series.length - 1)) * 100).toFixed(1)},${yOf(n).toFixed(1)}`)
+    .join(" ");
+  let from = 0;
+  const bands = VITAMIN_D_BANDS.map((b) => {
+    const seg = { key: b.key, from, to: Math.min(VITD_SCALE, b.upTo) };
+    from = seg.to;
+    return seg;
+  }).filter((b) => b.to > b.from);
+  return (
+    <div style={{ ["--level" as string]: BAND_COLOR[v.band.key] ?? "var(--vitd)" }}>
+      <div className="tank-wrap">
+        <div className="tank vitd-tank">
+          {bands.map((b) => (
+            <div
+              key={b.key}
+              className={`vitd-band vitd-band-${b.key}`}
+              style={{ left: pct(b.from), width: `calc(${pct(b.to)} - ${pct(b.from)})` }}
+            />
+          ))}
+          <div className="tank-fill" style={{ width: pct(shown) }} />
+        </div>
+        {[30, VITAMIN_D_ENOUGH, VITAMIN_D_TARGET].map((n) => (
+          <span key={n} className="tank-mark" style={{ left: pct(n) }}>
+            <span className="tank-mark-label">{n}</span>
+          </span>
+        ))}
+      </div>
+      <svg className="store-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
+        {[VITAMIN_D_ENOUGH, VITAMIN_D_TARGET].map((n) => (
+          <line
+            key={n}
+            x1={0}
+            x2={100}
+            y1={yOf(n)}
+            y2={yOf(n)}
+            className="level-threshold"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        <polyline points={pts} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="level-axis">
+        <span>{STORE_SHOWN_DAYS} days ago</span>
+        <span>today</span>
+      </div>
+    </div>
+  );
+}
+
+/** What the vitamin D number means and what to do about it, in a line. */
+function vitaminDCaption(v: BodySnapshot["vitaminD"]): string {
+  const source = v.test
+    ? `From your blood test on ${dayLabel(v.test.day)}.`
+    : "Estimated from an average sun year — add a blood test to pin it.";
+  const pace =
+    v.avg30 >= 0.1 ? `At ${v.avg30.toFixed(1)} µg/day you'll be around ${Math.round(v.projected)} by ${dayLabel(v.projectedDay)}.` : "";
+  let advice: string;
+  if (v.level < VITAMIN_D_ENOUGH || v.projected < VITAMIN_D_ENOUGH) {
+    advice = `Not enough stored — about ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH} through winter.`;
+  } else if (v.avg30 + 0.5 < v.ugForEnough) {
+    advice = `Enough for now, but winter will drain it — about ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH}.`;
+  } else if (v.level < VITAMIN_D_TARGET) {
+    advice = `Enough stored. ${Math.ceil(v.ugForTarget)} µg a day would keep you over ${VITAMIN_D_TARGET}, the higher target, all winter.`;
+  } else if (v.level < 150) {
+    advice = "Well stocked.";
+  } else {
+    advice = "Higher than it needs to be — there's no gain past 150.";
+  }
+  return [advice, pace, source].filter(Boolean).join(" ");
+}
+
 function HalfLifePicker({
   value,
   onChange,
@@ -295,13 +396,12 @@ export default function BodyPage() {
   const [intake, setIntake] = useState<Intake | null>(null);
   const [profile, setProfile] = useState<BodyProfile | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const go = useGo();
 
   const load = useCallback(async () => {
     const today = todayStr();
-    const [i, p] = await Promise.all([
-      loadIntake(shiftDay(today, -120), shiftDay(today, 1)),
-      loadProfile(),
-    ]);
+    const p = await loadProfile();
+    const i = await loadIntake(intakeStartDay(p, today), shiftDay(today, 1));
     setIntake(i);
     setProfile(p);
     setNow(Date.now());
@@ -496,35 +596,62 @@ export default function BodyPage() {
                 ☀️ Vitamin D
                 <InfoButton title="Vitamin D">
                   <p>
-                    How much the vitamin D you&apos;ve logged — food and supplements
-                    — adds to your blood level (25(OH)D, what a blood test
-                    measures). It builds and fades slowly: half of it is gone{" "}
-                    {VITAMIN_D.halfLifeDays} days after you stop.
+                    Your estimated blood level of 25(OH)D — the stored form, and
+                    what a blood test measures. Under {30} nmol/L is a deficiency,{" "}
+                    {VITAMIN_D_ENOUGH} is enough for most people, and{" "}
+                    {VITAMIN_D_TARGET} is the higher target some guidelines aim for.
+                    Past 150 there&apos;s nothing more to gain.
                   </p>
                   <p>
-                    This is only the logged part. Sun and where you started add to
-                    it, and the diary can&apos;t see either — a blood test is the real
-                    number. As a guide, 50–75 nmol/L or more is usually considered
-                    enough, and each µg a day adds about{" "}
-                    {VITAMIN_D.nmolPerUgDaily} nmol/L once it settles.
+                    It starts from where an unsupplemented northern-European level
+                    sits at this time of year — around 70 in late summer, 40 by late
+                    winter, when the sun is too low to make any — and adds what
+                    you&apos;ve logged: each µg a day adds about{" "}
+                    {VITAMIN_D.nmolPerUgDaily} nmol/L once it settles, and half of
+                    it is gone {VITAMIN_D.halfLifeDays} days after you stop.
                   </p>
+                  <p>
+                    Sun habits, skin and weight move people a lot from the average,
+                    so the best thing you can do is photograph a blood test into the
+                    Library: the newest one with a vitamin D value (up to a year
+                    old) sets where you are, and the model carries it forward.
+                  </p>
+                  {snap.vitaminD.test && (
+                    <p>
+                      Using your test from {dayLabel(snap.vitaminD.test.day)}:{" "}
+                      {Math.round(snap.vitaminD.test.nmol)} nmol/L, which puts you{" "}
+                      {Math.abs(Math.round(snap.vitaminD.offset))} nmol/L{" "}
+                      {snap.vitaminD.offset >= 0 ? "above" : "below"} the average.
+                    </p>
+                  )}
                 </InfoButton>
               </div>
               <div className="level-value">
-                +{Math.round(snap.vitaminD.contribution)}
+                {snap.vitaminD.test ? "" : "~"}
+                {Math.round(snap.vitaminD.level)}
                 <span className="level-unit"> nmol/L</span>
               </div>
             </div>
-            <div className="muted small level-caption">
-              {snap.vitaminD.avg30 < 0.1
-                ? "No vitamin D logged in the last month."
-                : `${snap.vitaminD.avg30.toFixed(1)} µg/day this month · settles around +${Math.round(snap.vitaminD.steady)} nmol/L.`}
+            <div className={`vitd-status vitd-status-${snap.vitaminD.band.key}`}>
+              {snap.vitaminD.band.label}
+              {snap.vitaminD.contribution >= 1 && (
+                <span className="muted">
+                  {" "}
+                  · +{Math.round(snap.vitaminD.contribution)} from what you&apos;ve logged
+                </span>
+              )}
             </div>
-            <StoreBar
-              fraction={Math.min(1, snap.vitaminD.contribution / 75)}
-              series={snap.vitaminD.series}
-              color="var(--vitd)"
-            />
+            <div className="muted small level-caption">{vitaminDCaption(snap.vitaminD)}</div>
+            <VitaminDGauge v={snap.vitaminD} />
+            {!snap.vitaminD.test && (
+              <button
+                type="button"
+                className="btn btn-ghost vitd-add-test"
+                onClick={() => go("/assistant/library")}
+              >
+                Add a blood test →
+              </button>
+            )}
           </div>
         </>
       )}
