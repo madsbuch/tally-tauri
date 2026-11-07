@@ -1,6 +1,6 @@
 use base64::Engine;
 use tauri::Manager;
-use tauri_plugin_sql::{Migration, MigrationKind};
+use tauri_plugin_sql::{DbInstances, DbPool, Migration, MigrationKind};
 
 const DB_URL: &str = "sqlite:tally.db";
 
@@ -162,57 +162,130 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0024_saved_meals.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 26,
+            description: "photos",
+            sql: include_str!("../migrations/0025_photos.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
-fn photos_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
+/// Photos live in the `photos` table of the app database (see
+/// `src/db/schema.ts`). These commands bind the bytes as a real BLOB through
+/// the SQL plugin's own sqlx pool — the plugin's JS API can only pass JSON
+/// values, which would turn every image into an array of numbers.
+async fn db_pool(app: &tauri::AppHandle) -> Result<sqlx::SqlitePool, String> {
+    let instances = app.state::<DbInstances>();
+    let instances = instances.0.read().await;
+    match instances.get(DB_URL) {
+        Some(DbPool::Sqlite(pool)) => Ok(pool.clone()),
+        // The frontend loads the DB (and runs migrations) before touching
+        // photos; reaching this means it didn't.
+        _ => Err("database not loaded".into()),
+    }
+}
+
+/// Where photos were kept as loose files before they moved into the
+/// database. Only read by `import_photo_files`.
+fn legacy_photos_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("photos");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
+        .join("photos"))
 }
 
-/// Saves a base64-encoded JPEG into the app data dir and returns its filename.
+/// Stores a base64-encoded JPEG and returns the filename it's keyed by.
 #[tauri::command]
-fn save_photo(app: tauri::AppHandle, data_base64: String) -> Result<String, String> {
+async fn save_photo(app: tauri::AppHandle, data_base64: String) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| e.to_string())?;
-    let dir = photos_dir(&app)?;
-    let millis = std::time::SystemTime::now()
+    let pool = db_pool(&app).await?;
+    let mut millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis();
-    let name = format!("{millis}.jpg");
-    std::fs::write(dir.join(&name), bytes).map_err(|e| e.to_string())?;
-    Ok(name)
+    // Names are timestamps; pages of one PDF can arrive within the same
+    // millisecond, so step forward until a name is free.
+    loop {
+        let name = format!("{millis}.jpg");
+        let inserted = sqlx::query("INSERT OR IGNORE INTO photos (filename, data) VALUES (?, ?)")
+            .bind(&name)
+            .bind(&bytes)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+        if inserted == 1 {
+            return Ok(name);
+        }
+        millis += 1;
+    }
 }
 
-/// Reads a stored photo back as base64. Used by the background agent —
-/// fetching the asset URL from the WebView is blocked by CSP on Android.
+/// Reads a stored photo back as base64. (The WebView can't fetch it any other
+/// way: it isn't a file, and CSP blocks connect-src on Android anyway.)
 #[tauri::command]
-fn read_photo(app: tauri::AppHandle, filename: String) -> Result<String, String> {
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-        return Err("invalid filename".into());
-    }
-    let path = photos_dir(&app)?.join(filename);
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+async fn read_photo(app: tauri::AppHandle, filename: String) -> Result<String, String> {
+    let pool = db_pool(&app).await?;
+    let data: Option<Vec<u8>> = sqlx::query_scalar("SELECT data FROM photos WHERE filename = ?")
+        .bind(&filename)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let data = data.ok_or_else(|| format!("photo not found: {filename}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(data))
 }
 
 #[tauri::command]
-fn delete_photo(app: tauri::AppHandle, filename: String) -> Result<(), String> {
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-        return Err("invalid filename".into());
-    }
-    let path = photos_dir(&app)?.join(filename);
-    if path.exists() {
-        std::fs::remove_file(path).map_err(|e| e.to_string())?;
-    }
+async fn delete_photo(app: tauri::AppHandle, filename: String) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    sqlx::query("DELETE FROM photos WHERE filename = ?")
+        .bind(&filename)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// One-time move of photos saved as loose files (before they lived in the
+/// database) into the `photos` table. Each file is removed only once its row
+/// is in; a run cut short just picks up where it left off next start. Once
+/// the folder is gone this is a single failed `read_dir`.
+#[tauri::command]
+async fn import_photo_files(app: tauri::AppHandle) -> Result<u32, String> {
+    let dir = legacy_photos_dir(&app)?;
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(0);
+    };
+    let pool = db_pool(&app).await?;
+    let mut imported = 0;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
+            continue;
+        };
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        // OR IGNORE: if a previous run inserted it but died before the
+        // remove, the row is already there.
+        sqlx::query("INSERT OR IGNORE INTO photos (filename, data) VALUES (?, ?)")
+            .bind(&name)
+            .bind(&bytes)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        imported += 1;
+    }
+    // Only succeeds when empty, which is the point.
+    let _ = std::fs::remove_dir(&dir);
+    Ok(imported)
 }
 
 /// Prepares a destination path for a database export: clears old exports and
@@ -254,6 +327,7 @@ pub fn run() {
             save_photo,
             read_photo,
             delete_photo,
+            import_photo_files,
             prepare_db_export
         ])
         .run(tauri::generate_context!())

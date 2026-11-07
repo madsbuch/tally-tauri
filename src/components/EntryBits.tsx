@@ -5,7 +5,7 @@
  * here knows about either screen.
  */
 import { useEffect, useState } from "react";
-import { photoSrc } from "../lib/photos";
+import { readPhotoDataUrl } from "../lib/photos";
 import {
   SYNCED_WORKOUT_GLYPH,
   WORKOUT_FALLBACK_GLYPH,
@@ -30,7 +30,7 @@ export function PhotoImg({
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    photoSrc(filename)
+    readPhotoDataUrl(filename)
       .then((s) => {
         if (alive) setSrc(s);
       })

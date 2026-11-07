@@ -429,7 +429,7 @@ export function parseDocumentValues(raw: unknown): DocumentValue[] {
 }
 
 /**
- * A stored `documents.page_paths` column: filenames in `photos/`, in order.
+ * A stored `documents.page_paths` column: filenames in the `photos` table, in order.
  *
  * Our own data, so anything that isn't a list of non-empty strings is dropped
  * rather than repaired: an unreadable list leaves the document on its

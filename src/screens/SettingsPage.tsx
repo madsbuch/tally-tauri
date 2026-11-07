@@ -1066,7 +1066,7 @@ export default function SettingsPage() {
         <h2 className="card-title">Export database</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
           Saves a consistent snapshot of the raw SQLite database — every meal,
-          workout, supplement, and fast. Photos are not included. Open it with
+          workout, supplement, fast, and photo. Open it with
           any SQLite tool, or keep it as a backup.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

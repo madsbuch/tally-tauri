@@ -71,7 +71,7 @@ export interface FoodEntry {
   eaten_at: string;
   title: string;
   description: string | null;
-  /** Filename inside the app data `photos/` dir (not a full path). */
+  /** Filename of a row in the `photos` table (not a full path). */
   photo_path: string | null;
   nutrients: Nutrients;
   /** OpenRouter model id that produced the estimate, if any. */
@@ -161,7 +161,7 @@ export interface Workout {
   performed_at: string;
   title: string;
   description: string | null;
-  /** Filename inside the app data `photos/` dir (the screenshot), if any. */
+  /** Filename of a row in the `photos` table (the screenshot), if any. */
   photo_path: string | null;
   /** Energy burned — subtracted from the day's calorie total. */
   calories_burned: number;
@@ -394,7 +394,7 @@ export interface LibraryDocument {
   document_date: string | null;
   title: string;
   kind: "lab" | "imaging" | "report" | "note" | "other";
-  /** Filename inside the app data `photos/` dir; the first page. */
+  /** Filename of a row in the `photos` table; the first page. */
   photo_path: string | null;
   /**
    * Every page, in order. A PDF yields one image per page; a photograph one.
