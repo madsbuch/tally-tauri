@@ -36,3 +36,7 @@ tauri-plugin-fasting = { path = "plugins/fasting" }
 tauri-plugin-health-connect = { path = "plugins/health-connect" }
 tauri-plugin-share = { path = "plugins/share" }
 
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures-core = "0.3"

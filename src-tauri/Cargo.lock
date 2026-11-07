@@ -4420,6 +4420,7 @@ name = "tally"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "futures-core",
  "serde",
  "serde_json",
  "sqlx",
@@ -4434,6 +4435,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-share",
  "tauri-plugin-sql",
+ "tokio",
 ]
 
 [[package]]
