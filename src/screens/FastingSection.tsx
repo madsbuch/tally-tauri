@@ -262,6 +262,8 @@ export default function FastingSection() {
   const [presetHours, setPresetHours] = useState<number>(DEFAULT_FAST_HOURS);
   const [customMode, setCustomMode] = useState(false);
   const [customHours, setCustomHours] = useState(String(DEFAULT_FAST_HOURS));
+  /** What the next fast is for; the diary agent judges entries against it. */
+  const [purpose, setPurpose] = useState("");
 
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -369,8 +371,9 @@ export default function FastingSection() {
     setStarting(true);
     try {
       await setSetting(SETTING_KEYS.fastDefaultHours, String(chosenHours));
-      const fast = await startFast(chosenHours);
+      const fast = await startFast(chosenHours, purpose);
       setActive(fast);
+      setPurpose("");
       if (!(await ensureNotificationPermission())) setNotifWarn(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start the fast.");
@@ -552,6 +555,16 @@ export default function FastingSection() {
           </div>
         </div>
 
+        {active.purpose && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-title">Purpose</div>
+            <div>{active.purpose}</div>
+            <div className="muted small" style={{ marginTop: 4 }}>
+              Entries you log during this fast are checked against this.
+            </div>
+          </div>
+        )}
+
         {manual && (
           <button className="manual-link" onClick={() => go(manualPath(manual.id))}>
             <span>{MANUAL_GLYPH}</span>
@@ -629,8 +642,8 @@ export default function FastingSection() {
             ))}
             <div className="muted small" style={{ marginTop: 6 }}>
               If this broke your fast, end it at the meal's time so the record stays
-              honest. Something that doesn't count — a supplement, a splash of milk?
-              Mark it and say why; it won't be flagged again. Backfilling a meal you
+              honest. Something that fits the fast — a supplement, a splash of milk,
+              food within what you allowed yourself? Mark it and say why. Backfilling a meal you
               ate before the fast? Give it a time before{" "}
               {formatDayStamp(new Date(active.started_at), longSpan)} and this note
               disappears.
@@ -722,6 +735,24 @@ export default function FastingSection() {
             )}
           </div>
         )}
+
+        <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+          <label className="label" htmlFor="fast-purpose">
+            Purpose (optional)
+          </label>
+          <input
+            id="fast-purpose"
+            className="input"
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            placeholder="e.g. Recoup after the weekend, up to 225 kcal is fine"
+            maxLength={300}
+          />
+          <div className="muted small" style={{ marginTop: 5 }}>
+            What it&apos;s for and what you allow yourself. Entries you log during
+            the fast are judged by it; leave it empty for a plain fast.
+          </div>
+        </div>
 
         {error && (
           <div className="error-text" style={{ marginTop: 10 }}>
@@ -829,7 +860,10 @@ export default function FastingSection() {
               <div key={f.id} className="list-row">
                 <div className="row-main">
                   <div className="row-title">{formatAchieved(achievedMs)} fast</div>
-                  <div className="row-sub">{formatStartStamp(f.started_at)}</div>
+                  <div className="row-sub">
+                    {formatStartStamp(f.started_at)}
+                    {f.purpose ? ` · ${f.purpose}` : ""}
+                  </div>
                 </div>
                 <div className="row-end">
                   {hitGoal ? (

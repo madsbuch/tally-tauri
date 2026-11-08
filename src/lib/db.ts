@@ -70,7 +70,7 @@ import type {
   Workout,
 } from "./types";
 import type { ChatMessage } from "./openrouter";
-import { FAST_BREAK_KCAL, SETTING_KEYS } from "./types";
+import { SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
 import { zone2Minutes } from "./exerciseGoals";
@@ -192,7 +192,10 @@ function toFoodEntry(r: FoodEntryRow): FoodEntry {
  * remember to derive them the same way (see lib/daystamp.ts).
  */
 export async function addFoodEntry(
-  entry: Omit<FoodEntry, "id" | "day" | "tz_offset_min" | "fast_ok_note">,
+  entry: Omit<FoodEntry, "id" | "day" | "tz_offset_min" | "fast_ok_note"> & {
+    /** Why it doesn't break a fast (see FoodEntry.fast_ok_note); omit when it does. */
+    fast_ok_note?: string | null;
+  },
 ): Promise<number> {
   const stamp = stampOf(entry.eaten_at);
   const rows = await db
@@ -207,6 +210,7 @@ export async function addFoodEntry(
       icon: entry.icon,
       day: stamp.day,
       tzOffsetMin: stamp.tz_offset_min,
+      fastOkNote: entry.fast_ok_note ?? null,
     })
     .returning({ id: foodEntries.id });
   return rows[0]?.id ?? 0;
@@ -233,49 +237,19 @@ export async function updateFoodEntry(entry: FoodEntry): Promise<void> {
 }
 
 /**
- * Mark an entry as not breaking a fast, with the user's reason. Kept apart
- * from updateFoodEntry so edits to the entry never drop the exemption.
- *
- * The exemption is about the food, not the one row: every entry with the same
- * title (case-insensitive) is exempt too, so tomorrow's fish oil doesn't ask
- * again (see notFastOk).
+ * Mark one entry as not breaking a fast, with the reason. Kept apart from
+ * updateFoodEntry so edits to the entry never drop the mark. Applies to this
+ * entry only: whether the next one breaks a fast depends on that fast's
+ * purpose, which the diary agent judges as it logs it.
  */
 export async function setFoodEntryFastOk(id: number, note: string): Promise<void> {
   await db.update(foodEntries).set({ fastOkNote: note }).where(eq(foodEntries.id, id));
 }
 
-/** Make a food count against fasts again — clears the note on every entry with its title. */
-export async function clearFastOk(title: string): Promise<void> {
-  await db
-    .update(foodEntries)
-    .set({ fastOkNote: null })
-    .where(sql`lower(trim(${foodEntries.title})) = lower(trim(${title}))`);
+/** Make an entry count against fasts again. */
+export async function clearFastOk(id: number): Promise<void> {
+  await db.update(foodEntries).set({ fastOkNote: null }).where(eq(foodEntries.id, id));
 }
-
-/**
- * The reason a food doesn't break a fast — the newest note on any entry with
- * this title — or null when it counts.
- */
-export async function getFastOkNote(title: string): Promise<string | null> {
-  const rows = await db
-    .select({ note: foodEntries.fastOkNote })
-    .from(foodEntries)
-    .where(
-      and(
-        isNotNull(foodEntries.fastOkNote),
-        sql`lower(trim(${foodEntries.title})) = lower(trim(${title}))`,
-      ),
-    )
-    .orderBy(desc(foodEntries.eatenAt))
-    .limit(1);
-  return rows[0]?.note ?? null;
-}
-
-/**
- * True for entries whose food hasn't been marked fast-safe — no entry with
- * the same title carries a fast_ok_note (see setFoodEntryFastOk).
- */
-const notFastOk = sql`NOT EXISTS (SELECT 1 FROM food_entries AS fo WHERE fo.fast_ok_note IS NOT NULL AND lower(trim(fo.title)) = lower(trim(${foodEntries.title})))`;
 
 export async function deleteFoodEntry(id: number): Promise<void> {
   await db.delete(foodEntries).where(eq(foodEntries.id, id));
@@ -295,44 +269,30 @@ export async function getFoodEntry(id: number): Promise<FoodEntry | null> {
 
 /**
  * ISO timestamp of the most recently eaten entry that counts as a meal for
- * fasting (>= FAST_BREAK_KCAL, or no calorie estimate), or null if none.
- * Sub-threshold entries — black coffee, broth — never move the anchor, nor
- * do entries the user marked as not breaking a fast (fast_ok_note).
+ * fasting, or null if none. Entries marked as not breaking a fast
+ * (fast_ok_note — black coffee, a supplement) never move the anchor.
  */
 export async function getLastMealAt(): Promise<string | null> {
-  const kcal = sql`json_extract(${foodEntries.nutrients}, '$.calories')`;
   const rows = await db
     .select({ eatenAt: foodEntries.eatenAt })
     .from(foodEntries)
-    .where(
-      and(
-        notFastOk,
-        sql`(${kcal} IS NULL OR ${kcal} >= ${FAST_BREAK_KCAL})`,
-      ),
-    )
+    .where(isNull(foodEntries.fastOkNote))
     .orderBy(desc(foodEntries.eatenAt))
     .limit(1);
   return rows[0]?.eatenAt ?? null;
 }
 
 /**
- * Fast-breaking meals (see FAST_BREAK_KCAL; missing calories counts, a
- * fast_ok_note exempts) eaten strictly after `sinceIso`, oldest first. Used to warn about meals tracked
- * inside an active fast's window — strict inequality keeps the anchor meal
- * the fast started from out of its own warning.
+ * Fast-breaking meals (no fast_ok_note) eaten strictly after `sinceIso`,
+ * oldest first. Used to warn about meals tracked inside an active fast's
+ * window — strict inequality keeps the anchor meal the fast started from out
+ * of its own warning.
  */
 export async function listMealsSince(sinceIso: string): Promise<FoodEntry[]> {
-  const kcal = sql`json_extract(${foodEntries.nutrients}, '$.calories')`;
   const rows = await db
     .select()
     .from(foodEntries)
-    .where(
-      and(
-        gt(foodEntries.eatenAt, sinceIso),
-        notFastOk,
-        sql`(${kcal} IS NULL OR ${kcal} >= ${FAST_BREAK_KCAL})`,
-      ),
-    )
+    .where(and(gt(foodEntries.eatenAt, sinceIso), isNull(foodEntries.fastOkNote)))
     .orderBy(foodEntries.eatenAt);
   return rows.map(toFoodEntry);
 }
@@ -1011,6 +971,9 @@ export async function convertSupplementLogToFood(
     icon: entry.icon,
     day: entry.day ?? stampOf(entry.eaten_at).day,
     tzOffsetMin: entry.tz_offset_min ?? stampOf(entry.eaten_at).tz_offset_min,
+    // Logged before the diary agent judged fasts: keep the old rule, where
+    // anything under 20 kcal never broke one.
+    fastOkNote: (entry.nutrients.calories ?? Infinity) < 20 ? "Under 20 kcal" : null,
   });
   await db.delete(supplementLogs).where(eq(supplementLogs.id, logId));
 }
@@ -1139,6 +1102,7 @@ function toFast(r: FastRow): Fast {
     id: r.id,
     started_at: r.startedAt,
     goal_hours: r.goalHours,
+    purpose: r.purpose,
     ended_at: r.endedAt,
     start_day: r.startDay,
     end_day: r.endDay,
@@ -1157,13 +1121,18 @@ export async function getActiveFast(): Promise<Fast | null> {
   return row ? toFast(row) : null;
 }
 
-export async function insertFast(goalHours: number, startedAt: string): Promise<Fast> {
+export async function insertFast(
+  goalHours: number,
+  startedAt: string,
+  purpose: string | null,
+): Promise<Fast> {
   const stamp = stampOf(startedAt);
   const rows = await db
     .insert(fasts)
     .values({
       startedAt,
       goalHours,
+      purpose,
       endedAt: null,
       startDay: stamp.day,
       tzOffsetMin: stamp.tz_offset_min,
@@ -1173,6 +1142,7 @@ export async function insertFast(goalHours: number, startedAt: string): Promise<
     id: rows[0]?.id ?? 0,
     started_at: startedAt,
     goal_hours: goalHours,
+    purpose,
     ended_at: null,
     start_day: stamp.day,
     end_day: null,

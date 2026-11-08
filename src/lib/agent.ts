@@ -10,6 +10,11 @@
  * "ate this earlier today" get a concrete timestamp and "one more of those"
  * gets the same numbers as the first one. Successful captures are deleted;
  * failures stay visible in the timeline with a retry.
+ *
+ * It also decides, per food entry, whether it breaks a fast (`fast_ok`):
+ * judged against the running fast's purpose and what's been eaten since it
+ * started, or against a plain fast when none is running. There is no fixed
+ * calorie threshold — an unmarked entry counts as eating.
  */
 import {
   addCapture,
@@ -23,6 +28,7 @@ import {
   deleteCapture,
   deletePhotoIfUnused,
   findLifeRuleByText,
+  getActiveFast,
   getCapture,
   getLifeRule,
   getFoodEntry,
@@ -67,9 +73,10 @@ import { STAT_DEFS, customMetricKey, statDef, statKeys } from "./performance";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { withBackgroundTask } from "./background";
 import { readPhotoDataUrl, savePhoto } from "./photos";
-import { shiftDay, timeOf } from "./daystamp";
+import { dayOf, shiftDay, timeOf } from "./daystamp";
 import type {
   Capture,
+  Fast,
   FoodEntry,
   LifeRule,
   SavedMeal,
@@ -164,6 +171,15 @@ const RULE_MOMENT_PROPS: Record<string, unknown> = {
   time: { type: "string", description: TIME_DESC },
 };
 
+/** On every food-logging tool: the agent's call on whether it breaks a fast. */
+const FAST_OK_PARAM = {
+  type: "string",
+  description:
+    "Set ONLY when this entry does NOT break a fast (see the fasting rule in your instructions): " +
+    'a few words why, e.g. "black coffee", "within the 225 kcal allowance (190 so far)". ' +
+    "Omit it when it breaks one.",
+};
+
 const DIARY_TOOLS: ToolDef[] = [
   {
     type: "function",
@@ -183,6 +199,7 @@ const DIARY_TOOLS: ToolDef[] = [
           confidence: { type: "string", enum: ["low", "medium", "high"] },
           icon: iconSchema("meal"),
           nutrients: nutrientsSchema(),
+          fast_ok: FAST_OK_PARAM,
           label: {
             type: "object",
             description:
@@ -411,6 +428,7 @@ const DIARY_TOOLS: ToolDef[] = [
               "Multiple of that entry's portion: 1 (default) for the same again, 2 for twice as much, 0.5 for half.",
           },
           time: { type: "string", description: TIME_DESC },
+          fast_ok: FAST_OK_PARAM,
         },
         required: ["id", "time"],
         additionalProperties: false,
@@ -436,6 +454,7 @@ const DIARY_TOOLS: ToolDef[] = [
               "Multiple of the saved portion: 1 (default) for one, 2 for two, 0.5 for half.",
           },
           time: { type: "string", description: TIME_DESC },
+          fast_ok: FAST_OK_PARAM,
         },
         required: ["id", "time"],
         additionalProperties: false,
@@ -528,6 +547,10 @@ interface DiaryContext {
   rules: LifeRule[];
   /** Meals they saved for reuse, with exact numbers. */
   savedMeals: SavedMeal[];
+  /** The running fast, if any — entries are judged against its purpose. */
+  fast: Fast | null;
+  /** Everything eaten since that fast started, marked or not, oldest first. */
+  fastEntries: FoodEntry[];
 }
 
 const RECENT_DAYS = 7;
@@ -535,14 +558,27 @@ const MAX_RECENT = 10;
 
 async function loadDiaryContext(day: string): Promise<DiaryContext> {
   const before = shiftDay(day, -RECENT_DAYS);
-  const [meals, workouts, supplements, week, allRules, savedMeals] = await Promise.all([
+  const [meals, workouts, supplements, week, allRules, savedMeals, fast] = await Promise.all([
     listFoodEntriesForDay(day).catch(() => []),
     listWorkoutsForDay(day).catch(() => []),
     listSupplementLogsForDay(day).catch(() => []),
     listFoodEntriesForRange(before, shiftDay(day, -1)).catch(() => []),
     listLifeRules().catch(() => [] as LifeRule[]),
     listSavedMeals().catch(() => [] as SavedMeal[]),
+    getActiveFast().catch(() => null),
   ]);
+  // Strictly after the start: the meal a fast is anchored to isn't in it.
+  // From the day before the start too, in case the fast began further west.
+  const fastEntries = fast
+    ? (
+        await listFoodEntriesForRange(
+          shiftDay(fast.start_day ?? dayOf(fast.started_at), -1),
+          todayStr(),
+        ).catch(() => [] as FoodEntry[])
+      )
+        .filter((e) => e.eaten_at > fast.started_at)
+        .sort((a, b) => a.eaten_at.localeCompare(b.eaten_at))
+    : [];
   const rules = allRules.filter((r) => r.status !== "archived");
 
   // One line per distinct food, newest first: a week of repeats would
@@ -556,7 +592,7 @@ async function loadDiaryContext(day: string): Promise<DiaryContext> {
     recentMeals.push(m);
     if (recentMeals.length >= MAX_RECENT) break;
   }
-  return { meals, workouts, supplements, recentMeals, rules, savedMeals };
+  return { meals, workouts, supplements, recentMeals, rules, savedMeals, fast, fastEntries };
 }
 
 const kcalOf = (e: FoodEntry): number => Math.round(e.nutrients.calories ?? 0);
@@ -607,6 +643,8 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
     }
   }
 
+  lines.push(...renderFastContext(ctx));
+
   if (ctx.rules.length === 0) {
     lines.push("Rules for living they have written down: none yet.");
   } else {
@@ -616,6 +654,37 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
     }
   }
   return lines.join("\n");
+}
+
+/** The running fast and what's been eaten in it — what `fast_ok` is judged on. */
+function renderFastContext(ctx: DiaryContext): string[] {
+  const fast = ctx.fast;
+  if (!fast) return ["No fast is running."];
+  const startDay = fast.start_day ?? dayOf(fast.started_at, fast.tz_offset_min);
+  const start = `${startDay} ${timeOf(fast.started_at, fast.tz_offset_min)}`;
+  const lines = [
+    `A fast is running: started ${start}, goal ${fast.goal_hours} h.`,
+    fast.purpose
+      ? `  Its purpose, in their words: "${fast.purpose}"`
+      : "  No purpose given — a plain fast.",
+  ];
+  if (ctx.fastEntries.length === 0) {
+    lines.push("  Nothing eaten since it started.");
+  } else {
+    lines.push("  Eaten since it started:");
+    let allowed = 0;
+    for (const e of ctx.fastEntries) {
+      const verdict = e.fast_ok_note
+        ? `fits the fast (${e.fast_ok_note})`
+        : "counted as breaking it";
+      if (e.fast_ok_note) allowed += kcalOf(e);
+      lines.push(
+        `    #${e.id} ${dayOf(e.eaten_at, e.tz_offset_min)} ${timeOf(e.eaten_at, e.tz_offset_min)} "${e.title}" — ${kcalOf(e)} kcal — ${verdict}`,
+      );
+    }
+    lines.push(`  Total of the entries that fit the fast: ${allowed} kcal.`);
+  }
+  return lines;
 }
 
 function buildSystemPrompt(
@@ -649,6 +718,7 @@ function buildSystemPrompt(
     "- A capture may contain several items (e.g. a meal AND a supplement) — make one tool call per item.",
     "- All times are LOCAL to the user (timezone above). Explicit times in the note are already local wall-clock — repeat them verbatim, never convert to UTC or any other timezone. Relative phrases estimated; no time clue → current time. Never a future time.",
     "- For meals, estimate TOTAL nutrients for the visible portion; omit keys you cannot estimate. Any alcoholic drink gets alcohol_g (grams of ethanol), and its calories include the alcohol's. Fish, seafood, fish oil and algae oil get epa_dha_g (the EPA + DHA part of their omega-3) alongside omega3_g; plant omega-3 (flax, chia, walnuts) is ALA and gets no epa_dha_g.",
+    "- Fasting: on log_meal / repeat_meal / log_saved_meal, set `fast_ok` to a short reason when the entry does NOT break a fast, and omit it when it does. There is no fixed calorie cutoff — it's your judgement. When a fast is running (see above) and the entry's time is after it started, judge by its purpose: an allowance is a running total, so add up the entries already marked as fitting plus anything else you log in this capture — with \"up to 225 kcal\" and 150 used, a 100 kcal snack breaks it; with \"400 kcal a day\", count only that local day's entries. With no purpose given, or no fast running, or an entry from before the fast began, judge it as a plain fast: water, black coffee, plain tea and supplements with negligible calories fit; anything with real calories (milk in coffee beyond a splash, broth with fat, a snack) does not. When unsure, leave it out: the user is shown unmarked entries during a fast and decides. When a fast is running and something you log breaks it, say so in your confirmation.",
     "- Always pass `icon` on log_meal/log_workout: it is what the user sees in the timeline when there is no photo. Pick the most specific match (a cappuccino is \"coffee\", not \"meal\").",
     "- After your final tool call, reply with one short plain-text sentence of confirmation.",
     "- If there is nothing usable to record, call no tools and explain why in one plain-text sentence.",
@@ -730,6 +800,11 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/** The agent's reason an entry doesn't break a fast, or null when it does. */
+function fastOk(v: unknown): string | null {
+  return str(v)?.slice(0, 200) ?? null;
+}
+
 /** An icon key the model picked, or null when it made one up / skipped it. */
 function icon(v: unknown): string | null {
   const key = str(v);
@@ -780,6 +855,7 @@ async function executeTool(
       nutrients,
       model_id: ctx.model,
       icon: icon(args["icon"]),
+      fast_ok_note: fastOk(args["fast_ok"]),
     });
     ctx.logged++;
     // Event-only achievement: a meal photographed within 10 min of when it
@@ -820,6 +896,7 @@ async function executeTool(
       // The numbers are the earlier entry's, not this model's guess.
       model_id: source.model_id,
       icon: source.icon,
+      fast_ok_note: fastOk(args["fast_ok"]),
     });
     ctx.logged++;
     notifyDiaryChanged();
@@ -846,6 +923,7 @@ async function executeTool(
       // The numbers are the saved meal's, not this model's guess.
       model_id: null,
       icon: saved.icon,
+      fast_ok_note: fastOk(args["fast_ok"]),
     });
     ctx.logged++;
     notifyDiaryChanged();

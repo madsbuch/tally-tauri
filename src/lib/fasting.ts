@@ -57,6 +57,12 @@ function formatEndLabel(end: Date): string {
   });
 }
 
+/** Sticky-notification title: the goal, plus the purpose when there is one. */
+function countdownTitle(fast: Fast): string {
+  const base = `Fasting - ${fast.goal_hours}h goal`;
+  return fast.purpose ? `${base} · ${fast.purpose}` : base;
+}
+
 /** End time of a fast as a Date. */
 export function fastEnd(fast: Fast): Date {
   return new Date(new Date(fast.started_at).getTime() + fast.goal_hours * 3_600_000);
@@ -221,13 +227,16 @@ export async function resolveFastStart(
  * (Android), and schedules a completion alert. The fast is anchored to the
  * last logged meal (see resolveFastStart), so elapsed time, the countdown
  * and the completion alert all track time since that meal.
+ *
+ * `purpose` is what the fast is for, in the user's words; the diary agent
+ * judges entries logged during the fast against it.
  */
-export async function startFast(goalHours: number): Promise<Fast> {
+export async function startFast(goalHours: number, purpose: string | null = null): Promise<Fast> {
   const active = await getActiveFast();
   if (active) throw new Error("A fast is already running");
 
   const { startedAt } = await resolveFastStart(goalHours);
-  const fast = await insertFast(goalHours, startedAt.toISOString());
+  const fast = await insertFast(goalHours, startedAt.toISOString(), purpose?.trim() || null);
   const end = fastEnd(fast);
   // A fast isn't a diary change, so nothing else would re-check the badges
   // (and the day it covers now counts toward the streak).
@@ -240,7 +249,7 @@ export async function startFast(goalHours: number): Promise<Fast> {
       await invoke("plugin:fasting|start_countdown", {
         endAtMs: end.getTime(),
         startAtMs: startedAt.getTime(),
-        title: `Fasting - ${goalHours}h goal`,
+        title: countdownTitle(fast),
         body: `Ends at ${endLabel}`,
       });
     } catch (e) {
@@ -298,7 +307,7 @@ export async function resyncFastNotification(): Promise<void> {
     await invoke("plugin:fasting|start_countdown", {
       endAtMs: end.getTime(),
       startAtMs: new Date(active.started_at).getTime(),
-      title: `Fasting - ${active.goal_hours}h goal`,
+      title: countdownTitle(active),
       body: `Ends at ${endLabel}`,
     });
   } catch {

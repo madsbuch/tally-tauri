@@ -174,7 +174,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_fasts",
       description:
-        "The currently active fast (if any) and recently completed fasts with goal and actual duration.",
+        "The currently active fast (if any) and recently completed fasts with goal, purpose (what they set out to do, e.g. an allowed kcal budget) and actual duration.",
       parameters: {
         type: "object",
         properties: {
@@ -959,6 +959,7 @@ export async function executeAssistantTool(
           ? {
               started_at: active.started_at,
               goal_hours: active.goal_hours,
+              purpose: active.purpose,
               elapsed_hours: hours(active.started_at, new Date().toISOString()),
             }
           : null,
@@ -967,6 +968,7 @@ export async function executeAssistantTool(
             started_at: f.started_at,
             ended_at: f.ended_at,
             goal_hours: f.goal_hours,
+            purpose: f.purpose,
             actual_hours: f.ended_at ? hours(f.started_at, f.ended_at) : null,
           }),
         ),
@@ -1344,13 +1346,13 @@ export async function executeAssistantTool(
 // ---------------------------------------------------------------------------
 
 export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC strings like "2026-07-20T06:30:00.000Z"):
-- food_entries(id, eaten_at, day /* local "YYYY-MM-DD" */, tz_offset_min /* minutes east of UTC where it was logged */, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */)
+- food_entries(id, eaten_at, day /* local "YYYY-MM-DD" */, tz_offset_min /* minutes east of UTC where it was logged */, title, description, nutrients /* JSON: calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, … */, fast_ok_note /* why it doesn't break a fast; NULL = it counts as eating */)
 - workouts(id, performed_at, day, tz_offset_min, title, description, calories_burned /* kcal; summed per day this is burned_workouts */, duration_min, zone2_min /* explicitly recorded minutes, NULL = unknown */, cardio /* 1 = they switched it on as cardio; its duration_min counts toward the cardio goal */, source /* "Garmin", "Health Connect" or NULL = manual */, external_id)
 - sleep_sessions(id, started_at, ended_at, day /* the morning it ended on */, tz_offset_min, duration_min, deep_min, rem_min, light_min, awake_min, source)
 - health_metrics(day /* local "YYYY-MM-DD" */, steps, resting_hr, hrv_ms, spo2_pct, weight_kg, vo2_max, calories_total /* kcal, the watch's whole-day burn incl. resting and workouts = burned_total */, updated_at)
 - supplements(id, name, dose_amount, dose_unit, nutrients /* JSON per dose */, notes, archived)
 - supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */) — older supplement intake only. Supplements are now logged as food: food_entries rows with icon = 'supplement' (title like "Fish oil 800 mg", nutrients for the amount taken). Query both when asked about supplements
-- fasts(id, started_at, goal_hours, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
+- fasts(id, started_at, goal_hours, purpose /* their words: what it's for and what they allow themselves; NULL = plain fast */, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
 - state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
 - blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note) — finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)

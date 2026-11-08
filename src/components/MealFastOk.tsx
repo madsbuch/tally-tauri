@@ -1,38 +1,21 @@
-import { useEffect, useState } from "react";
-import { clearFastOk, getFastOkNote, setFoodEntryFastOk } from "../lib/db";
+import { useState } from "react";
+import { clearFastOk, setFoodEntryFastOk } from "../lib/db";
 import type { FoodEntry } from "../lib/types";
-import { FAST_BREAK_KCAL } from "../lib/types";
 
 /**
- * Whether this food breaks a fast — the user's call, with their reason.
- * Applies to the food by title (see setFoodEntryFastOk), so the line reads
- * the same on every entry of it.
+ * Whether this entry breaks a fast, with the reason when it doesn't. The
+ * diary agent sets it as it logs (judged against the running fast's
+ * purpose); the user can override it here. Applies to this entry only.
  */
 export default function MealFastOk({ meal, onSaved }: {
   meal: FoodEntry;
   onSaved: () => Promise<void>;
 }) {
-  const [note, setNote] = useState<string | null>(meal.fast_ok_note);
+  const note = meal.fast_ok_note;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getFastOkNote(meal.title)
-      .then((n) => {
-        if (!cancelled) setNote(n);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [meal.title, meal.fast_ok_note]);
-
-  const kcal = meal.nutrients.calories;
-  // Under the threshold it never breaks a fast anyway — nothing to decide.
-  if (note == null && kcal != null && kcal < FAST_BREAK_KCAL) return null;
 
   async function run(action: () => Promise<void>) {
     setSaving(true);
@@ -90,10 +73,8 @@ export default function MealFastOk({ meal, onSaved }: {
           if (note == null) {
             setDraft("");
             setEditing(true);
-          } else if (
-            window.confirm(`Count "${meal.title}" as breaking a fast again? This applies to every entry of it.`)
-          ) {
-            void run(() => clearFastOk(meal.title));
+          } else if (window.confirm(`Count "${meal.title}" as breaking a fast?`)) {
+            void run(() => clearFastOk(meal.id));
           }
         }}
       >

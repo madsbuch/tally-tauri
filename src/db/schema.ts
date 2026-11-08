@@ -37,8 +37,10 @@ export const foodEntries = sqliteTable(
     /** Minutes east of UTC at that moment, so the time reads as it was lived. */
     tzOffsetMin: integer("tz_offset_min"),
     /**
-     * The user's reason this entry doesn't break a fast (fish oil, a vitamin)
-     * — non-null exempts it from fasting checks whatever its calories.
+     * Why this entry doesn't break a fast ("black coffee", "within the 225 kcal
+     * recoup allowance") — written by the diary agent against the running
+     * fast's purpose, or by the user. Non-null exempts this one entry from
+     * fasting checks; null means it counts as eating.
      */
     fastOkNote: text("fast_ok_note"),
   },
@@ -228,6 +230,11 @@ export const fasts = sqliteTable("fasts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   startedAt: text("started_at").notNull(),
   goalHours: real("goal_hours").notNull(),
+  /**
+   * What this fast is for, in the user's words ("recoup after the weekend,
+   * up to 225 kcal is fine"). The diary agent judges mid-fast entries by it.
+   */
+  purpose: text("purpose"),
   endedAt: text("ended_at"),
   /** Local day the fast began on; every day through `endDay` counts as fasted. */
   startDay: text("start_day"),

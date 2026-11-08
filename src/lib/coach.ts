@@ -144,7 +144,7 @@ export interface CoachDigest {
   };
   weight: { latestKg: number; change7dKg: number | null; change30dKg: number | null } | null;
   streak: { current: number; best: number; todayLogged: boolean };
-  fast: { hoursElapsed: number; goalHours: number } | null;
+  fast: { hoursElapsed: number; goalHours: number; purpose: string | null } | null;
   /**
    * How they said they felt — the half of a day the numbers don't hold.
    * Today's with the time and whatever they wrote, and the week as a tally,
@@ -361,6 +361,7 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
             1,
           ),
           goalHours: fast.goal_hours,
+          purpose: fast.purpose,
         }
       : null,
     states: { today: todayStates, week: weekStates },
@@ -407,7 +408,10 @@ export function renderCoachDigest(d: CoachDigest): string {
     `Logging streak: ${d.streak.current} days (best ${d.streak.best}); today ${d.streak.todayLogged ? "is" : "is not"} logged yet.`,
   );
   if (d.fast) {
-    lines.push(`Fasting right now: ${d.fast.hoursElapsed} h of a ${d.fast.goalHours} h goal.`);
+    lines.push(
+      `Fasting right now: ${d.fast.hoursElapsed} h of a ${d.fast.goalHours} h goal` +
+        (d.fast.purpose ? ` — purpose: "${d.fast.purpose}".` : "."),
+    );
   }
   if (d.states.today.length > 0) {
     lines.push(

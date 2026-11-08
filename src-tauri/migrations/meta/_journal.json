@@ -211,6 +211,13 @@
       "when": 1794138234212,
       "tag": "0029_manuals",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1794149910400,
+      "tag": "0030_fast_purpose",
+      "breakpoints": true
     }
   ]
 }

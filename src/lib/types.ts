@@ -86,8 +86,10 @@ export interface FoodEntry {
   /** Minutes east of UTC at that moment; null means "read it here". */
   tz_offset_min: number | null;
   /**
-   * Why this doesn't break a fast, in the user's words; non-null exempts the
-   * entry from fasting checks (anchor and in-fast warning) whatever its kcal.
+   * Why this entry doesn't break a fast — set by the diary agent (judged
+   * against the running fast's purpose) or by the user. Non-null exempts this
+   * one entry from fasting checks (anchor and in-fast warning); null means it
+   * counts as eating, whatever its calories.
    */
   fast_ok_note: string | null;
 }
@@ -133,6 +135,8 @@ export interface Fast {
   /** ISO 8601 UTC timestamp. */
   started_at: string;
   goal_hours: number;
+  /** What the fast is for, in the user's words; null = a plain fast. */
+  purpose: string | null;
   /** ISO 8601 UTC timestamp; null while the fast is active. */
   ended_at: string | null;
   /** Local day it began on; every day through `end_day` counts as fasted. */
@@ -590,13 +594,5 @@ export const DEFAULT_FAST_HOURS = 16;
 export const DEFAULT_CARDIO_TARGET_MIN = 300;
 /** Daily protein goal, in grams, until another is stored. */
 export const DEFAULT_PROTEIN_TARGET_G = 150;
-/**
- * Entries at or above this many kcal count as a meal for fasting purposes:
- * they anchor new fasts and break an active one. Below it (black coffee,
- * diet soda, broth) an entry can be logged mid-fast without ending it.
- * Entries with NO calorie estimate count as meals — an unestimated entry is
- * far more likely a real meal than a zero-calorie drink.
- */
-export const FAST_BREAK_KCAL = 20;
 /** Daily net-carb budget (g) that keeps most people in ketosis. */
 export const DEFAULT_KETO_NET_CARB_LIMIT_G = 25;
