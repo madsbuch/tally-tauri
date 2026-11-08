@@ -23,6 +23,7 @@ import {
   fastingStageIndex,
   formatDuration,
   startFast,
+  updateFastPurpose,
 } from "../lib/fasting";
 import type { FastingStage } from "../lib/fasting";
 import InfoButton from "../components/InfoButton";
@@ -264,6 +265,9 @@ export default function FastingSection() {
   const [customHours, setCustomHours] = useState(String(DEFAULT_FAST_HOURS));
   /** What the next fast is for; the diary agent judges entries against it. */
   const [purpose, setPurpose] = useState("");
+  /** The running fast's purpose being edited (null = not editing). */
+  const [purposeDraft, setPurposeDraft] = useState<string | null>(null);
+  const [savingPurpose, setSavingPurpose] = useState(false);
 
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -451,6 +455,21 @@ export default function FastingSection() {
     }
   }
 
+  async function handleSavePurpose(fast: Fast) {
+    if (purposeDraft == null) return;
+    setSavingPurpose(true);
+    setError(null);
+    try {
+      setActive(await updateFastPurpose(fast, purposeDraft));
+      setPurposeDraft(null);
+      await loadHistory();
+    } catch {
+      setError("Could not save the purpose.");
+    } finally {
+      setSavingPurpose(false);
+    }
+  }
+
   async function handleDelete(id: number) {
     if (!window.confirm("Delete this fast from history?")) return;
     setError(null);
@@ -555,15 +574,57 @@ export default function FastingSection() {
           </div>
         </div>
 
-        {active.purpose && (
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-title">Purpose</div>
-            <div>{active.purpose}</div>
-            <div className="muted small" style={{ marginTop: 4 }}>
-              Entries you log during this fast are checked against this.
-            </div>
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title">Purpose</div>
+          {purposeDraft != null ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSavePurpose(active);
+              }}
+            >
+              <input
+                className="input"
+                autoFocus
+                value={purposeDraft}
+                onChange={(e) => setPurposeDraft(e.target.value)}
+                placeholder="e.g. Recoup after the weekend, up to 225 kcal is fine"
+                aria-label="What this fast is for"
+                maxLength={300}
+              />
+              <div className="btn-row" style={{ marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={savingPurpose}
+                  onClick={() => setPurposeDraft(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={savingPurpose}>
+                  {savingPurpose ? <span className="spinner" /> : "Save"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <div className={active.purpose ? undefined : "muted"}>
+                {active.purpose ?? "None — judged as a plain fast."}
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ padding: "4px 0", color: "var(--accent)" }}
+                onClick={() => setPurposeDraft(active.purpose ?? "")}
+              >
+                {active.purpose ? "Change purpose" : "Set a purpose"}
+              </button>
+            </>
+          )}
+          <div className="muted small" style={{ marginTop: 4 }}>
+            What it&apos;s for and what you allow yourself. Entries you log during this
+            fast are judged against it.
           </div>
-        )}
+        </div>
 
         {manual && (
           <button className="manual-link" onClick={() => go(manualPath(manual.id))}>

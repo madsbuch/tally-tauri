@@ -1150,6 +1150,14 @@ export async function insertFast(
   };
 }
 
+/**
+ * Set or change what a fast is for — free to change mid-fast: it's what the
+ * diary agent judges the next entries against, not a commitment.
+ */
+export async function setFastPurpose(id: number, purpose: string | null): Promise<void> {
+  await db.update(fasts).set({ purpose }).where(eq(fasts.id, id));
+}
+
 /** A fast is stamped at both ends: it can be broken in another timezone. */
 export async function markFastEnded(id: number, endedAt: string): Promise<void> {
   await db

@@ -6,7 +6,7 @@ import {
   Schedule,
 } from "@tauri-apps/plugin-notification";
 import type { Fast } from "./types";
-import { getActiveFast, getLastMealAt, insertFast, markFastEnded } from "./db";
+import { getActiveFast, getLastMealAt, insertFast, markFastEnded, setFastPurpose } from "./db";
 import { scanAchievements } from "./achievements";
 
 /** Notification id for the scheduled "fast complete" alert. */
@@ -262,6 +262,17 @@ export async function startFast(goalHours: number, purpose: string | null = null
     }
   }
   return fast;
+}
+
+/**
+ * Change what a running fast is for. Entries logged from now on are judged
+ * against the new purpose; the countdown notification picks up its title.
+ */
+export async function updateFastPurpose(fast: Fast, purpose: string): Promise<Fast> {
+  const next = purpose.trim() || null;
+  await setFastPurpose(fast.id, next);
+  void resyncFastNotification().catch(() => {});
+  return { ...fast, purpose: next };
 }
 
 /**
