@@ -85,6 +85,11 @@ export interface FoodEntry {
   day: string | null;
   /** Minutes east of UTC at that moment; null means "read it here". */
   tz_offset_min: number | null;
+  /**
+   * Why this doesn't break a fast, in the user's words; non-null exempts the
+   * entry from fasting checks (anchor and in-fast warning) whatever its kcal.
+   */
+  fast_ok_note: string | null;
 }
 
 export interface Supplement {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Fast, FoodEntry } from "../lib/types";
 import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
-import { onDiaryChanged } from "../lib/agent";
+import { notifyDiaryChanged, onDiaryChanged } from "../lib/agent";
 import {
   deleteFast,
   getActiveFast,
@@ -10,6 +10,7 @@ import {
   listAllFasts,
   listMealsSince,
   listRecentFasts,
+  setFoodEntryFastOk,
   setSetting,
 } from "../lib/db";
 import {
@@ -246,6 +247,10 @@ export default function FastingSection() {
   const [lastMealAt, setLastMealAt] = useState<string | null>(null);
   /** Fast-breaking meals tracked inside the active fast's window. */
   const [fastMeals, setFastMeals] = useState<FoodEntry[]>([]);
+  /** The flagged meal being marked as not breaking the fast, and the reason typed so far. */
+  const [exempting, setExempting] = useState<number | null>(null);
+  const [exemptNote, setExemptNote] = useState("");
+  const [savingExempt, setSavingExempt] = useState(false);
   const [history, setHistory] = useState<Fast[]>([]);
   const [allFasts, setAllFasts] = useState<Fast[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -402,6 +407,26 @@ export default function FastingSection() {
     await doEnd(fast, when);
   }
 
+  /**
+   * "This didn't break my fast": saves the reason on the entry, which exempts
+   * that food (by title) from fasting checks from now on.
+   */
+  async function handleExempt(meal: FoodEntry) {
+    setSavingExempt(true);
+    setError(null);
+    try {
+      await setFoodEntryFastOk(meal.id, exemptNote.trim() || "Doesn't break a fast");
+      setExempting(null);
+      setExemptNote("");
+      // Refreshes this card too (it listens), plus anything else showing the diary.
+      notifyDiaryChanged();
+    } catch {
+      setError("Could not save that.");
+    } finally {
+      setSavingExempt(false);
+    }
+  }
+
   async function handleDelete(id: number) {
     if (!window.confirm("Delete this fast from history?")) return;
     setError(null);
@@ -521,13 +546,60 @@ export default function FastingSection() {
                     ? ` · ~${Math.round(m.nutrients.calories)} kcal`
                     : ""}
                 </span>
+                {exempting === m.id ? (
+                  <form
+                    style={{ marginTop: 6 }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void handleExempt(m);
+                    }}
+                  >
+                    <input
+                      className="input"
+                      autoFocus
+                      value={exemptNote}
+                      onChange={(e) => setExemptNote(e.target.value)}
+                      placeholder="Why not? e.g. supplement, negligible calories"
+                      aria-label={`Why ${m.title} doesn't break your fast`}
+                      maxLength={200}
+                    />
+                    <div className="btn-row" style={{ marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={savingExempt}
+                        onClick={() => setExempting(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={savingExempt}>
+                        {savingExempt ? <span className="spinner" /> : "Save"}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: "4px 0", color: "var(--accent)" }}
+                      onClick={() => {
+                        setExempting(m.id);
+                        setExemptNote("");
+                      }}
+                    >
+                      Doesn't break my fast
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             <div className="muted small" style={{ marginTop: 6 }}>
               If this broke your fast, end it at the meal's time so the record stays
-              honest. Backfilling a meal you ate before the fast? Give it a time
-              before {formatDayStamp(new Date(active.started_at), longSpan)} and this
-              note disappears.
+              honest. Something that doesn't count — a supplement, a splash of milk?
+              Mark it and say why; it won't be flagged again. Backfilling a meal you
+              ate before the fast? Give it a time before{" "}
+              {formatDayStamp(new Date(active.started_at), longSpan)} and this note
+              disappears.
             </div>
             <button
               className="btn btn-danger btn-block"

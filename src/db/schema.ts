@@ -36,6 +36,11 @@ export const foodEntries = sqliteTable(
     day: text("day"),
     /** Minutes east of UTC at that moment, so the time reads as it was lived. */
     tzOffsetMin: integer("tz_offset_min"),
+    /**
+     * The user's reason this entry doesn't break a fast (fish oil, a vitamin)
+     * — non-null exempts it from fasting checks whatever its calories.
+     */
+    fastOkNote: text("fast_ok_note"),
   },
   (t) => [
     index("idx_food_entries_eaten_at").on(t.eatenAt),

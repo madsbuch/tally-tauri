@@ -326,6 +326,8 @@ const FoodEntrySnapshotSchema = z.object({
   icon: z.string().nullable(),
   day: z.string().nullable(),
   tz_offset_min: z.number().nullable(),
+  // Snapshots written before the fast exemption existed have no note.
+  fast_ok_note: z.string().nullable().default(null),
 });
 
 const WorkoutSnapshotSchema = z.object({

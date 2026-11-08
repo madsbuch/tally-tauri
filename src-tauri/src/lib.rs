@@ -183,6 +183,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0027_garmin_connect.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 29,
+            description: "fast_ok_note",
+            sql: include_str!("../migrations/0028_fast_ok_note.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

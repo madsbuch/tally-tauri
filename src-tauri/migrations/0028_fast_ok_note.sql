@@ -1,0 +1,1 @@
+ALTER TABLE `food_entries` ADD `fast_ok_note` text;

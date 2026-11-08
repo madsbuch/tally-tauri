@@ -105,6 +105,7 @@ import type { ChartSpec } from "../lib/assistant";
 import { useSheetHistory } from "../lib/sheetHistory";
 import { useUp } from "../lib/navigation";
 import WorkoutCardioToggle from "../components/WorkoutCardioToggle";
+import MealFastOk from "../components/MealFastOk";
 import GarminWorkoutDetails from "../components/GarminWorkoutDetails";
 import EntryChat from "../components/EntryChat";
 
@@ -515,6 +516,7 @@ export default function EntryPage() {
             onClick={() => setEditing({ field: "icon" })}
           />
         )}
+        {meal && <MealFastOk meal={meal} onSaved={afterChange} />}
         {reading && (
           <>
             <InfoRow
