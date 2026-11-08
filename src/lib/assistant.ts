@@ -33,7 +33,9 @@ import {
   saveMeal,
   renameSavedMeal,
   deleteSavedMeal,
+  getManual,
 } from "./db";
+import { createManual, isManualTrigger, removeManual, saveManual } from "./manuals";
 import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
 import type { ChatMessage, ToolDef } from "./openrouter";
@@ -445,6 +447,72 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       name: "forget",
       description:
         "Delete something from your memory: it was wrong, it's stale, or they asked you to drop it. Always use this when they ask you to forget something.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The id shown in square brackets." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_manual",
+      description:
+        "Read one of their manuals in full. Ids are shown beside each manual in the index. Read a manual before rewriting it, and whenever its situation comes up.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The id shown in square brackets." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_manual",
+      description:
+        "Create a manual for a recurring situation, or rewrite one. Rewriting replaces the whole page (the old version is kept in its history), so carry over everything that's still true and keep their own lines as they wrote them.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "number",
+            description: "The manual to rewrite. Omit to start a new one.",
+          },
+          title: { type: "string", description: 'Short, e.g. "Fasting".' },
+          situation: {
+            type: "string",
+            description: 'One line on when it applies, e.g. "Fasts longer than a day".',
+          },
+          applies_when: {
+            type: "string",
+            enum: ["fasting", "none"],
+            description:
+              '"fasting" puts this manual in front of you whenever a fast is running (one manual at a time). "none" when the app can\'t tell the situation by itself.',
+          },
+          body: {
+            type: "string",
+            description:
+              "The whole page, in markdown: a few headings with short imperative bullets, each grounded in what actually happened when you can.",
+          },
+        },
+        required: ["title", "situation", "body"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_manual",
+      description: "Delete a manual and its history. Only when they ask for it.",
       parameters: {
         type: "object",
         properties: {
@@ -1220,6 +1288,54 @@ export async function executeAssistantTool(
     return JSON.stringify({ forgot: id });
   }
 
+  if (name === "read_manual") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const m = await getManual(id);
+    if (!m) return JSON.stringify({ error: `No manual with id ${id}.` });
+    return JSON.stringify({
+      id: m.id,
+      title: m.title,
+      situation: m.situation,
+      applies_when: m.applies_when ?? "none",
+      last_edited_by: m.edited_by === "you" ? "them" : "you",
+      updated_at: m.updated_at,
+      body: m.body,
+    });
+  }
+
+  if (name === "write_manual") {
+    const str = (k: string) => (typeof args[k] === "string" ? String(args[k]).trim() : "");
+    const draft = {
+      title: str("title"),
+      situation: str("situation"),
+      body: str("body"),
+      applies_when: isManualTrigger(args["applies_when"]) ? args["applies_when"] : null,
+    };
+    if (!draft.title || !draft.situation || !draft.body) {
+      throw new Error("title, situation and body are all required");
+    }
+    if (typeof args["id"] === "number") {
+      const id = args["id"];
+      // Leaving applies_when out keeps what the manual had, rather than
+      // quietly unhooking the fasting manual on an ordinary rewrite.
+      if (args["applies_when"] === undefined) {
+        draft.applies_when = (await getManual(id))?.applies_when ?? null;
+      }
+      const ok = await saveManual(id, draft, "coach");
+      return JSON.stringify(ok ? { rewrote_manual: id } : { error: `No manual with id ${id}.` });
+    }
+    const id = await createManual(draft, "coach");
+    return JSON.stringify({ created_manual: id });
+  }
+
+  if (name === "delete_manual") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    await removeManual(id);
+    return JSON.stringify({ deleted_manual: id });
+  }
+
   throw new Error(`Unknown tool "${name}"`);
 }
 
@@ -1248,6 +1364,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */) — the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
 - saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at) — meals kept for reuse with exact numbers; prefer list_saved_meals
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
+- manuals(id, title, situation, applies_when, body /* markdown */, edited_by, created_at, updated_at) — prefer read_manual / write_manual
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;
 

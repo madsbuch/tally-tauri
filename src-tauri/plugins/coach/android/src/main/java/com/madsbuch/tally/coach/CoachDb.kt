@@ -151,6 +151,28 @@ internal object CoachDb {
         return out
     }
 
+    /** A manual the app loads by itself while its situation is on. */
+    data class ActiveManual(val id: Long, val title: String, val body: String)
+
+    /**
+     * The manual tied to `trigger` ("fasting"), if any. Null on any failure —
+     * including a database the app hasn't migrated yet — since a check-in
+     * without it is still a check-in.
+     */
+    fun manualFor(db: SQLiteDatabase, trigger: String): ActiveManual? {
+        return try {
+            db.rawQuery(
+                "SELECT id, title, body FROM manuals WHERE applies_when = ? " +
+                    "ORDER BY updated_at DESC LIMIT 1",
+                arrayOf(trigger),
+            ).use { c ->
+                if (c.moveToFirst()) ActiveManual(c.getLong(0), c.getString(1), c.getString(2)) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /**
      * Take the reminders off. A follow-up fires once and the coach re-arms it
      * from inside the turn if the thing still needs watching — otherwise one

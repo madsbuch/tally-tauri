@@ -10,6 +10,9 @@
  *   made, preferences you expressed, notes it took. It lives beside the chats
  *   rather than inside one, so deleting a conversation doesn't wipe the
  *   relationship and a new one doesn't start cold.
+ * - **Manuals** (`manuals` table) are what it worked out about one situation
+ *   — a fast, a trip — written up as a page you can read. Only an index rides
+ *   in the prompt; a page is read when it applies (see lib/manuals.ts).
  * - **Digest** is computed fresh from the diary every turn. Without it the
  *   coach would have to spend tool calls discovering that you exist; with it,
  *   it arrives already knowing how the week went and can spend its tools on
@@ -20,6 +23,8 @@ import {
   getSetting,
   listCoachMemory,
   listDocuments,
+  getManualFor,
+  listManuals,
   listFoodEntriesForRange,
   listBloodReadingsForRange,
   listIncompleteDays,
@@ -39,7 +44,7 @@ import { cardioMinutes, getCardioTarget, getDayGoal, getProteinTarget } from "./
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
 import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
-import type { CoachMemory, LibraryDocument } from "./types";
+import type { CoachMemory, LibraryDocument, Manual } from "./types";
 import type { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -500,6 +505,36 @@ function renderMemory(memory: CoachMemory[], today: string): string {
   return lines.join("\n");
 }
 
+/** Memories whose follow-up has come due — the count the Coach tab shows. */
+export function dueFollowUpCount(memory: CoachMemory[], today = todayStr()): number {
+  return memory.filter((m) => m.follow_up_on != null && m.follow_up_on <= today).length;
+}
+
+/**
+ * An index of the manuals: titles and when each applies, so the coach knows
+ * which page to open without carrying every page in every prompt.
+ */
+function renderManuals(manuals: Manual[]): string {
+  if (manuals.length === 0) {
+    return "None yet. When you learn what works for them in a recurring situation — how they fast best, how they travel, what gets them through a bad week — write it up with `write_manual`.";
+  }
+  const lines = ["Read one with `read_manual` when its situation comes up:"];
+  for (const m of manuals) {
+    const auto = m.applies_when === "fasting" ? " (shown to you in full while they fast)" : "";
+    const theirs = m.edited_by === "you" ? " — last edited by them" : "";
+    lines.push(`  [${m.id}] ${m.title}: ${m.situation}${auto}${theirs}`);
+  }
+  return lines.join("\n");
+}
+
+/** How to keep the manuals: what goes in one, and whose words win. */
+const MANUAL_GUIDANCE = [
+  "A manual is for a situation that comes back — fasting, travelling, a race week. When what works there becomes clear, write it into that situation's manual rather than leaving it as loose notes in memory, and once it's in a manual, `forget` the notes it replaced.",
+  "Write them as short imperative bullets under a few headings (e.g. Before / During / After / What didn't work). Say why a line is there when the diary shows it — \"Bouillon around hour 30 took the edge off the hunger (8 Nov fast)\" — that's what makes it theirs rather than generic advice.",
+  "`write_manual` replaces the whole page, so read it first and keep everything still true. If they edited it last, keep their lines in their words and add around them. Only delete a manual when they ask.",
+  "Set applies_when to \"fasting\" on the manual for fasting, so it is in front of you whenever a fast is running.",
+];
+
 /**
  * An index of the library, not its contents: enough for the coach to know
  * what exists and reach for `query_documents`, without pouring every lab
@@ -556,10 +591,11 @@ export interface CoachPromptOptions {
  * occasion.
  */
 export async function buildCoachPromptPrefix(): Promise<string> {
-  const [stance, memory, documents] = await Promise.all([
+  const [stance, memory, documents, manuals] = await Promise.all([
     loadCoachStance(),
     listCoachMemory().catch(() => [] as CoachMemory[]),
     listDocuments().catch(() => []),
+    listManuals().catch(() => [] as Manual[]),
   ]);
   const today = todayStr();
 
@@ -578,6 +614,10 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "The Body tab models what's in them from the diary: caffeine and alcohol by the hour; glycogen by the day; creatine, beta-alanine, vitamin D, omega-3, ferritin and vitamin reserves by the week; plus training load and sleep debt. `query_body_levels` reads it at any moment; `query_levels_at_sleep` lines up caffeine and alcohol at bedtime with each night's sleep — use it when sleep comes up, and to tell them when their last coffee should be.",
     "They can keep meals for reuse — saved meals, with exact numbers (often a shop's official values), which the diary logs as-is whenever they eat them again. `list_saved_meals` shows what's saved; `save_meal` keeps a diary entry when they ask; `edit_saved_meal` renames or deletes one on request.",
     "Context about ONE entry goes on that entry with `annotate_entry` — a high glucose reading taken right after a coffee, a slow run the day after a bad night — so it is there the next time anyone looks at that entry. A pattern that keeps showing up across entries goes in memory with `remember`. Check an entry's existing notes before adding one, and never annotate just to restate its numbers.",
+    "",
+    "## Their manuals",
+    renderManuals(manuals),
+    ...MANUAL_GUIDANCE.map((g) => `- ${g}`),
     "",
     "## Their document library",
     renderLibrary(documents),
@@ -609,9 +649,10 @@ export async function buildCoachPromptPrefix(): Promise<string> {
 export async function buildCoachSystemPrompt(
   opts: CoachPromptOptions = {},
 ): Promise<string> {
-  const [prefix, digest] = await Promise.all([
+  const [prefix, digest, fastingManual] = await Promise.all([
     buildCoachPromptPrefix(),
     buildCoachDigest(),
+    activeManualFor("fasting"),
   ]);
   const now = new Date();
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -628,8 +669,31 @@ export async function buildCoachSystemPrompt(
     "## Where they stand right now",
     renderCoachDigest(digest),
     "These numbers are already yours — don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
+    ...(fastingManual ? ["", ...renderActiveManual(fastingManual, "They're fasting right now")] : []),
     ...(opts.occasion ? ["", "## This check-in", opts.occasion] : []),
   ].join("\n");
+}
+
+/** The manual for a situation, but only while the app sees it happening. */
+async function activeManualFor(trigger: "fasting"): Promise<Manual | null> {
+  try {
+    if (trigger === "fasting" && !(await getActiveFast())) return null;
+    return await getManualFor(trigger);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A manual in full, for when its situation is on. Kept in step with the
+ * Android check-in (CoachWorker.kt), which appends the same block itself.
+ */
+export function renderActiveManual(m: Manual, why: string): string[] {
+  return [
+    `## Their manual for this: ${m.title} [${m.id}]`,
+    `${why}, so this is what you've worked out together for it. Hold to it, and update it when today teaches something new.`,
+    m.body,
+  ];
 }
 
 /**

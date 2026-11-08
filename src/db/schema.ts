@@ -315,6 +315,53 @@ export const coachMemory = sqliteTable(
 );
 
 /**
+ * Manuals: what works for this person in one situation — a fast, a trip —
+ * written up as a page they can read. Memory holds single observations and
+ * rides along in every prompt; a manual gathers many of them into one page
+ * that's only loaded when it applies. The coach writes and maintains them;
+ * the person can read and edit them.
+ */
+export const manuals = sqliteTable("manuals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  /** One line: when this manual applies ("When fasting longer than a day"). */
+  situation: text("situation").notNull(),
+  /**
+   * A situation the app can detect itself, so the manual loads without the
+   * coach having to notice: "fasting" while a fast is running. Null when only
+   * the coach can tell.
+   */
+  appliesWhen: text("applies_when"),
+  /** Markdown. */
+  body: text("body").notNull(),
+  /** Who wrote the current version: "coach" | "you". */
+  editedBy: text("edited_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Earlier versions of a manual, kept on every change so a rewrite by the
+ * coach can be checked against what it replaced.
+ */
+export const manualRevisions = sqliteTable(
+  "manual_revisions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    manualId: integer("manual_id")
+      .notNull()
+      .references(() => manuals.id),
+    title: text("title").notNull(),
+    situation: text("situation").notNull(),
+    body: text("body").notNull(),
+    editedBy: text("edited_by").notNull(),
+    /** When this version was written (the manual's updated_at at the time). */
+    writtenAt: text("written_at").notNull(),
+  },
+  (t) => [index("idx_manual_revisions_manual").on(t.manualId)],
+);
+
+/**
  * Every check-in the coach started, so it can't repeat itself. Gives the
  * trigger engine three things at once: when a trigger last fired (cooldown),
  * how many times it has spoken today (budget), and which chat it wrote into.

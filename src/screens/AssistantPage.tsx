@@ -20,7 +20,7 @@ import AssistantChart from "../components/AssistantChart";
 import { markCheckinRead, useUnreadCheckin } from "../lib/coachInbox";
 import { chatPath, parseChatId, useGo, useUp } from "../lib/navigation";
 import InfoButton from "../components/InfoButton";
-import { Link } from "../router";
+import CoachShelf from "../components/CoachShelf";
 
 const SUGGESTIONS = [
   "How is my week going?",
@@ -287,15 +287,7 @@ export default function AssistantPage() {
               <div className="row-end">›</div>
             </button>
           )}
-          <Link to="/assistant/library" className="list-row" style={{ marginBottom: 12 }}>
-            <div className="row-main">
-              <div className="row-title">🗄 Library</div>
-              <div className="row-sub">
-                Blood results and reports the coach can read
-              </div>
-            </div>
-            <div className="row-end">›</div>
-          </Link>
+          <CoachShelf />
           <div className="list">
             {SUGGESTIONS.map((s) => (
               <button

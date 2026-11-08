@@ -3,8 +3,8 @@
  *
  * Priorities are a ranked list rather than a set, because a coach with six
  * equal goals has none — the order is what the model uses to break ties.
- * Everything here is what the user declared; what the coach worked out for
- * itself lives in its memory below, shown so it can be checked and deleted.
+ * Everything here is what the user declared. What the coach worked out for
+ * itself — its memory and manuals — lives on the Coach tab, beside the chats.
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -16,8 +16,6 @@ import {
   saveCoachStance,
 } from "../lib/coach";
 import type { CoachLength, CoachStance, CoachTone } from "../lib/coach";
-import { deleteCoachMemory, listCoachMemory } from "../lib/db";
-import type { CoachMemory } from "../lib/types";
 import {
   DEFAULT_CHECKIN_HOUR,
   TRIGGERS,
@@ -30,16 +28,10 @@ import {
 } from "../lib/coachTriggers";
 import type { CoachTriggers, TriggerKey } from "../lib/coachTriggers";
 import { runCoachCheckin } from "../lib/coachCheckin";
+import { useGo } from "../lib/navigation";
 
 const MAX_IMPERATIVES = 5;
 const MAX_AVOID = 10;
-
-const MEMORY_LABELS: Record<CoachMemory["kind"], string> = {
-  goal: "Goal",
-  commitment: "Commitment",
-  preference: "Preference",
-  note: "Note",
-};
 
 /** An ordered list of short strings with add, remove and promote. */
 function RankedList({
@@ -142,12 +134,12 @@ export default function CoachSettings() {
   const [stance, setStance] = useState<CoachStance>(DEFAULT_STANCE);
   const [triggers, setTriggers] = useState<CoachTriggers>(defaultTriggers);
   const [checkinHour, setCheckinHour] = useState(DEFAULT_CHECKIN_HOUR);
-  const [memory, setMemory] = useState<CoachMemory[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkinNote, setCheckinNote] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
+  const go = useGo();
 
   useEffect(() => {
     void loadCoachStance().then((s) => {
@@ -156,7 +148,6 @@ export default function CoachSettings() {
     });
     void loadCoachTriggers().then(setTriggers);
     void loadCheckinHour().then(setCheckinHour);
-    void listCoachMemory().then(setMemory).catch(() => setMemory([]));
     return () => {
       if (savedTimer.current != null) window.clearTimeout(savedTimer.current);
     };
@@ -190,7 +181,6 @@ export default function CoachSettings() {
           ? "Done — it's at the top of your chats."
           : (CHECKIN_REASONS[r.reason] ?? "Nothing to say right now."),
       );
-      setMemory(await listCoachMemory());
     } finally {
       setCheckingIn(false);
     }
@@ -208,12 +198,6 @@ export default function CoachSettings() {
     void saveCoachStance(next)
       .then(cacheCoachPromptPrefix)
       .then(flashSaved);
-  }
-
-  async function removeMemory(id: number) {
-    await deleteCoachMemory(id);
-    setMemory(await listCoachMemory());
-    await cacheCoachPromptPrefix();
   }
 
   if (!loaded) return null;
@@ -432,40 +416,18 @@ export default function CoachSettings() {
         )}
       </div>
 
-      <div className="card">
-        <h2 className="card-title">What it remembers</h2>
-        {memory.length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
-            Nothing yet. As you talk, the coach records goals, things you commit
-            to, and how you like to be coached — it all shows up here, and you
-            can delete any of it.
-          </p>
-        ) : (
-          <div className="list">
-            {memory.map((m) => (
-              <div key={m.id} className="list-row">
-                <div className="row-main">
-                  <div className="row-title" style={{ whiteSpace: "normal" }}>
-                    {m.text}
-                  </div>
-                  <div className="row-sub">
-                    {MEMORY_LABELS[m.kind]}
-                    {m.status ? ` · ${m.status}` : ""}
-                    {m.follow_up_on ? ` · follows up ${m.follow_up_on}` : ""}
-                  </div>
-                </div>
-                <button
-                  className="btn btn-ghost btn-sm row-end"
-                  aria-label="Forget this"
-                  onClick={() => void removeMemory(m.id)}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Memory used to be listed here; it lives on the Coach tab now. */}
+      <button
+        className="list-row chat-suggestion"
+        style={{ marginBottom: 10 }}
+        onClick={() => go("/assistant/memory")}
+      >
+        <div className="row-main">
+          <div className="row-title">🧠 What it remembers</div>
+          <div className="row-sub">Memory and manuals are on the Coach tab</div>
+        </div>
+        <div className="row-end">›</div>
+      </button>
     </>
   );
 }

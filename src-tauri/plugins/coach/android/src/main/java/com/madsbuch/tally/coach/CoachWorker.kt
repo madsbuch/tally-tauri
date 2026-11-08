@@ -259,6 +259,15 @@ internal object CoachWorker {
         val sb = StringBuilder(prefix)
         sb.append("\n\n## Where they stand right now\n")
         sb.append(digest.render())
+        // Same block as renderActiveManual in lib/coach.ts.
+        if (digest.fastHours != null) {
+            CoachDb.manualFor(db, "fasting")?.let { m ->
+                sb.append("\n\n## Their manual for this: ").append(m.title).append(" [").append(m.id).append("]\n")
+                sb.append("They're fasting right now, so this is what you've worked out together for it. ")
+                sb.append("If a line of it fits this moment, use it.\n")
+                sb.append(m.body)
+            }
+        }
         sb.append("\n\n## This check-in\n")
         sb.append(
             "You are opening this conversation yourself — they haven't asked you anything. " +

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Fast, FoodEntry } from "../lib/types";
+import type { Fast, FoodEntry, Manual } from "../lib/types";
 import { DEFAULT_FAST_HOURS, SETTING_KEYS } from "../lib/types";
 import { notifyDiaryChanged, onDiaryChanged } from "../lib/agent";
 import {
   deleteFast,
   getActiveFast,
   getLastMealAt,
+  getManualFor,
   getSetting,
   listAllFasts,
   listMealsSince,
@@ -25,6 +26,8 @@ import {
 } from "../lib/fasting";
 import type { FastingStage } from "../lib/fasting";
 import InfoButton from "../components/InfoButton";
+import { MANUAL_GLYPH, manualPath, onManualsChanged } from "../lib/manuals";
+import { useGo } from "../lib/navigation";
 
 const PRESET_HOURS = [13, 16, 18, 24, 48, 72];
 const MIN_HOURS = 1;
@@ -263,6 +266,24 @@ export default function FastingSection() {
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  /** The manual for fasting, shown as a way in while a fast runs. */
+  const [manual, setManual] = useState<Manual | null>(null);
+  const [manualVersion, setManualVersion] = useState(0);
+  const go = useGo();
+
+  useEffect(() => onManualsChanged(() => setManualVersion((n) => n + 1)), []);
+
+  useEffect(() => {
+    let alive = true;
+    void getManualFor("fasting")
+      .catch(() => null)
+      .then((m) => {
+        if (alive) setManual(m);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [manualVersion]);
 
   const loadHistory = useCallback(async () => {
     const [recent, all] = await Promise.all([listRecentFasts(30), listAllFasts()]);
@@ -530,6 +551,19 @@ export default function FastingSection() {
             <div className="stat-label">Progress</div>
           </div>
         </div>
+
+        {manual && (
+          <button className="manual-link" onClick={() => go(manualPath(manual.id))}>
+            <span>{MANUAL_GLYPH}</span>
+            <span style={{ flex: 1 }}>
+              Your fasting manual
+              <span className="muted small" style={{ display: "block" }}>
+                What you&apos;ve worked out with the coach
+              </span>
+            </span>
+            <span className="faint">›</span>
+          </button>
+        )}
 
         {flaggedMeal && (
           <div className="card" style={{ marginBottom: 14 }}>

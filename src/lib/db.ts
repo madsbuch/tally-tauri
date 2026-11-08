@@ -8,6 +8,8 @@ import {
   captures,
   chats,
   coachMemory,
+  manuals,
+  manualRevisions,
   coachRuns,
   dayGoalAdjustments,
   documents,
@@ -37,6 +39,10 @@ import type {
   Capture,
   ChatSummary,
   CoachMemory,
+  Manual,
+  ManualAuthor,
+  ManualRevision,
+  ManualTrigger,
   CoachRun,
   DayGoalAdjustment,
   EntryKind,
@@ -1428,6 +1434,159 @@ export async function clearFollowUps(ids: number[]): Promise<void> {
       .set({ followUpOn: null, updatedAt: now })
       .where(eq(coachMemory.id, id));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Manuals
+// ---------------------------------------------------------------------------
+
+type ManualRow = typeof manuals.$inferSelect;
+
+function toAuthor(v: string): ManualAuthor {
+  return v === "you" ? "you" : "coach";
+}
+
+function toTrigger(v: string | null): ManualTrigger | null {
+  return v === "fasting" ? v : null;
+}
+
+function toManual(r: ManualRow): Manual {
+  return {
+    id: r.id,
+    title: r.title,
+    situation: r.situation,
+    applies_when: toTrigger(r.appliesWhen),
+    body: r.body,
+    edited_by: toAuthor(r.editedBy),
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Every manual, most recently changed first. */
+export async function listManuals(): Promise<Manual[]> {
+  const rows = await db.select().from(manuals).orderBy(desc(manuals.updatedAt));
+  return rows.map(toManual);
+}
+
+export async function getManual(id: number): Promise<Manual | null> {
+  const rows = await db.select().from(manuals).where(eq(manuals.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toManual(row) : null;
+}
+
+/** The manual that loads by itself in this situation, if there is one. */
+export async function getManualFor(trigger: ManualTrigger): Promise<Manual | null> {
+  const rows = await db
+    .select()
+    .from(manuals)
+    .where(eq(manuals.appliesWhen, trigger))
+    .orderBy(desc(manuals.updatedAt))
+    .limit(1);
+  const row = rows[0];
+  return row ? toManual(row) : null;
+}
+
+export interface ManualDraft {
+  title: string;
+  situation: string;
+  applies_when: ManualTrigger | null;
+  body: string;
+}
+
+/**
+ * Only one manual loads for a situation, so claiming one takes it off any
+ * other — otherwise which one the coach saw would depend on the clock.
+ */
+async function releaseTrigger(trigger: ManualTrigger | null, keep: number): Promise<void> {
+  if (!trigger) return;
+  await db
+    .update(manuals)
+    .set({ appliesWhen: null })
+    .where(and(eq(manuals.appliesWhen, trigger), sql`${manuals.id} != ${keep}`));
+}
+
+export async function addManual(draft: ManualDraft, by: ManualAuthor): Promise<number> {
+  const now = new Date().toISOString();
+  const rows = await db
+    .insert(manuals)
+    .values({
+      title: draft.title,
+      situation: draft.situation,
+      appliesWhen: draft.applies_when,
+      body: draft.body,
+      editedBy: by,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: manuals.id });
+  const id = rows[0]?.id ?? 0;
+  await releaseTrigger(draft.applies_when, id);
+  return id;
+}
+
+/**
+ * Replace a manual, keeping what it said before as a revision. A save that
+ * changes nothing writes nothing, so the history only holds real changes.
+ * Returns false if the manual is gone.
+ */
+export async function updateManual(
+  id: number,
+  draft: ManualDraft,
+  by: ManualAuthor,
+): Promise<boolean> {
+  const current = await getManual(id);
+  if (!current) return false;
+  const same =
+    current.title === draft.title &&
+    current.situation === draft.situation &&
+    current.applies_when === draft.applies_when &&
+    current.body === draft.body;
+  if (same) return true;
+  await db.insert(manualRevisions).values({
+    manualId: id,
+    title: current.title,
+    situation: current.situation,
+    body: current.body,
+    editedBy: current.edited_by,
+    writtenAt: current.updated_at,
+  });
+  await db
+    .update(manuals)
+    .set({
+      title: draft.title,
+      situation: draft.situation,
+      appliesWhen: draft.applies_when,
+      body: draft.body,
+      editedBy: by,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(manuals.id, id));
+  await releaseTrigger(draft.applies_when, id);
+  return true;
+}
+
+export async function deleteManual(id: number): Promise<void> {
+  await db.delete(manualRevisions).where(eq(manualRevisions.manualId, id));
+  await db.delete(manuals).where(eq(manuals.id, id));
+}
+
+/** A manual's earlier versions, newest first. */
+export async function listManualRevisions(manualId: number): Promise<ManualRevision[]> {
+  const rows = await db
+    .select()
+    .from(manualRevisions)
+    .where(eq(manualRevisions.manualId, manualId))
+    .orderBy(desc(manualRevisions.id));
+  return rows.map((r) => ({
+    id: r.id,
+    manual_id: r.manualId,
+    title: r.title,
+    situation: r.situation,
+    body: r.body,
+    edited_by: toAuthor(r.editedBy),
+    written_at: r.writtenAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------

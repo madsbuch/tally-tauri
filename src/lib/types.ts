@@ -440,6 +440,38 @@ export interface CoachMemory {
   updated_at: string;
 }
 
+/** A situation the app can tell it's in by itself (see lib/manuals.ts). */
+export type ManualTrigger = "fasting";
+
+/** Who wrote a manual's current version. */
+export type ManualAuthor = "coach" | "you";
+
+/** A page of what works for this person in one situation (see lib/manuals.ts). */
+export interface Manual {
+  id: number;
+  title: string;
+  /** One line: when it applies. */
+  situation: string;
+  /** Loaded automatically while the app sees this; null when it can't tell. */
+  applies_when: ManualTrigger | null;
+  /** Markdown. */
+  body: string;
+  edited_by: ManualAuthor;
+  created_at: string;
+  updated_at: string;
+}
+
+/** An earlier version of a manual, kept when it changed. */
+export interface ManualRevision {
+  id: number;
+  manual_id: number;
+  title: string;
+  situation: string;
+  body: string;
+  edited_by: ManualAuthor;
+  written_at: string;
+}
+
 /** A check-in the coach started (see lib/coachTriggers.ts). */
 export interface CoachRun {
   id: number;
