@@ -1,11 +1,14 @@
 package com.madsbuch.tally
 
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
@@ -24,8 +27,9 @@ class MainActivity : TauriActivity() {
     // where the keys begin, which is what 100dvh then measures.
     val content = findViewById<View>(android.R.id.content)
     // Shows for a moment between the WebView and the keyboard while it slides
-    // in. Matches --bg in App.css rather than the theme's white or black.
-    content.setBackgroundColor(Color.parseColor("#F3F5EE"))
+    // in. Matches --bg in App.css rather than the theme's white or black; the
+    // page corrects it through setDark() once it knows the theme.
+    content.setBackgroundColor(Color.parseColor(if (isSystemDark()) BG_DARK else BG_LIGHT))
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
       val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
       view.setPadding(0, 0, 0, ime)
@@ -38,6 +42,34 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    webView.addJavascriptInterface(ThemeBridge(), "TallyTheme")
+  }
+
+  private fun isSystemDark(): Boolean =
+    (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+      Configuration.UI_MODE_NIGHT_YES
+
+  /**
+   * The page can pin light or dark regardless of the system (src/lib/theme.ts),
+   * and edge-to-edge only picks bar icon colours from the system — so the page
+   * says which theme it's showing and the icons and backing follow it.
+   */
+  private inner class ThemeBridge {
+    @JavascriptInterface
+    fun setDark(dark: Boolean) {
+      runOnUiThread {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = !dark
+        controller.isAppearanceLightNavigationBars = !dark
+        findViewById<View>(android.R.id.content)
+          .setBackgroundColor(Color.parseColor(if (dark) BG_DARK else BG_LIGHT))
+      }
+    }
+  }
+
+  private companion object {
+    const val BG_LIGHT = "#F3F5EE"
+    const val BG_DARK = "#141A16"
   }
 
   // The page hides the tab bar while you type; only this side knows when.

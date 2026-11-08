@@ -3,9 +3,10 @@ import type { ChartSpec } from "../lib/assistant";
 /**
  * Small static SVG chart for assistant chat bubbles (bar or line, ≤3 series).
  * Series colors are a fixed-order categorical set validated for CVD safety on
- * the white card surface (green → blue → amber, never re-ordered).
+ * the card surface (green → blue → amber, never re-ordered). They're the
+ * --series-* tokens in App.css, so each theme carries its own shades.
  */
-const SERIES_COLORS = ["#2f7a4d", "#3f7fc1", "#b06e2a"];
+const SERIES_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
 
 const W = 340;
 const PLOT_H = 150;

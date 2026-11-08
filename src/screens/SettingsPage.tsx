@@ -33,6 +33,7 @@ import type { HealthConnectStatus } from "../lib/healthConnect";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
 import FoodCountrySetting from "../components/FoodCountrySetting";
+import ThemeSetting from "../components/ThemeSetting";
 
 const MAX_LIST_ROWS = 40;
 
@@ -1059,6 +1060,10 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+
+      {/* Appearance -------------------------------------------------------- */}
+      <div className="section-title">Appearance</div>
+      <ThemeSetting />
 
       {/* Your data --------------------------------------------------------- */}
       <div className="section-title">Your data</div>

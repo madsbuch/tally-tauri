@@ -20,6 +20,15 @@
   --caffeine: #8a5a35;
   --alcohol: #8e3b52;
   --vitd: #b8871f;
+  /* Assistant chart series: a fixed-order categorical set (green → blue →
+     amber, never re-ordered), checked for CVD safety on the card surface. */
+  --series-1: #2f7a4d;
+  --series-2: #3f7fc1;
+  --series-3: #b06e2a;
+  /* Frosted bars (status bar scrim, tab bar), drop shadows, sheet backdrop. */
+  --frost: #ffffff;
+  --shadow: 36 49 42;
+  --backdrop: rgb(24 34 27 / 0.42);
   --radius: 14px;
   --radius-sm: 10px;
   --tabbar-h: 62px;
@@ -29,6 +38,67 @@
   --font-serif: "Iowan Old Style", Georgia, "Times New Roman", serif;
   font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   color-scheme: light;
+}
+
+/*
+ * Dark — the same sage-and-forest palette at night: deep green-black ground,
+ * slightly raised cards, the accent lifted to a soft leaf green so it still
+ * reads on the dark surface (and buttons put dark text on it).
+ *
+ * Follows the system unless Settings → Appearance pins a theme, which sets
+ * data-theme on <html> (src/lib/theme.ts). The palette is written twice:
+ * once for "system says dark and nothing pinned light", once for "pinned dark".
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a16;
+    --bg-elev: #1c241f;
+    --card: #1f2823;
+    --border: #2f3a33;
+    --text: #e3e9e1;
+    --muted: #a0aba3;
+    --faint: #6f7a72;
+    --accent: #8cc49b;
+    --accent-dim: #5f9a70;
+    --on-accent: #10180f;
+    --danger: #e98374;
+    --warn: #d9a548;
+    --caffeine: #c99068;
+    --alcohol: #d77f99;
+    --vitd: #e0b450;
+    --series-1: #6cc08a;
+    --series-2: #7fb2ea;
+    --series-3: #e0a060;
+    --frost: #141a16;
+    --shadow: 0 0 0;
+    --backdrop: rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #141a16;
+  --bg-elev: #1c241f;
+  --card: #1f2823;
+  --border: #2f3a33;
+  --text: #e3e9e1;
+  --muted: #a0aba3;
+  --faint: #6f7a72;
+  --accent: #8cc49b;
+  --accent-dim: #5f9a70;
+  --on-accent: #10180f;
+  --danger: #e98374;
+  --warn: #d9a548;
+  --caffeine: #c99068;
+  --alcohol: #d77f99;
+  --vitd: #e0b450;
+  --series-1: #6cc08a;
+  --series-2: #7fb2ea;
+  --series-3: #e0a060;
+  --frost: #141a16;
+  --shadow: 0 0 0;
+  --backdrop: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
 }
 
 /*
@@ -97,7 +167,7 @@ body {
   left: 0;
   right: 0;
   height: env(safe-area-inset-top);
-  background: color-mix(in srgb, #ffffff 86%, transparent);
+  background: color-mix(in srgb, var(--frost) 86%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
@@ -112,7 +182,7 @@ body {
   display: flex;
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: color-mix(in srgb, #ffffff 86%, transparent);
+  background: color-mix(in srgb, var(--frost) 86%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--border);
@@ -226,7 +296,7 @@ body {
   border-radius: var(--radius);
   padding: 14px;
   margin-bottom: 10px;
-  box-shadow: 0 1px 2px rgb(36 49 42 / 0.04);
+  box-shadow: 0 1px 2px rgb(var(--shadow) / 0.04);
 }
 
 .card-title {
@@ -423,7 +493,7 @@ textarea.input {
 .seg-item-active {
   background: var(--card);
   color: var(--text);
-  box-shadow: 0 1px 3px rgb(36 49 42 / 0.14);
+  box-shadow: 0 1px 3px rgb(var(--shadow) / 0.14);
 }
 
 /* Chips ------------------------------------------------------------------- */
@@ -952,7 +1022,7 @@ textarea.entry-chat-input {
   font-weight: 700;
   padding: 14px 22px;
   border-radius: 999px;
-  box-shadow: 0 6px 16px rgb(36 49 42 / 0.28);
+  box-shadow: 0 6px 16px rgb(var(--shadow) / 0.28);
   cursor: pointer;
   transition: transform 0.05s ease;
 }
@@ -975,7 +1045,7 @@ textarea.entry-chat-input {
   height: 46px;
   padding: 0;
   font-size: 20px;
-  box-shadow: 0 4px 12px rgb(36 49 42 / 0.16);
+  box-shadow: 0 4px 12px rgb(var(--shadow) / 0.16);
 }
 
 /* Keep the last timeline rows tappable underneath the floating actions. */
@@ -1008,7 +1078,7 @@ textarea.entry-chat-input {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgb(24 34 27 / 0.42);
+  background: var(--backdrop);
   z-index: 100;
   display: flex;
   align-items: flex-end;
@@ -1671,7 +1741,7 @@ textarea.chat-input {
   padding: 10px 18px;
   font-size: 13.5px;
   font-weight: 600;
-  box-shadow: 0 6px 24px rgb(24 34 27 / 0.28);
+  box-shadow: 0 6px 24px rgb(var(--shadow) / 0.28);
   animation: toast-in 0.25s ease;
 }
 
