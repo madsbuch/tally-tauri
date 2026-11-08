@@ -20,6 +20,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Caches the Gradle distribution and dependencies between runs, so a
+      # build doesn't hinge on services.gradle.org answering in time.
+      - uses: gradle/actions/setup-gradle@v4
+
       - name: Install Android NDK
         run: |
           echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.0.12674087"
@@ -53,6 +57,18 @@ jobs:
           password=$KEYSTORE_PASSWORD
           storeFile=$RUNNER_TEMP/upload.jks
           EOF
+
+      # The wrapper's own download has a short timeout and no retry; fetch it
+      # here with retries so a slow mirror doesn't fail the whole build.
+      - name: Fetch Gradle
+        working-directory: src-tauri/gen/android
+        run: |
+          for i in 1 2 3 4; do
+            ./gradlew --version && exit 0
+            echo "Gradle download failed (attempt $i), retrying…"
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Build APK
         run: bun run tauri android build --apk --target aarch64
