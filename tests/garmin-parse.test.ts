@@ -3,8 +3,11 @@ import {
   parseGarminCmdError,
   parseGarminDailySummary,
   parseGarminReadiness,
+  parseGarminDailySummariesV2,
+  parseGarminHrvDaily,
+  parseGarminLaps,
   parseGarminSleep,
-  parseGarminSplits,
+  parseGarminSleepList,
   parseGarminTrainingStatus,
   parseGarminWeights,
 } from "../src/lib/schemas";
@@ -77,7 +80,10 @@ describe("Garmin answers", () => {
       parseGarminWeights({ dailyWeightSummaries: [{ summaryDate: "2026-10-10", latestWeight: { weight: 81234 } }] })
         .get("2026-10-10"),
     ).toBeCloseTo(81.234);
-    const laps = parseGarminSplits({ lapDTOs: [{ distance: 1000, duration: 300, averageHR: 150 }, "bad"] });
+    const laps = parseGarminLaps([
+      { index: 1, startMs: 1, durationSec: 300, distanceM: 1000, avgHr: 150, maxHr: null, avgSpeedMps: null, avgPower: null, avgCadence: null, elevationGainM: null, calories: null },
+      "bad",
+    ]);
     expect(laps).toHaveLength(1);
     expect(laps[0]).toMatchObject({ index: 1, distanceM: 1000, avgHr: 150, avgPower: null });
   });
@@ -85,5 +91,57 @@ describe("Garmin answers", () => {
   test("command errors", () => {
     expect(parseGarminCmdError({ code: "rate_limited", message: "slow down" }).code).toBe("rate_limited");
     expect(parseGarminCmdError("boom")).toEqual({ code: "unknown", message: "boom" });
+  });
+
+  test("Personal API daily summaries (v2)", () => {
+    const m = parseGarminDailySummariesV2({
+      data: [
+        {
+          calendarDate: "2026-11-01",
+          movement: { steps: { value: 9876, goal: 10000 }, floorsAscended: { value: 7 } },
+          calories: { burnedTotal: 2650, burnedActive: 610 },
+          heartRate: { restingValue: 47, minValue: 44, maxValue: 168 },
+          stress: { avgLevel: 31, maxLevel: -1 },
+          bodyBattery: { maxValue: 92, minValue: 18, chargedValue: 70, drainedValue: 74 },
+          pulseOx: { avgValue: 95, minValue: 88 },
+          intensityMinutes: { moderate: 20, vigorous: 35 },
+        },
+        { nope: true },
+      ],
+    });
+    const d = m.get("2026-11-01")!;
+    expect(m.size).toBe(1);
+    expect(d).toMatchObject({ steps: 9876, floors: 7, caloriesActive: 610, restingHr: 47, stressAvg: 31, stressMax: null, bodyBatteryHigh: 92, spo2Low: 88, intensityVigorous: 35 });
+    expect(parseGarminDailySummariesV2("junk").size).toBe(0);
+  });
+
+  test("Personal API HRV range and sleep list (string timestamps)", () => {
+    const hrv = parseGarminHrvDaily({
+      hrvSummaries: [{ calendarDate: "2026-11-01", lastNightAvg: 58, weeklyAvg: 61, status: "BALANCED" }],
+    });
+    expect(hrv.get("2026-11-01")).toMatchObject({ lastNight: 58, weeklyAvg: 61, status: "BALANCED" });
+
+    const [ms, iso] = parseGarminSleepList([
+      {
+        id: 1,
+        calendarDate: "2026-11-01",
+        sleepStartTimestampGMT: "1761946200000",
+        sleepEndTimestampGMT: 1761975000000,
+        sleepEndTimestampLocal: 1761978600000,
+        remSleepSeconds: 5400,
+        sleepScores: { overall: { value: 77 } },
+      },
+      {
+        id: 2,
+        calendarDate: "2026-11-02",
+        sleepStartTimestampGMT: "2026-11-01T22:10:00.0",
+        sleepEndTimestampGMT: "2026-11-02T06:10:00.0",
+        sleepEndTimestampLocal: "2026-11-02T07:10:00.0",
+      },
+    ]);
+    expect(ms!.night).toMatchObject({ id: "1", startMs: 1761946200000, offsetMin: 60, remMin: 90 });
+    expect(ms!.score).toBe(77);
+    expect(iso!.night?.startMs).toBe(Date.parse("2026-11-01T22:10:00Z"));
+    expect(iso!.night?.offsetMin).toBe(60);
   });
 });

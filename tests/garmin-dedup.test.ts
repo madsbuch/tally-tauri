@@ -171,6 +171,16 @@ describe("Garmin ↔ Health Connect dedup", () => {
     expect(await g.fillSleepFromGarmin()).toBe(0);
   });
 
+  test("a day's write merges: neither way in blanks out the other's columns", async () => {
+    const at = new Date().toISOString();
+    await g.upsertGarminDay({ day: "2026-10-20", readinessScore: 70, trainingStatus: "PRODUCTIVE", raw: { readiness: [1] }, fetchedAt: at });
+    await g.upsertGarminDay({ day: "2026-10-20", steps: 5000, bodyBatteryHigh: 80, raw: { dailySummary: { a: 1 } }, fetchedAt: at });
+    const [row] = sqlite.query("SELECT steps, readiness_score, training_status, body_battery_high FROM garmin_days WHERE day = '2026-10-20'").all() as Record<string, unknown>[];
+    expect(row).toMatchObject({ steps: 5000, readiness_score: 70, training_status: "PRODUCTIVE", body_battery_high: 80 });
+    const keys = sqlite.query("SELECT key FROM garmin_days, json_each(garmin_days.raw) WHERE day = '2026-10-20' ORDER BY key").all();
+    expect(keys).toEqual([{ key: "dailySummary" }, { key: "readiness" }]);
+  });
+
   test("the link report adds up", async () => {
     const r = await g.garminLinkReport();
     expect(r.activities).toBe(4);

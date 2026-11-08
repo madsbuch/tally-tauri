@@ -1,4 +1,5 @@
-import { and, eq, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { garminActivities, garminDays, healthMetrics, sleepSessions, workouts } from "../db/schema";
 import { db, upsertSleepSession } from "./db";
 import { dayOf, stampOf } from "./daystamp";
@@ -287,9 +288,24 @@ export async function setGarminLaps(activityId: string, laps: GarminLap[]): Prom
 
 export type GarminDayRow = typeof garminDays.$inferInsert;
 
+/**
+ * Write a day, merging into what's there: a value only replaces another, never
+ * erases it, and `raw` gains the new endpoints' answers beside the old. The
+ * Personal API and the optional sign-in each fill part of a day (readiness
+ * and training status only come from the latter), so neither may blank out
+ * the other's columns.
+ */
 export async function upsertGarminDay(row: GarminDayRow): Promise<void> {
-  const { day: _day, ...rest } = row;
-  await db.insert(garminDays).values(row).onConflictDoUpdate({ target: garminDays.day, set: rest });
+  const set: Record<string, SQL> = {};
+  for (const [key, col] of Object.entries(getTableColumns(garminDays))) {
+    if (key === "day") continue;
+    const excluded = sql.raw(`excluded."${col.name}"`);
+    set[key] =
+      key === "raw"
+        ? sql`json_patch(COALESCE(${garminDays.raw}, '{}'), COALESCE(${excluded}, '{}'))`
+        : sql`COALESCE(${excluded}, ${col})`;
+  }
+  await db.insert(garminDays).values(row).onConflictDoUpdate({ target: garminDays.day, set });
 }
 
 /** Whether Garmin had anything at all for that day (for the backfill's end). */

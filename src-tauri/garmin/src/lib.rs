@@ -1,13 +1,18 @@
-//! A minimal, unofficial Garmin Connect client.
+//! A minimal Garmin Connect client.
 //!
-//! It signs in the way Garmin's own mobile app does (the flow the community
+//! The preferred way in is the official Personal API: a key the user creates
+//! on Garmin Connect Web, exchanged for 24-hour bearer tokens ([`Personal`]).
+//! The unofficial sign-in below stays as an optional extra for the few things
+//! the Personal API doesn't serve (training readiness and training status).
+//!
+//! The unofficial path signs in the way Garmin's own mobile app does (the flow the community
 //! `garth` library documented): the SSO web form hands out a one-time ticket,
 //! the ticket buys a long-lived OAuth1 token (about a year), and the OAuth1
 //! token is exchanged for short-lived OAuth2 bearer tokens as often as needed.
 //! The password is only used for the first step and never kept; what's worth
 //! persisting is the [`Session`].
 //!
-//! This is not an official API. Garmin changes the login flow from time to
+//! That part is not an official API. Garmin changes the login flow from time to
 //! time and this will break when it does — every URL, header and pattern that
 //! is likely to need patching lives in the constants below.
 
@@ -24,6 +29,10 @@ use sha1::Sha1;
 const SSO: &str = "https://sso.garmin.com/sso";
 const SSO_EMBED: &str = "https://sso.garmin.com/sso/embed";
 const API: &str = "https://connectapi.garmin.com";
+/// The official Personal API (same paths as connectapi, its own host).
+const PERSONAL_API: &str = "https://personal.connectapi.garmin.com";
+const PERSONAL_TOKEN: &str =
+    "https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token";
 const PREAUTHORIZED: &str = "https://connectapi.garmin.com/oauth-service/oauth/preauthorized";
 const EXCHANGE: &str = "https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0";
 /// Where garth publishes the mobile app's OAuth consumer pair, so a rotated
@@ -49,6 +58,8 @@ pub enum GarminError {
     MfaFailed,
     #[error("The Garmin sign-in has expired — sign in again")]
     AuthExpired,
+    #[error("Garmin rejected the personal API key — it may have expired or been deleted; create a new one on Garmin Connect")]
+    InvalidKey,
     #[error("Garmin blocked the request ({0})")]
     Blocked(String),
     #[error("Garmin answered {status}: {body}")]
@@ -68,6 +79,7 @@ impl GarminError {
             GarminError::AccountLocked => "account_locked",
             GarminError::MfaFailed => "mfa_failed",
             GarminError::AuthExpired => "auth_expired",
+            GarminError::InvalidKey => "invalid_key",
             GarminError::Blocked(_) => "blocked",
             GarminError::Http { .. } => "http",
             GarminError::Network(_) => "network",
@@ -392,7 +404,28 @@ async fn exchange(http: &reqwest::Client, o1: &OAuth1Token) -> Result<OAuth2Toke
     })
 }
 
-/// A connectapi client for an already signed-in [`Session`].
+/// The official Personal API: a key the user creates on Garmin Connect Web,
+/// traded for a 24-hour bearer token whenever one is needed (there are no
+/// refresh tokens — the key itself is the refresh).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Personal {
+    pub api_key: String,
+    #[serde(default)]
+    pub token: Option<OAuth2Token>,
+}
+
+/// Which way a request is authenticated.
+pub enum Auth<'a> {
+    /// Official Personal API key → personal.connectapi.garmin.com.
+    Personal(&'a mut Personal),
+    /// Unofficial sign-in → connectapi.garmin.com.
+    Legacy(&'a mut Session),
+}
+
+/// Personal API tokens last 24 hours; ask for a new one a little early.
+const PERSONAL_TOKEN_FALLBACK_S: i64 = 23 * 3600;
+
+/// A connectapi client for an API key or an already signed-in [`Session`].
 pub struct Api {
     http: reqwest::Client,
 }
@@ -402,59 +435,164 @@ impl Api {
         Ok(Self { http: http_client(false)? })
     }
 
-    /// Swaps in a fresh bearer token (the caller should save the session).
-    pub async fn refresh(&self, s: &mut Session) -> Result<()> {
-        s.oauth2 = exchange(&self.http, &s.oauth1).await?;
-        Ok(())
+    /// Trade a Personal API key for a bearer token. A rejected key (deleted,
+    /// expired, mistyped) is [`GarminError::InvalidKey`].
+    pub async fn personal_token(&self, api_key: &str) -> Result<OAuth2Token> {
+        let res = self
+            .http
+            .post(PERSONAL_TOKEN)
+            .header("Authorization", format!("ApiKey {}", api_key.trim()))
+            .send()
+            .await?;
+        let status = res.status();
+        let body = res.text().await?;
+        if matches!(status.as_u16(), 400 | 401 | 403 | 404) {
+            return Err(GarminError::InvalidKey);
+        }
+        check_status(status, &body)?;
+        parse_personal_token(&body)
     }
 
-    /// `GET {API}{path}?{query}` → JSON (`Null` for an empty answer).
-    /// Refreshes the bearer token first when it's about to expire, and once
-    /// more on a 401. The bool says whether `s` was refreshed and needs saving.
-    pub async fn get(
+    /// Make sure the auth carries a usable bearer token. Returns whether it
+    /// changed (so the caller should save it).
+    async fn ensure_fresh(&self, auth: &mut Auth<'_>, force: bool) -> Result<bool> {
+        match auth {
+            Auth::Legacy(s) => {
+                if force || s.oauth2.expires_at - REFRESH_MARGIN_S < now_s() {
+                    s.oauth2 = exchange(&self.http, &s.oauth1).await?;
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Auth::Personal(p) => {
+                let stale = p
+                    .token
+                    .as_ref()
+                    .map(|t| t.expires_at - REFRESH_MARGIN_S < now_s())
+                    .unwrap_or(true);
+                if force || stale {
+                    p.token = Some(self.personal_token(&p.api_key).await?);
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    fn base_and_token<'b>(auth: &'b Auth<'_>) -> (&'static str, &'b str) {
+        match auth {
+            Auth::Legacy(s) => (API, s.oauth2.access_token.as_str()),
+            Auth::Personal(p) => (
+                PERSONAL_API,
+                p.token.as_ref().map(|t| t.access_token.as_str()).unwrap_or(""),
+            ),
+        }
+    }
+
+    /// `GET {base}{path}?{query}` → body bytes. Refreshes the token first when
+    /// it's about to expire and once more on a 401. The bool says whether the
+    /// auth changed and should be saved.
+    async fn fetch(
         &self,
-        s: &mut Session,
+        auth: &mut Auth<'_>,
         path: &str,
         query: &[(String, String)],
-    ) -> Result<(Value, bool)> {
+    ) -> Result<(Vec<u8>, bool)> {
         if !path.starts_with('/') || path.contains("..") || path.contains("://") {
             return Err(GarminError::Unexpected(format!("refusing path {path}")));
         }
-        let mut refreshed = false;
-        if s.oauth2.expires_at - REFRESH_MARGIN_S < now_s() {
-            self.refresh(s).await?;
-            refreshed = true;
-        }
+        let mut refreshed = self.ensure_fresh(auth, false).await?;
+        let mut retried = false;
         loop {
+            let (base, token) = Self::base_and_token(auth);
             let res = self
                 .http
-                .get(format!("{API}{path}"))
+                .get(format!("{base}{path}"))
                 .query(query)
                 .header("User-Agent", UA_APP)
-                .header("Authorization", format!("Bearer {}", s.oauth2.access_token))
+                .header("Authorization", format!("Bearer {token}"))
                 .send()
                 .await?;
             let status = res.status();
-            let body = res.text().await?;
-            if status.as_u16() == 401 && !refreshed {
-                self.refresh(s).await?;
-                refreshed = true;
+            let bytes = res.bytes().await?.to_vec();
+            if status.as_u16() == 401 && !retried {
+                retried = true;
+                refreshed |= self.ensure_fresh(auth, true).await?;
                 continue;
             }
             if status.as_u16() == 401 {
-                return Err(GarminError::AuthExpired);
+                return Err(match auth {
+                    Auth::Legacy(_) => GarminError::AuthExpired,
+                    Auth::Personal(_) => GarminError::InvalidKey,
+                });
             }
-            check_status(status, &body)?;
-            if body.trim().is_empty() {
-                return Ok((Value::Null, refreshed));
-            }
-            let v = serde_json::from_str(&body).map_err(|e| {
-                GarminError::Unexpected(format!("{path}: not JSON ({e})"))
-            })?;
-            return Ok((v, refreshed));
+            check_status(status, &String::from_utf8_lossy(&bytes))?;
+            return Ok((bytes, refreshed));
         }
     }
+
+    /// JSON GET (`Null` for an empty answer).
+    pub async fn get(
+        &self,
+        auth: &mut Auth<'_>,
+        path: &str,
+        query: &[(String, String)],
+    ) -> Result<(Value, bool)> {
+        let (bytes, refreshed) = self.fetch(auth, path, query).await?;
+        if bytes.iter().all(|b| b.is_ascii_whitespace()) {
+            return Ok((Value::Null, refreshed));
+        }
+        let v = serde_json::from_slice(&bytes)
+            .map_err(|e| GarminError::Unexpected(format!("{path}: not JSON ({e})")))?;
+        Ok((v, refreshed))
+    }
+
+    /// The laps of an activity, read from its original FIT file.
+    pub async fn activity_laps(
+        &self,
+        auth: &mut Auth<'_>,
+        activity_id: &str,
+    ) -> Result<(Vec<fit::Lap>, bool)> {
+        if activity_id.is_empty() || !activity_id.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(GarminError::Unexpected(format!("bad activity id {activity_id}")));
+        }
+        let (bytes, refreshed) = self
+            .fetch(auth, &format!("/download-service/files/activity/{activity_id}"), &[])
+            .await?;
+        Ok((fit::laps(&bytes)?, refreshed))
+    }
 }
+
+/// The token endpoint's answer. Its shape isn't documented, so take the
+/// usual spellings, or a bare token string.
+fn parse_personal_token(body: &str) -> Result<OAuth2Token> {
+    let trimmed = body.trim();
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        if let Some(t) = v.as_str() {
+            return Ok(OAuth2Token {
+                access_token: t.to_string(),
+                expires_at: now_s() + PERSONAL_TOKEN_FALLBACK_S,
+            });
+        }
+        let pick = |keys: &[&str]| keys.iter().find_map(|k| v.get(*k).cloned());
+        let token = pick(&["access_token", "accessToken", "token"])
+            .and_then(|t| t.as_str().map(String::from))
+            .ok_or_else(|| GarminError::Unexpected("token answer without a token".into()))?;
+        let expires_in = pick(&["expires_in", "expiresIn"])
+            .and_then(|e| e.as_i64().or_else(|| e.as_str()?.parse().ok()))
+            .unwrap_or(PERSONAL_TOKEN_FALLBACK_S);
+        return Ok(OAuth2Token { access_token: token, expires_at: now_s() + expires_in });
+    }
+    if !trimmed.is_empty() && !trimmed.contains(char::is_whitespace) && !trimmed.starts_with('<') {
+        return Ok(OAuth2Token {
+            access_token: trimmed.to_string(),
+            expires_at: now_s() + PERSONAL_TOKEN_FALLBACK_S,
+        });
+    }
+    Err(GarminError::Unexpected("unreadable token answer".into()))
+}
+
+pub mod fit;
 
 // ---------------------------------------------------------------------------
 // OAuth1 (RFC 5849) HMAC-SHA1 signing
@@ -562,6 +700,18 @@ mod tests {
             h.contains(r#"oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D""#),
             "{h}"
         );
+    }
+
+    #[test]
+    fn reads_the_personal_token_answer_in_its_likely_shapes() {
+        let t = parse_personal_token(r#"{"access_token":"abc","expires_in":86400}"#).unwrap();
+        assert_eq!(t.access_token, "abc");
+        assert!(t.expires_at > now_s() + 86000);
+        assert_eq!(parse_personal_token(r#"{"accessToken":"x1"}"#).unwrap().access_token, "x1");
+        assert_eq!(parse_personal_token("\"bare\"").unwrap().access_token, "bare");
+        assert_eq!(parse_personal_token("eyJhbGciOi.payload.sig").unwrap().access_token, "eyJhbGciOi.payload.sig");
+        assert!(parse_personal_token("<html>nope</html>").is_err());
+        assert!(parse_personal_token(r#"{"error":"x"}"#).is_err());
     }
 
     #[test]

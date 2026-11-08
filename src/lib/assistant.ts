@@ -154,7 +154,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_garmin_wellness",
       description:
-        "Garmin Connect's own daily numbers (direct sync, not Health Connect) per day: Body Battery (high/low/charged/drained/at wake), stress (avg/max, 0–100), training readiness (score + level), training status (e.g. PRODUCTIVE, MAINTAINING, UNPRODUCTIVE), acute/chronic training load, HRV last night + weekly avg + status, sleep score/stress/respiration and Body Battery gained overnight, intensity minutes, floors, respiration, SpO2, resting HR, steps, VO2 max.",
+        "Garmin Connect's own daily numbers (direct sync, not Health Connect) per day: Body Battery (high/low/charged/drained), stress (avg/max, 0–100), HRV last night + weekly avg + status, sleep score/stress/respiration, intensity minutes, floors, respiration, SpO2, resting HR, steps, weight. Training readiness (score + level), training status (e.g. PRODUCTIVE, MAINTAINING), acute/chronic load and VO2 max only for recent days, and only when the optional unofficial sign-in is on — absent otherwise, which says nothing about the day.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },

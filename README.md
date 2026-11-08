@@ -44,15 +44,17 @@ lives in a SQLite database on the device — there is no backend.
   calories count against the day's energy math. Fully on-device — no Garmin
   account access, no cloud.
 - **Garmin Connect (direct, optional)** — for what Health Connect doesn't
-  carry: Training Effect, training load, HR-zone time, power and laps per
-  activity; Body Battery, stress, training readiness/status, sleep score and
-  HRV status per day. Signs in the way the Garmin Connect app does
-  (unofficial — `src-tauri/garmin`; the password is never stored, the session
-  file stays in the app data dir). Activities attach to the workouts Health
-  Connect already synced (matched by time, or exactly by `clientRecordId`), so
-  nothing duplicates and edits survive; Garmin only fills Health Connect's
-  gaps. Paced requests, syncs at most every 3 h, backfills history a chunk at
-  a time, and stops for a day if Garmin rate-limits.
+  carry: Training Effect, training load, HR-zone time, power and laps (from
+  each activity's FIT file) per activity; Body Battery, stress, sleep score
+  and HRV status per day. Uses Garmin's official **Personal API**: create a key
+  on Garmin Connect Web (Personal API Key → Create Key) and paste it in
+  Settings; it stays in the app data dir and is traded for 24-hour tokens
+  (`src-tauri/garmin`). Training readiness and status aren't in the Personal
+  API — an optional unofficial sign-in adds them for recent days. Activities
+  attach to the workouts Health Connect already synced (matched by time, or
+  exactly by `clientRecordId`), so nothing duplicates and edits survive;
+  Garmin only fills Health Connect's gaps. Paced requests, syncs at most every
+  3 h, backfills history in chunks, and stops for a day if Garmin rate-limits.
 - **Fasting timer** — built for multi-day fasts (48 h/72 h presets, custom to
   168 h). A sticky Android notification shows a **live countdown**
   (chronometer-based: keeps ticking even when the app is killed) plus an

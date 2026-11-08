@@ -702,13 +702,16 @@ export function parseGarminCmdError(raw: unknown): GarminCmdError {
 }
 
 export const GarminStatusSchema = z.object({
+  /** The official Personal API key is set. */
+  personal: z.boolean().catch(false),
+  /** The unofficial sign-in is active (training readiness/status only). */
   connected: z.boolean().catch(false),
   mfaPending: z.boolean().catch(false),
 });
 export type GarminStatus = z.infer<typeof GarminStatusSchema>;
 
 export function parseGarminStatus(raw: unknown): GarminStatus {
-  return GarminStatusSchema.catch({ connected: false, mfaPending: false }).parse(raw);
+  return GarminStatusSchema.catch({ personal: false, connected: false, mfaPending: false }).parse(raw);
 }
 
 export function parseGarminLoginResult(raw: unknown): "connected" | "mfa" {
@@ -827,45 +830,26 @@ export const GarminLapSchema = z.object({
 });
 export type GarminLap = z.infer<typeof GarminLapSchema>;
 
-/** /activity-service/activity/{id}/splits → laps. */
-export function parseGarminSplits(raw: unknown): GarminLap[] {
-  const Lap = z.looseObject({
-    lapIndex: gNum,
-    startTimeGMT: gStr,
-    duration: gNum,
-    distance: gNum,
-    averageHR: gNum,
-    maxHR: gNum,
-    averageSpeed: gNum,
-    averagePower: gNum,
-    averageRunCadence: gNum,
-    averageBikeCadence: gNum,
-    elevationGain: gNum,
+/** The laps `garmin_activity_laps` read out of an activity's FIT file. */
+export function parseGarminLaps(raw: unknown): GarminLap[] {
+  const Lap = z.object({
+    index: z.number(),
+    startMs: gNum,
+    durationSec: gNum,
+    distanceM: gNum,
+    avgHr: gNum,
+    maxHr: gNum,
+    avgSpeedMps: gNum,
+    avgPower: gNum,
+    avgCadence: gNum,
+    elevationGainM: gNum,
     calories: gNum,
   });
-  const laps = z
-    .looseObject({ lapDTOs: z.array(Lap.nullable().catch(null)).catch([]) })
-    .catch({ lapDTOs: [] })
-    .parse(raw).lapDTOs;
-  return laps.flatMap((l, i) => {
-    if (l == null) return [];
-    const start = l.startTimeGMT ? Date.parse(l.startTimeGMT.endsWith("Z") ? l.startTimeGMT : l.startTimeGMT + "Z") : NaN;
-    return [
-      {
-        index: l.lapIndex ?? i + 1,
-        startMs: isFinite(start) ? start : null,
-        durationSec: l.duration,
-        distanceM: l.distance,
-        avgHr: l.averageHR,
-        maxHr: l.maxHR,
-        avgSpeedMps: l.averageSpeed,
-        avgPower: l.averagePower,
-        avgCadence: l.averageRunCadence ?? l.averageBikeCadence,
-        elevationGainM: l.elevationGain,
-        calories: l.calories,
-      },
-    ];
-  });
+  return z
+    .array(Lap.nullable().catch(null))
+    .catch([])
+    .parse(raw)
+    .filter((l) => l != null);
 }
 
 /** Stored `garmin_activities.laps`; null = not fetched or corrupt. */
@@ -917,39 +901,62 @@ export function parseGarminDailySummary(raw: unknown) {
 export type GarminDailySummary = NonNullable<ReturnType<typeof parseGarminDailySummary>>;
 
 /**
- * /wellness-service/wellness/dailySleepData/{displayName}?date= — the night
- * ending on that date. `raw` keeps everything but the per-minute series.
+ * A timestamp Garmin gives as epoch ms — a number, a numeric string — or as a
+ * date-time string, with or without a zone (none = UTC, or wall-clock for the
+ * "Local" twins, which are only ever compared with their GMT sibling).
  */
-export function parseGarminSleep(raw: unknown) {
-  const Dto = z.looseObject({
-    id: gId,
-    sleepStartTimestampGMT: gNum,
-    sleepEndTimestampGMT: gNum,
-    sleepEndTimestampLocal: gNum,
-    deepSleepSeconds: gNum,
-    lightSleepSeconds: gNum,
-    remSleepSeconds: gNum,
-    awakeSleepSeconds: gNum,
-    averageRespirationValue: gLevel,
-    avgSleepStress: gLevel,
-    sleepScores: z
-      .looseObject({ overall: z.looseObject({ value: gNum }).nullish().catch(null) })
-      .nullish()
-      .catch(null),
+const gMs = z
+  .union([z.number(), z.string()])
+  .nullish()
+  .catch(null)
+  .transform((v) => {
+    if (v == null || v === "") return null;
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    if (/^\d+$/.test(v)) return Number(v);
+    const zoned = /([zZ]|[+-]\d\d:?\d\d)$/.test(v) ? v : `${v.replace(" ", "T")}Z`;
+    const ms = Date.parse(zoned);
+    return isFinite(ms) ? ms : null;
   });
-  const parsed = z
-    .looseObject({
-      dailySleepDTO: Dto.nullish().catch(null),
-      bodyBatteryChange: gNum,
-    })
-    .nullable()
-    .catch(null)
-    .parse(raw);
-  const obj = asJsonObject(raw);
-  const kept = obj
-    ? Object.fromEntries(Object.entries(obj).filter(([, v]) => !Array.isArray(v)))
-    : null;
-  const d = parsed?.dailySleepDTO;
+
+const SleepDtoSchema = z.looseObject({
+  id: gId,
+  calendarDate: gStr,
+  sleepStartTimestampGMT: gMs,
+  sleepEndTimestampGMT: gMs,
+  sleepEndTimestampLocal: gMs,
+  deepSleepSeconds: gNum,
+  lightSleepSeconds: gNum,
+  remSleepSeconds: gNum,
+  awakeSleepSeconds: gNum,
+  averageRespirationValue: gLevel,
+  avgSleepStress: gLevel,
+  sleepScores: z
+    .looseObject({ overall: z.looseObject({ value: gNum }).nullish().catch(null) })
+    .nullish()
+    .catch(null),
+});
+
+export interface GarminSleep {
+  /** Garmin's calendar date for the night — the morning it ended. */
+  day: string | null;
+  night: {
+    id: string;
+    startMs: number;
+    endMs: number;
+    offsetMin: number | null;
+    deepMin: number | null;
+    remMin: number | null;
+    lightMin: number | null;
+    awakeMin: number | null;
+  } | null;
+  score: number | null;
+  respiration: number | null;
+  stress: number | null;
+  bodyBatteryChange: number | null;
+  raw: Record<string, unknown> | null;
+}
+
+function sleepOf(d: z.infer<typeof SleepDtoSchema> | null | undefined, bodyBatteryChange: number | null, raw: Record<string, unknown> | null): GarminSleep {
   const night =
     d && d.id != null && d.sleepStartTimestampGMT != null && d.sleepEndTimestampGMT != null &&
     d.sleepEndTimestampGMT > d.sleepStartTimestampGMT
@@ -968,13 +975,46 @@ export function parseGarminSleep(raw: unknown) {
         }
       : null;
   return {
+    day: d?.calendarDate ?? null,
     night,
     score: d?.sleepScores?.overall?.value ?? null,
     respiration: d?.averageRespirationValue ?? null,
     stress: d?.avgSleepStress ?? null,
-    bodyBatteryChange: parsed?.bodyBatteryChange ?? null,
-    raw: kept,
+    bodyBatteryChange,
+    raw,
   };
+}
+
+/** An object with its arrays (per-minute series) left out. */
+function withoutSeries(raw: unknown): Record<string, unknown> | null {
+  const obj = asJsonObject(raw);
+  return obj ? Object.fromEntries(Object.entries(obj).filter(([, v]) => !Array.isArray(v))) : null;
+}
+
+/**
+ * Unofficial /wellness-service/wellness/dailySleepData/{displayName}?date= —
+ * the night ending on that date.
+ */
+export function parseGarminSleep(raw: unknown): GarminSleep {
+  const parsed = z
+    .looseObject({ dailySleepDTO: SleepDtoSchema.nullish().catch(null), bodyBatteryChange: gNum })
+    .nullable()
+    .catch(null)
+    .parse(raw);
+  return sleepOf(parsed?.dailySleepDTO, parsed?.bodyBatteryChange ?? null, withoutSeries(raw));
+}
+
+/** Personal API /sleep-service/sleep/dailySleepSummariesByDate → one per night. */
+export function parseGarminSleepList(raw: unknown): GarminSleep[] {
+  return z
+    .array(z.unknown())
+    .catch([])
+    .parse(raw)
+    .map((row) => {
+      const d = SleepDtoSchema.nullable().catch(null).parse(row);
+      return sleepOf(d, null, withoutSeries(row));
+    })
+    .filter((s) => s.day != null);
 }
 
 /** /hrv-service/hrv/{date} — the summary; the 5-minute readings are dropped. */
@@ -995,6 +1035,115 @@ export function parseGarminHrv(raw: unknown) {
     status: s?.status ?? null,
     raw: s ? asJsonObject(s) : null,
   };
+}
+
+/** Personal API /hrv-service/hrv/daily/{from}/{to} → per day. */
+export function parseGarminHrvDaily(
+  raw: unknown,
+): Map<string, { lastNight: number | null; weeklyAvg: number | null; status: string | null; raw: Record<string, unknown> | null }> {
+  const rows = z
+    .looseObject({ hrvSummaries: z.array(z.unknown()).catch([]) })
+    .catch({ hrvSummaries: [] })
+    .parse(raw).hrvSummaries;
+  const out = new Map<string, { lastNight: number | null; weeklyAvg: number | null; status: string | null; raw: Record<string, unknown> | null }>();
+  for (const row of rows) {
+    const s = z
+      .looseObject({ calendarDate: gStr, lastNightAvg: gNum, weeklyAvg: gNum, status: gStr })
+      .nullable()
+      .catch(null)
+      .parse(row);
+    if (!s?.calendarDate) continue;
+    out.set(s.calendarDate, {
+      lastNight: s.lastNightAvg,
+      weeklyAvg: s.weeklyAvg,
+      status: s.status,
+      raw: asJsonObject(row),
+    });
+  }
+  return out;
+}
+
+const V2Value = z.looseObject({ value: gNum }).nullish().catch(null);
+
+const DailySummaryV2Schema = z.looseObject({
+  calendarDate: gStr,
+  movement: z
+    .looseObject({ steps: V2Value, floorsAscended: V2Value })
+    .nullish()
+    .catch(null),
+  calories: z
+    .looseObject({ burnedTotal: gNum, burnedActive: gNum })
+    .nullish()
+    .catch(null),
+  heartRate: z
+    .looseObject({ minValue: gNum, maxValue: gNum, restingValue: gNum })
+    .nullish()
+    .catch(null),
+  intensityMinutes: z.looseObject({ moderate: gNum, vigorous: gNum }).nullish().catch(null),
+  stress: z.looseObject({ avgLevel: gLevel, maxLevel: gLevel }).nullish().catch(null),
+  bodyBattery: z
+    .looseObject({ minValue: gLevel, maxValue: gLevel, chargedValue: gLevel, drainedValue: gLevel })
+    .nullish()
+    .catch(null),
+  respiration: z.looseObject({ avgValue: gLevel }).nullish().catch(null),
+  pulseOx: z.looseObject({ avgValue: gLevel, minValue: gLevel }).nullish().catch(null),
+});
+
+export interface GarminDailySummaryV2 {
+  steps: number | null;
+  floors: number | null;
+  caloriesTotal: number | null;
+  caloriesActive: number | null;
+  restingHr: number | null;
+  minHr: number | null;
+  maxHr: number | null;
+  stressAvg: number | null;
+  stressMax: number | null;
+  bodyBatteryHigh: number | null;
+  bodyBatteryLow: number | null;
+  bodyBatteryCharged: number | null;
+  bodyBatteryDrained: number | null;
+  respirationAvg: number | null;
+  spo2Avg: number | null;
+  spo2Low: number | null;
+  intensityModerate: number | null;
+  intensityVigorous: number | null;
+  raw: Record<string, unknown> | null;
+}
+
+/** Personal API /usersummary-service/v2/dailysummaries → per day. */
+export function parseGarminDailySummariesV2(raw: unknown): Map<string, GarminDailySummaryV2> {
+  const rows = z
+    .looseObject({ data: z.array(z.unknown()).catch([]) })
+    .catch({ data: [] })
+    .parse(raw).data;
+  const out = new Map<string, GarminDailySummaryV2>();
+  for (const row of rows) {
+    const d = DailySummaryV2Schema.nullable().catch(null).parse(row);
+    if (!d?.calendarDate) continue;
+    out.set(d.calendarDate, {
+      steps: d.movement?.steps?.value ?? null,
+      floors: d.movement?.floorsAscended?.value ?? null,
+      caloriesTotal: d.calories?.burnedTotal ?? null,
+      caloriesActive: d.calories?.burnedActive ?? null,
+      restingHr: d.heartRate?.restingValue ?? null,
+      minHr: d.heartRate?.minValue ?? null,
+      maxHr: d.heartRate?.maxValue ?? null,
+      stressAvg: d.stress?.avgLevel ?? null,
+      stressMax: d.stress?.maxLevel ?? null,
+      bodyBatteryHigh: d.bodyBattery?.maxValue ?? null,
+      bodyBatteryLow: d.bodyBattery?.minValue ?? null,
+      bodyBatteryCharged: d.bodyBattery?.chargedValue ?? null,
+      bodyBatteryDrained: d.bodyBattery?.drainedValue ?? null,
+      respirationAvg: d.respiration?.avgValue ?? null,
+      spo2Avg: d.pulseOx?.avgValue ?? null,
+      spo2Low: d.pulseOx?.minValue ?? null,
+      intensityModerate: d.intensityMinutes?.moderate ?? null,
+      intensityVigorous: d.intensityMinutes?.vigorous ?? null,
+      raw: asJsonObject(row),
+    });
+  }
+  return out;
 }
 
 /** /metrics-service/metrics/trainingreadiness/{date} — the day's latest. */
@@ -1066,7 +1215,11 @@ export function parseGarminTrainingStatus(raw: unknown) {
   };
 }
 
-/** /weight-service/weight/dateRange → kg per day (Garmin reports grams). */
+/**
+ * Weight per day, kg — /weight-service/weight/dateRange (unofficial) and
+ * /weight-service/weight/range/{start}/{end} (Personal API) share the shape.
+ * Garmin reports grams; a value that already looks like kg is kept.
+ */
 export function parseGarminWeights(raw: unknown): Map<string, number> {
   const rows = z
     .looseObject({
@@ -1087,7 +1240,7 @@ export function parseGarminWeights(raw: unknown): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of rows) {
     const g = r?.latestWeight?.weight;
-    if (r?.summaryDate && g != null && g > 0) out.set(r.summaryDate, g / 1000);
+    if (r?.summaryDate && g != null && g > 0) out.set(r.summaryDate, g > 1000 ? g / 1000 : g);
   }
   return out;
 }

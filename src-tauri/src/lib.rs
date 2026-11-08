@@ -297,10 +297,13 @@ pub fn run() {
             import_photo_files,
             prepare_db_export,
             garmin::garmin_status,
+            garmin::garmin_set_key,
+            garmin::garmin_clear_key,
             garmin::garmin_login,
             garmin::garmin_mfa,
             garmin::garmin_logout,
-            garmin::garmin_get
+            garmin::garmin_get,
+            garmin::garmin_activity_laps
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
