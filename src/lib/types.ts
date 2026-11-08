@@ -385,6 +385,18 @@ export interface DayGoalAdjustment {
   updated_at: string;
 }
 
+/** A progress selfie (Summary → Progress photos). */
+export interface ProgressPhoto {
+  id: number;
+  /** ISO 8601 UTC timestamp of when it was taken. */
+  taken_at: string;
+  /** Local day it was taken on. */
+  day: string;
+  tz_offset_min: number;
+  /** Filename of a row in the `photos` table. */
+  photo_path: string;
+}
+
 /** A photographed document in the library (see lib/documents.ts). */
 export interface LibraryDocument {
   id: number;

@@ -644,3 +644,25 @@ export const photos = sqliteTable("photos", {
   /** The JPEG itself. */
   data: blob("data", { mode: "buffer" }).notNull(),
 });
+
+/**
+ * Progress selfies: a picture of yourself now and then, to see change that the
+ * scale and the tape don't show. Private by design — they're only shown on
+ * their own page (Summary → Progress photos), never in the diary, and never
+ * sent to a model or read by the coach.
+ */
+export const progressPhotos = sqliteTable(
+  "progress_photos",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** When it was taken (for a picked older photo: the file's own time). */
+    takenAt: text("taken_at").notNull(),
+    /** Local day it was taken on, stamped where it happened (lib/daystamp.ts). */
+    day: text("day").notNull(),
+    /** Minutes east of UTC at that moment. */
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+    /** Filename of a row in the `photos` table. */
+    photoPath: text("photo_path").notNull(),
+  },
+  (t) => [index("idx_progress_photos_taken_at").on(t.takenAt)],
+);

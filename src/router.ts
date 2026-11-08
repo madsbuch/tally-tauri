@@ -11,6 +11,7 @@ export type Path =
   | `/body`
   | `/entry/:kind/:id`
   | `/nutrients`
+  | `/nutrients/progress`
   | `/settings`
 
 export type Params = {

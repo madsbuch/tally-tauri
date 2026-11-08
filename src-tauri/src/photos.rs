@@ -209,7 +209,9 @@ mod tests {
         let pool = SqlitePoolOptions::new().connect_with(options).await.unwrap();
         let mut migrator = Migrator::new(AppMigrations).await.unwrap();
         let all = migrator.migrations.to_vec();
-        migrator.migrations = all[..all.len() - 1].to_vec().into();
+        assert!(all.iter().any(|m| m.version == 26 && m.description == "photos"));
+        // Version 26 is 0025_photos.
+        migrator.migrations = all.into_iter().filter(|m| m.version < 26).collect::<Vec<_>>().into();
         migrator.run(&pool).await.unwrap();
         let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'photos'")
             .fetch_one(&pool)

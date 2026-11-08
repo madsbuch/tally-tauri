@@ -9,6 +9,7 @@ import {
 import { onAppResume } from "../lib/appLifecycle";
 import { onDiaryChanged } from "../lib/agent";
 import SummaryGoals from "../components/SummaryGoals";
+import { Link } from "../router";
 import InfoButton from "../components/InfoButton";
 import {
   NUTRIENT_DEFS,
@@ -669,6 +670,11 @@ export default function NutrientsPage() {
           </div>
         </>
       )}
+
+      {/* Kept quiet on purpose: the photos are only shown once you go in. */}
+      <Link to="/nutrients/progress" className="quiet-link">
+        Progress photos ›
+      </Link>
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
   lifeRules,
   performanceLogs,
   performanceStats,
+  progressPhotos,
   savedMeals,
   settings,
   sleepSessions,
@@ -41,6 +42,7 @@ import type {
   EntryMessage,
   EntryNote,
   LibraryDocument,
+  ProgressPhoto,
   Fast,
   FoodEntry,
   SavedMeal,
@@ -753,19 +755,20 @@ export async function deleteCapture(id: number): Promise<void> {
 // images (a discarded capture taking its already-logged meal's photo with it).
 
 /**
- * Does any capture, entry, reading, document or performance log still
- * reference this photo?
+ * Does any capture, entry, reading, document, performance log or progress
+ * photo still reference this photo?
  * Callers delete the owning row FIRST, then ask — so a file shared only with
  * the just-deleted row reads as unreferenced.
  */
 export async function isPhotoReferenced(filename: string): Promise<boolean> {
-  const [inFood, inWorkouts, inCaptures, inDocuments, inReadings, inPerformance] = await Promise.all([
+  const [inFood, inWorkouts, inCaptures, inDocuments, inReadings, inPerformance, inProgress] = await Promise.all([
     db.select({ id: foodEntries.id }).from(foodEntries).where(eq(foodEntries.photoPath, filename)).limit(1),
     db.select({ id: workouts.id }).from(workouts).where(eq(workouts.photoPath, filename)).limit(1),
     db.select({ id: captures.id }).from(captures).where(eq(captures.photoPath, filename)).limit(1),
     db.select({ id: documents.id }).from(documents).where(eq(documents.photoPath, filename)).limit(1),
     db.select({ id: bloodReadings.id }).from(bloodReadings).where(eq(bloodReadings.photoPath, filename)).limit(1),
     db.select({ id: performanceLogs.id }).from(performanceLogs).where(eq(performanceLogs.photoPath, filename)).limit(1),
+    db.select({ id: progressPhotos.id }).from(progressPhotos).where(eq(progressPhotos.photoPath, filename)).limit(1),
   ]);
   return (
     inFood.length > 0 ||
@@ -773,8 +776,42 @@ export async function isPhotoReferenced(filename: string): Promise<boolean> {
     inCaptures.length > 0 ||
     inDocuments.length > 0 ||
     inReadings.length > 0 ||
-    inPerformance.length > 0
+    inPerformance.length > 0 ||
+    inProgress.length > 0
   );
+}
+
+// ---------------------------------------------------------------------------
+// Progress photos (see `progressPhotos` in db/schema.ts)
+// ---------------------------------------------------------------------------
+
+/** Every progress photo, newest first. */
+export async function listProgressPhotos(): Promise<ProgressPhoto[]> {
+  const rows = await db.select().from(progressPhotos).orderBy(desc(progressPhotos.takenAt));
+  return rows.map((r) => ({
+    id: r.id,
+    taken_at: r.takenAt,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+    photo_path: r.photoPath,
+  }));
+}
+
+/** Store a progress photo already saved with `savePhoto`. */
+export async function addProgressPhoto(photoPath: string, takenAt: string): Promise<void> {
+  const stamp = stampOf(takenAt);
+  await db.insert(progressPhotos).values({
+    takenAt,
+    day: stamp.day,
+    tzOffsetMin: stamp.tz_offset_min,
+    photoPath,
+  });
+}
+
+/** Remove a progress photo, and its image unless something else uses it. */
+export async function deleteProgressPhoto(photo: ProgressPhoto): Promise<void> {
+  await db.delete(progressPhotos).where(eq(progressPhotos.id, photo.id));
+  await deletePhotoIfUnused(photo.photo_path);
 }
 
 /**
