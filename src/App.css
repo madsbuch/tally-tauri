@@ -45,9 +45,11 @@
  * slightly raised cards, the accent lifted to a soft leaf green so it still
  * reads on the dark surface (and buttons put dark text on it).
  *
- * Follows the system unless Settings → Appearance pins a theme, which sets
- * data-theme on <html> (src/lib/theme.ts). The palette is written twice:
- * once for "system says dark and nothing pinned light", once for "pinned dark".
+ * src/lib/theme.ts puts data-theme on <html>: the theme pinned in Settings →
+ * Appearance, or the one the phone is in (asked of Android directly, since
+ * its WebView's media query can't be trusted). The palette is written twice:
+ * once for the media query, which covers the first paint before that script
+ * runs, and once for data-theme="dark".
  */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

@@ -1,9 +1,14 @@
 /**
  * Light / dark appearance.
  *
- * The palette lives in App.css as tokens; dark follows the system through
- * `prefers-color-scheme` unless the user pins a theme in Settings, which puts
- * `data-theme="light" | "dark"` on <html> and overrides the media query.
+ * The palette lives in App.css as tokens. `data-theme="light" | "dark"` on
+ * <html> picks one: the pinned theme from Settings, or — following the system
+ * — whichever the phone is in. Android's WebView can't be trusted to answer
+ * `prefers-color-scheme` (it only says dark when the app theme declares it,
+ * and never updates while the app runs), so there MainActivity is asked
+ * directly and announces changes with a `tally:system-theme` event. The media
+ * query in App.css only covers the moment before this script runs, and
+ * browsers.
  *
  * The choice is kept in localStorage rather than the settings table: it has to
  * be known synchronously, before the first paint, or the app flashes the wrong
@@ -25,7 +30,7 @@ const BG = { light: "#f3f5ee", dark: "#141a16" } as const;
 declare global {
   interface Window {
     /** Injected by MainActivity on Android; absent elsewhere. */
-    TallyTheme?: { setDark(dark: boolean): void };
+    TallyTheme?: { setDark(dark: boolean): void; isSystemDark?(): boolean };
   }
 }
 
@@ -43,17 +48,26 @@ export function getThemePref(): ThemePref {
   }
 }
 
+/** The phone's dark mode: Android's own answer where there is one. */
+function systemDark(): boolean {
+  try {
+    const native = window.TallyTheme?.isSystemDark?.();
+    if (typeof native === "boolean") return native;
+  } catch {
+    // Fall back to the media query.
+  }
+  return darkQuery()?.matches ?? false;
+}
+
 function resolved(pref: ThemePref): "light" | "dark" {
   if (pref !== "system") return pref;
-  return darkQuery()?.matches ? "dark" : "light";
+  return systemDark() ? "dark" : "light";
 }
 
 function apply(pref: ThemePref): void {
-  const root = document.documentElement;
-  if (pref === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", pref);
-
   const mode = resolved(pref);
+  document.documentElement.setAttribute("data-theme", mode);
+
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (!meta) {
     meta = document.createElement("meta");
@@ -99,8 +113,16 @@ export function currentThemePref(): ThemePref {
 export function installTheme(): void {
   current = getThemePref();
   apply(current);
-  // Following the system: re-tint the meta colour and system bars when it flips.
-  darkQuery()?.addEventListener("change", () => {
+  // Following the system: re-theme when it flips — Android says so itself,
+  // a browser through the media query.
+  const follow = () => {
     if (current === "system") apply(current);
+  };
+  darkQuery()?.addEventListener("change", follow);
+  window.addEventListener("tally:system-theme", follow);
+  // Back from the background: the phone may have switched while the app was
+  // away and the event been missed.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") follow();
   });
 }

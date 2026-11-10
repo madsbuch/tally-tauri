@@ -50,11 +50,33 @@ class MainActivity : TauriActivity() {
       Configuration.UI_MODE_NIGHT_YES
 
   /**
+   * The phone's dark mode flipped. The manifest handles uiMode itself, so the
+   * activity isn't recreated and the WebView keeps answering
+   * `prefers-color-scheme` as it did at launch — tell the page instead; it
+   * asks isSystemDark() and re-themes (src/lib/theme.ts).
+   */
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    webView?.evaluateJavascript(
+      "window.dispatchEvent(new Event('tally:system-theme'))",
+      null,
+    )
+  }
+
+  /**
    * The page can pin light or dark regardless of the system (src/lib/theme.ts),
    * and edge-to-edge only picks bar icon colours from the system — so the page
    * says which theme it's showing and the icons and backing follow it.
    */
   private inner class ThemeBridge {
+    /**
+     * Whether the phone is in dark mode, read from the configuration rather
+     * than left to the WebView's media query, which only reports dark when the
+     * app theme declares itself dark and never updates while the app runs.
+     */
+    @JavascriptInterface
+    fun isSystemDark(): Boolean = this@MainActivity.isSystemDark()
+
     @JavascriptInterface
     fun setDark(dark: Boolean) {
       runOnUiThread {
