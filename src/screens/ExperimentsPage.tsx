@@ -12,7 +12,6 @@ import type { Experiment, ExperimentTrial } from "../lib/types";
 import {
   EXPERIMENT_GLYPH,
   armCounts,
-  armName,
   experimentPath,
   isReadyToConclude,
   needsRating,
@@ -153,7 +152,7 @@ export default function ExperimentsPage() {
                     {e.status === "running" &&
                       e.assignment === "balanced" &&
                       !isReadyToConclude(e, trials) && (
-                        <span className="chip">Next: {armName(nextArm(e, trials))}</span>
+                        <span className="chip">Next: {nextArm(e, trials).key}</span>
                       )}
                   </div>
                 </div>

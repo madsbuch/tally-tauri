@@ -58,11 +58,6 @@ function Options({ e, trials }: { e: Experiment; trials: ExperimentTrial[] }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="row-title" style={{ whiteSpace: "normal" }}>
                   {a.label}
-                  {next === a.key && (
-                    <span className="chip chip-accent" style={{ marginLeft: 6 }}>
-                      Next
-                    </span>
-                  )}
                 </div>
                 {a.detail && <div className="muted small">{a.detail}</div>}
                 <div className="exp-progress">
@@ -70,6 +65,7 @@ function Options({ e, trials }: { e: Experiment; trials: ExperimentTrial[] }) {
                 </div>
                 <div className="faint small" style={{ marginTop: 2 }}>
                   {n} of {e.target_per_arm} trials
+                  {next === a.key && <span className="exp-next"> · next up</span>}
                 </div>
               </div>
             </div>

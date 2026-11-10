@@ -74,32 +74,41 @@ export default function TrialCard({
     await removeTrial(t.id);
   }
 
-  return (
-    <div className="card" style={{ marginBottom: compact ? 0 : 10, opacity: t.excluded ? 0.6 : 1 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <div className="row-title">{whenLabel(t.started_at)}</div>
-        {t.excluded && <span className="chip chip-warn">Not counted</span>}
-      </div>
+  const arm = armOf(e, t.arm);
 
-      <div className="label" style={{ marginTop: 8 }}>Option</div>
-      <div className="seg">
+  return (
+    // On the fasting card it sits inside that card's own, so no second frame.
+    <div
+      className={compact ? undefined : "card"}
+      style={{ marginBottom: compact ? 0 : 10, opacity: t.excluded ? 0.6 : 1 }}
+    >
+      {!compact && (
+        <div className="exp-trial-head">
+          <div className="row-title">{whenLabel(t.started_at)}</div>
+          {t.excluded && <span className="chip chip-warn">Not counted</span>}
+        </div>
+      )}
+
+      <div className="label" style={{ marginTop: compact ? 0 : 8 }}>Option</div>
+      <div className="seg exp-arm-seg">
         {e.arms.map((a) => (
           <button
             key={a.key}
             className={`seg-item${t.arm === a.key ? " seg-item-active" : ""}`}
             disabled={busy}
+            aria-label={`${a.key}: ${a.label}`}
             onClick={() => void patch({ arm: a.key })}
           >
-            {a.key} · {a.label}
+            {a.key}
           </button>
         ))}
       </div>
-      {armOf(e, t.arm)?.detail && (
-        <div className="muted small" style={{ marginTop: 4 }}>
-          {armOf(e, t.arm)?.detail}
+      {arm ? (
+        <div style={{ marginTop: 6 }}>
+          <div className="small" style={{ fontWeight: 650 }}>{arm.label}</div>
+          {arm.detail && <div className="muted small">{arm.detail}</div>}
         </div>
-      )}
-      {!armOf(e, t.arm) && (
+      ) : (
         <div className="error-text small">Option {armName(undefined, t.arm)} no longer exists.</div>
       )}
 
