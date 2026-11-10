@@ -25,6 +25,7 @@ import {
   todayStr,
 } from "./db";
 import { shiftDay } from "./daystamp";
+import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
 import { SETTING_KEYS } from "./types";
 import type {
   FoodEntry,
@@ -126,6 +127,21 @@ export interface Intake {
   /** Hours slept per night, keyed by the morning's local day. */
   sleepByNight: Map<string, number>;
   ketones: MeterReading[];
+  /** Garmin's own training read of recent days, newest first. */
+  garminDays: GarminTrainingDay[];
+}
+
+/** What Garmin itself says about a day's training (direct sync only). */
+export interface GarminTrainingDay {
+  day: string;
+  /** "PRODUCTIVE", "MAINTAINING", … */
+  status: string | null;
+  /** Garmin's weekly acute and chronic load. */
+  acute: number | null;
+  chronic: number | null;
+  readiness: number | null;
+  readinessLevel: string | null;
+  hrvStatus: string | null;
 }
 
 /**
@@ -165,6 +181,8 @@ function intakeFrom(
   workouts: Workout[] = [],
   sleep: SleepSession[] = [],
   readings: BloodReading[] = [],
+  garminLoads: Map<number, number> = new Map(),
+  garminDays: GarminTrainingDay[] = [],
 ): Intake {
   const byDay = Object.fromEntries(DAILY_KEYS.map((k) => [k, new Map<string, number>()])) as Record<
     DailyKey,
@@ -181,6 +199,7 @@ function intakeFrom(
     workouts: [],
     sleepByNight: new Map(),
     ketones: [],
+    garminDays,
   };
   const take = (iso: string, day: string, title: string, n: Nutrients, creatine: boolean) => {
     out.loggedDays.add(day);
@@ -209,6 +228,7 @@ function intakeFrom(
       durationMin: w.duration_min,
       kcal: w.calories_burned,
       zone2Min: w.zone2_min,
+      garminLoad: garminLoads.get(w.id) ?? null,
       day: w.day ?? todayStr(new Date(w.performed_at)),
     });
   }
@@ -232,8 +252,30 @@ export async function loadIntake(startDay: string, endDay: string): Promise<Inta
     listSleepForRange(startDay, endDay).catch(() => []),
     listBloodReadingsForRange(shiftDay(endDay, -14), endDay).catch(() => []),
   ]);
-  return intakeFrom(entries, logs, workouts, sleep, readings);
+  const [details, days] = await Promise.all([
+    garminDetailsForWorkouts(workouts.map((w) => w.id)).catch(() => new Map()),
+    listGarminDaysForRange(shiftDay(endDay, -GARMIN_DAYS_BACK), endDay).catch(() => []),
+  ]);
+  const loads = new Map<number, number>();
+  for (const [id, d] of details) {
+    if (d.trainingLoad != null && d.trainingLoad >= 0) loads.set(id, d.trainingLoad);
+  }
+  const garminDays: GarminTrainingDay[] = days.map((d) => ({
+    day: d.day,
+    status: d.trainingStatus,
+    acute: d.acuteLoad,
+    chronic: d.chronicLoad,
+    readiness: d.readinessScore,
+    readinessLevel: d.readinessLevel,
+    hrvStatus: d.hrvStatus,
+  }));
+  return intakeFrom(entries, logs, workouts, sleep, readings, loads, garminDays);
 }
+
+/** How far back Garmin's own training read is looked for. */
+const GARMIN_DAYS_BACK = 14;
+/** Garmin's read is shown as current up to this many days old. */
+const GARMIN_FRESH_DAYS = 2;
 
 /** The personal caffeine half-life, falling back to the textbook 5 h. */
 export async function getCaffeineHalfLife(): Promise<number> {
@@ -514,15 +556,26 @@ export interface BodySnapshot {
     hasData: boolean;
   };
   training: {
+    /** Daily averages (× TRAINING.weekly for Garmin's weekly numbers). */
     fitness: number;
     fatigue: number;
-    /** fatigue ÷ fitness; null when there's too little history. */
+    /**
+     * acute ÷ chronic: Garmin's own when it's fresh, else the model's; null
+     * when there's too little history.
+     */
     ratio: number | null;
+    /** Where `ratio` came from. */
+    ratioFrom: "garmin" | "model";
     band: Band | null;
     fitnessSeries: number[];
     fatigueSeries: number[];
     /** Workouts in the last 7 days. */
     sessions7: number;
+    /** Of the last 28 days' workouts: how many counted by Garmin's load. */
+    garminCounted: number;
+    workouts28: number;
+    /** Garmin's newest read of its own, when recent. */
+    garmin: GarminTrainingDay | null;
   };
   sleep: {
     /** Hours owed. */
@@ -738,16 +791,37 @@ function trainingOf(intake: Intake, day: string, atMs: number): BodySnapshot["tr
   const days = daily(loads, day, STORE_DAYS);
   const series = trainingLoad(days);
   const last = series[series.length - 1] ?? { fitness: 0, fatigue: 0 };
-  const ratio = last.fitness >= TRAINING.minFitness ? last.fatigue / last.fitness : null;
+  const modelRatio = last.fitness >= TRAINING.minFitness ? last.fatigue / last.fitness : null;
   const weekAgo = shiftDay(day, -6);
+  const monthAgo = shiftDay(day, -27);
+  const recent = intake.workouts.filter((w) => w.day >= monthAgo && w.day <= day && w.at <= atMs);
+
+  // Garmin's own read: the newest day on or before this one that has one,
+  // if it isn't stale. Its acute ÷ chronic is what the watch shows, so it
+  // wins over the model's when both exist.
+  const garmin =
+    intake.garminDays
+      .filter((g) => g.day <= day && g.day >= shiftDay(day, -GARMIN_FRESH_DAYS))
+      .filter((g) => g.status != null || g.acute != null || g.readiness != null || g.hrvStatus != null)
+      .sort((a, b) => b.day.localeCompare(a.day))[0] ?? null;
+  const garminRatio =
+    garmin?.acute != null && garmin.chronic != null && garmin.chronic > 0
+      ? garmin.acute / garmin.chronic
+      : null;
+  const ratio = garminRatio ?? modelRatio;
+
   return {
     fitness: last.fitness,
     fatigue: last.fatigue,
     ratio,
+    ratioFrom: garminRatio != null ? "garmin" : "model",
     band: ratio == null ? null : bandOf(TRAINING_BANDS, ratio),
-    fitnessSeries: series.slice(-STORE_SHOWN_DAYS).map((d) => d.fitness),
-    fatigueSeries: series.slice(-STORE_SHOWN_DAYS).map((d) => d.fatigue),
+    fitnessSeries: series.slice(-STORE_SHOWN_DAYS).map((d) => d.fitness * TRAINING.weekly),
+    fatigueSeries: series.slice(-STORE_SHOWN_DAYS).map((d) => d.fatigue * TRAINING.weekly),
     sessions7: intake.workouts.filter((w) => w.day >= weekAgo && w.day <= day && w.at <= atMs).length,
+    garminCounted: recent.filter((w) => w.garminLoad != null).length,
+    workouts28: recent.length,
+    garmin,
   };
 }
 

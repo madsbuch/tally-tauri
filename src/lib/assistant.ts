@@ -73,6 +73,7 @@ import {
   parseLocalMoment,
 } from "./body";
 import { GRAMS_PER_DRINK } from "./bodyModel";
+import { TRAINING } from "./storeModels";
 import { shiftDay } from "./daystamp";
 import {
   CALORIE_FIGURE_KEYS,
@@ -319,7 +320,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L) — " +
         "both pinned to a library blood test when there is one — beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
         "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, pinned by ketone meter readings; when the liver " +
-        "drops under 30% with no more carbs), training load (fitness, fatigue and their ratio) and sleep debt (hours). " +
+        "drops under 30% with no more carbs), training load (acute and chronic load — each workout counted by Garmin's training load, energy as a fallback — their ratio, and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
         "Estimates from average kinetics: say so when it matters.",
       parameters: {
         type: "object",
@@ -1300,11 +1301,25 @@ export async function executeAssistantTool(
           : undefined,
       }),
       training_load: compact({
-        fitness: round(b.training.fitness, 0),
-        fatigue: round(b.training.fatigue, 0),
-        fatigue_to_fitness_ratio: b.training.ratio == null ? "too little history" : round(b.training.ratio, 2),
+        // Daily averages × 7: Garmin's weekly acute and chronic load.
+        acute_weekly: round(b.training.fatigue * TRAINING.weekly, 0),
+        chronic_weekly: round(b.training.fitness * TRAINING.weekly, 0),
+        acute_to_chronic_ratio: b.training.ratio == null ? "too little history" : round(b.training.ratio, 2),
+        ratio_from: b.training.ratioFrom === "garmin" ? "Garmin's own acute/chronic" : "modelled from workouts",
         band: b.training.band?.label,
         workouts_last_7d: b.training.sessions7,
+        workouts_without_garmin_load_28d: b.training.workouts28 - b.training.garminCounted || undefined,
+        garmin: b.training.garmin
+          ? compact({
+              day: b.training.garmin.day,
+              training_status: b.training.garmin.status,
+              acute_load: b.training.garmin.acute,
+              chronic_load: b.training.garmin.chronic,
+              readiness: b.training.garmin.readiness,
+              readiness_level: b.training.garmin.readinessLevel,
+              hrv_status: b.training.garmin.hrvStatus,
+            })
+          : undefined,
       }),
       sleep: compact({
         debt_h: round(b.sleep.debtH, 1),

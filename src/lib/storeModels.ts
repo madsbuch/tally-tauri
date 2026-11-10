@@ -313,6 +313,8 @@ export interface WorkoutBurn {
   durationMin: number | null;
   kcal: number;
   zone2Min: number | null;
+  /** Garmin's training load for the activity, when the watch recorded it. */
+  garminLoad?: number | null;
 }
 
 export interface MeterReading {
@@ -423,21 +425,27 @@ export function liverSeries(points: GlycogenPoint[]): Point[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Fitness and fatigue, the classic way: each day's training load folds into
- * a long average (~6 weeks, "fitness") and a short one (~1 week, "fatigue").
- * Load is the workout's energy in tens of kcal — a one-hour 600 kcal ride is
- * 60 — a stand-in for heart-rate load, which the app doesn't get.
+ * Fitness and fatigue, the way Garmin reads them: each day's training load
+ * folds into a long average (4 weeks, "chronic") and a short one (1 week,
+ * "acute"). A workout's load is Garmin's own — its heart-rate based training
+ * load for the activity, the number the watch adds up — and a workout that
+ * has none (logged by hand) counts by its energy instead, in tens of kcal: a
+ * one-hour 600 kcal ride is 60, which sits on roughly the same scale.
  *
- * Their ratio (fatigue ÷ fitness, the acute:chronic ratio) is the readable
- * part: 0.8–1.3 is building steadily, over 1.5 is a jump the body hasn't
- * been prepared for, under 0.8 is easing off.
+ * Both are kept as daily averages; times 7 they read as Garmin's weekly acute
+ * and chronic load. Their ratio (acute ÷ chronic) is the readable part: 0.8–1.3
+ * is building steadily, over 1.5 is a jump the body hasn't been prepared for,
+ * under 0.8 is easing off.
  */
 export const TRAINING = {
-  fitnessDays: 42,
+  /** Garmin's chronic load window. */
+  fitnessDays: 28,
   fatigueDays: 7,
   kcalPerLoad: 10,
-  /** Under this fitness there isn't enough history to read a ratio. */
+  /** Under this fitness (daily load) there isn't enough history to read a ratio. */
   minFitness: 5,
+  /** Daily averages × this = Garmin's weekly acute/chronic load. */
+  weekly: 7,
 };
 
 export const TRAINING_BANDS: readonly Band[] = [
@@ -464,7 +472,9 @@ export function trainingLoad(dailyLoad: number[]): TrainingDay[] {
   });
 }
 
+/** A workout's training load: Garmin's when it has one, else its energy. */
 export function loadOf(w: WorkoutBurn): number {
+  if (w.garminLoad != null && isFinite(w.garminLoad)) return Math.max(0, w.garminLoad);
   return Math.max(0, w.kcal) / TRAINING.kcalPerLoad;
 }
 

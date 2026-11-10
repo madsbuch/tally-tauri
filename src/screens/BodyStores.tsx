@@ -383,8 +383,28 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
 // Training
 // ---------------------------------------------------------------------------
 
+/** "MAINTAINING" → "Maintaining", "NO_STATUS" → "No status". */
+function garminWord(v: string): string {
+  const t = v.replace(/_/g, " ").toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 export function TrainingCard({ snap }: { snap: Snap }) {
   const t = snap.training;
+  const g = t.garmin;
+  const fromGarmin = t.ratioFrom === "garmin" && g?.acute != null && g.chronic != null;
+  const acute = fromGarmin ? (g?.acute ?? 0) : t.fatigue * TRAINING.weekly;
+  const chronic = fromGarmin ? (g?.chronic ?? 0) : t.fitness * TRAINING.weekly;
+  const uncounted = t.workouts28 - t.garminCounted;
+  const garminBits = g
+    ? [
+        g.status ? garminWord(g.status) : null,
+        g.readiness != null
+          ? `readiness ${Math.round(g.readiness)}${g.readinessLevel ? ` (${garminWord(g.readinessLevel).toLowerCase()})` : ""}`
+          : null,
+        g.hrvStatus ? `HRV ${garminWord(g.hrvStatus).toLowerCase()}` : null,
+      ].filter((b): b is string => b != null)
+    : [];
   return (
     <div className="card level-card">
       <Head
@@ -394,16 +414,23 @@ export function TrainingCard({ snap }: { snap: Snap }) {
         info={
           <>
             <p>
-              Fitness is your training averaged over about six weeks; fatigue
-              the same over one. Each workout counts by its energy — a one-hour
-              600 kcal ride is 60 — a stand-in for heart-rate load, which
-              doesn&apos;t sync.
+              Each workout counts by Garmin&apos;s training load for it — the
+              heart-rate based number your watch adds up. Acute load is the
+              last week of it, chronic load the last four weeks, both as a
+              weekly figure, the way Garmin shows them. A workout without a
+              Garmin load counts by its energy instead (a one-hour 600 kcal
+              ride is 60).
             </p>
             <p>
-              The number is fatigue ÷ fitness. 0.8–1.3 is building steadily; over
+              The number is acute ÷ chronic. 0.8–1.3 is building steadily; over
               1.5 is a jump your body hasn&apos;t been prepared for, when
               injuries and illness are more likely; under 0.8 you&apos;re easing
               off (good before a race, losing fitness if it lasts).
+            </p>
+            <p>
+              When Garmin has sent its own acute and chronic load (with the
+              optional sign-in), the ratio is Garmin&apos;s; the chart is
+              always worked out here from your workouts.
             </p>
           </>
         }
@@ -413,14 +440,22 @@ export function TrainingCard({ snap }: { snap: Snap }) {
       ) : null}
       <div className="muted small level-caption">
         {t.ratio == null
-          ? `Not enough training logged yet (fitness ${t.fitness.toFixed(0)} of the ${TRAINING.minFitness} it takes to read).`
-          : `Fitness ${t.fitness.toFixed(0)} · fatigue ${t.fatigue.toFixed(0)}.`}
+          ? "Not enough training yet to read a ratio — it takes a few weeks of workouts."
+          : `Acute ${Math.round(acute)} · chronic ${Math.round(chronic)}${fromGarmin ? " (Garmin)" : ""}.`}
+        {garminBits.length > 0 && (
+          <span style={{ display: "block" }}>Garmin: {garminBits.join(" · ")}.</span>
+        )}
+        {uncounted > 0 && (
+          <span className="faint" style={{ display: "block" }}>
+            {uncounted} of {t.workouts28} workouts in the last 4 weeks had no Garmin load and count by their calories.
+          </span>
+        )}
       </div>
       <MultiSpark
         since="60 days ago"
         lines={[
-          { values: t.fitnessSeries, color: "var(--accent)", label: "fitness" },
-          { values: t.fatigueSeries, color: "var(--warn)", label: "fatigue", dashed: true },
+          { values: t.fitnessSeries, color: "var(--accent)", label: "chronic" },
+          { values: t.fatigueSeries, color: "var(--warn)", label: "acute", dashed: true },
         ]}
       />
     </div>
