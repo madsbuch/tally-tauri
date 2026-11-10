@@ -6,7 +6,7 @@
  * Vitamin D, the omega-3 index and ferritin also read the document library:
  * the newest blood test with that value pins the estimate to a real number.
  * The rest of the stores (lib/storeModels.ts) read workouts, synced sleep and
- * ketone meter readings too.
+ * the blood meter's glucose and ketone readings too.
  *
  * Every number comes out of the meal entries' own nutrients (caffeine_mg,
  * alcohol_g, creatine_g, vitamin_d_ug) — nothing extra to log. The old
@@ -16,6 +16,7 @@
 import {
   getLatestWeightKg,
   getSetting,
+  listAllFasts,
   listDocuments,
   listBloodReadingsForRange,
   listFoodEntriesForRange,
@@ -25,11 +26,13 @@ import {
   todayStr,
 } from "./db";
 import { shiftDay } from "./daystamp";
+import { partnerOf } from "./readings";
 import { garminDetailsForWorkouts, latestGarminLoadBalance, listGarminDaysForRange } from "./garminDb";
 import type { GarminLoadBalance } from "./schemas";
 import type { GarminWorkoutDetail } from "./garminDb";
 import { SETTING_KEYS } from "./types";
 import type {
+  Fast,
   FoodEntry,
   BloodReading,
   LibraryDocument,
@@ -81,7 +84,9 @@ import {
   betaAlanineStore,
   ferritinSeries,
   ferritinSteady,
+  fitDrain,
   ironFor,
+  ketoneSeries,
   liverBelowAt,
   liverSeries,
   focusOf,
@@ -96,7 +101,17 @@ import {
   sleepDebt,
   trainingLoad,
 } from "./storeModels";
-import type { Band, DailyIntake, LoadFocus, MeterReading, ReserveDef, WorkoutBurn } from "./storeModels";
+import type {
+  Band,
+  DailyIntake,
+  DrainFit,
+  FuelReading,
+  LoadFocus,
+  MeterReading,
+  ReadingCheck,
+  ReserveDef,
+  WorkoutBurn,
+} from "./storeModels";
 
 /** Days of history the weekly stores are built from (vitamin D needs ~2 months). */
 const STORE_DAYS = 120;
@@ -130,7 +145,10 @@ export interface Intake {
   workouts: (WorkoutBurn & { day: string })[];
   /** Hours slept per night, keyed by the morning's local day. */
   sleepByNight: Map<string, number>;
-  ketones: MeterReading[];
+  /** Meter readings, a ketone and a glucose strip taken together as one. */
+  readings: FuelReading[];
+  /** Local days inside a recorded fast: nothing logged there is nothing eaten. */
+  fastedDays: Set<string>;
   /** Garmin's own training read of recent days, newest first. */
   garminDays: GarminTrainingDay[];
   /** Garmin's own load focus, newest, with the day it's for. */
@@ -190,6 +208,7 @@ function intakeFrom(
   garmin: Map<number, { load: number | null; focus: LoadFocus | null }> = new Map(),
   garminDays: GarminTrainingDay[] = [],
   garminBalance: Intake["garminBalance"] = null,
+  fastedDays: Set<string> = new Set(),
 ): Intake {
   const byDay = Object.fromEntries(DAILY_KEYS.map((k) => [k, new Map<string, number>()])) as Record<
     DailyKey,
@@ -205,7 +224,8 @@ function intakeFrom(
     loggedDays: new Set(),
     workouts: [],
     sleepByNight: new Map(),
-    ketones: [],
+    readings: fuelReadings(readings),
+    fastedDays,
     garminDays,
     garminBalance,
   };
@@ -246,20 +266,53 @@ function intakeFrom(
     const h = Math.max(0, s.duration_min - (s.awake_min ?? 0)) / 60;
     out.sleepByNight.set(night, (out.sleepByNight.get(night) ?? 0) + h);
   }
+  return out;
+}
+
+/**
+ * Readings as sittings at the meter: each ketone strip with the glucose strip
+ * taken alongside it (lib/readings.ts decides what "alongside" is), and the
+ * glucose strips that had no ketone partner on their own. Oldest first.
+ */
+export function fuelReadings(readings: BloodReading[]): FuelReading[] {
+  const out: FuelReading[] = [];
+  const paired = new Set<number>();
   for (const r of readings) {
-    if (r.kind === "ketone") out.ketones.push({ at: Date.parse(r.measured_at), value: r.value });
+    if (r.kind !== "ketone") continue;
+    const partner = partnerOf(r, readings);
+    if (partner) paired.add(partner.id);
+    out.push({ at: Date.parse(r.measured_at), ketone: r.value, glucose: partner?.value ?? null });
+  }
+  for (const r of readings) {
+    if (r.kind === "glucose" && !paired.has(r.id)) {
+      out.push({ at: Date.parse(r.measured_at), ketone: null, glucose: r.value });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/** The local days from `startDay` through `endDay` that fall inside a fast. */
+function fastedDaysOf(fasts: Fast[], startDay: string, endDay: string): Set<string> {
+  const out = new Set<string>();
+  for (const f of fasts) {
+    const first = f.start_day ?? todayStr(new Date(f.started_at));
+    const last = f.end_day ?? (f.ended_at ? todayStr(new Date(f.ended_at)) : endDay);
+    for (let d = first < startDay ? startDay : first; d <= last && d <= endDay; d = shiftDay(d, 1)) out.add(d);
   }
   return out;
 }
 
 /** Everything logged from `startDay` through `endDay`, as doses. */
 export async function loadIntake(startDay: string, endDay: string): Promise<Intake> {
-  const [entries, logs, workouts, sleep, readings] = await Promise.all([
+  const [entries, logs, workouts, sleep, readings, fasts] = await Promise.all([
     listFoodEntriesForRange(startDay, endDay),
     listSupplementLogsForRange(startDay, endDay).catch(() => []),
     listWorkoutsForRange(startDay, endDay).catch(() => []),
     listSleepForRange(startDay, endDay).catch(() => []),
-    listBloodReadingsForRange(shiftDay(endDay, -14), endDay).catch(() => []),
+    // The whole range, not just the last days: old readings are what the
+    // personal drain rate is fitted from.
+    listBloodReadingsForRange(startDay, endDay).catch(() => []),
+    listAllFasts().catch(() => []),
   ]);
   const [details, days, balance] = await Promise.all([
     garminDetailsForWorkouts(workouts.map((w) => w.id)).catch(
@@ -284,7 +337,17 @@ export async function loadIntake(startDay: string, endDay: string): Promise<Inta
     readinessLevel: d.readinessLevel,
     hrvStatus: d.hrvStatus,
   }));
-  return intakeFrom(entries, logs, workouts, sleep, readings, garmin, garminDays, balance);
+  return intakeFrom(
+    entries,
+    logs,
+    workouts,
+    sleep,
+    readings,
+    garmin,
+    garminDays,
+    balance,
+    fastedDaysOf(fasts, startDay, endDay),
+  );
 }
 
 /** How far back Garmin's own training read is looked for. */
@@ -579,8 +642,19 @@ export interface BodySnapshot {
     curve: HourlyLevel;
     /** When the liver drops under LIVER_KETOSIS with no more carbs; `at` when it is. */
     ketosisAt: number | null;
+    /** Blood ketones the model expects right now, mmol/L. */
+    ketone: number;
+    /** That expectation over the same window as `curve`. */
+    ketoneCurve: Point[];
     /** The newest ketone reading in the last two days. */
     lastKetone: MeterReading | null;
+    /** Readings inside the curve's window, with what the model expected of each. */
+    checks: ReadingCheck[];
+    /**
+     * How fast this liver empties against the textbook, fitted to past ketone
+     * readings; null until there are enough of them to say.
+     */
+    fit: DrainFit | null;
     /** Any carbs or workouts logged in the last three days. */
     hasData: boolean;
   };
@@ -786,16 +860,72 @@ const GLYCOGEN_AHEAD_H = 24;
 /** History the glycogen simulation warms up on before the chart opens. */
 const GLYCOGEN_WARMUP_H = 72;
 
+/** How far back ketone readings are fitted against. */
+const DRAIN_FIT_DAYS = 60;
+/** A reading counts toward the fit when the diary covers this long before it. */
+const DRAIN_FIT_COVER_DAYS = 2;
+
+/** One fit per loaded diary, day and set of readings — it reruns the model. */
+const drainFits = new WeakMap<Intake, Map<string, DrainFit | null>>();
+
+/**
+ * The personal drain rate as of `atMs`. Only readings the diary can account
+ * for count: on each of the days leading up to one, something was logged or a
+ * fast was running — otherwise an unlogged day would pass for a fasted one.
+ */
+function drainFitOf(intake: Intake, weightKg: number, atMs: number): DrainFit | null {
+  const day = todayStr(new Date(atMs));
+  const past = intake.readings.filter((r) => r.ketone != null && r.at <= atMs);
+  const key = `${day}:${past.length}:${weightKg}`;
+  let cache = drainFits.get(intake);
+  if (!cache) drainFits.set(intake, (cache = new Map()));
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+
+  const from = atMs - DRAIN_FIT_DAYS * DAY_MS;
+  const covered = (d: string) => intake.loggedDays.has(d) || intake.fastedDays.has(d);
+  const usable = past.filter((r) => {
+    if (r.at < from) return false;
+    const d = todayStr(new Date(r.at));
+    for (let i = 0; i <= DRAIN_FIT_COVER_DAYS; i++) if (!covered(shiftDay(d, -i))) return false;
+    return true;
+  });
+  const warm = from - GLYCOGEN_WARMUP_H * HOUR_MS;
+  const fit = fitDrain(
+    {
+      carbs: intake.carbs.filter((d) => d.at >= warm && d.at <= atMs),
+      workouts: intake.workouts.filter((w) => w.at >= warm && w.at <= atMs),
+      fromMs: from,
+      toMs: atMs,
+      warmupFromMs: warm,
+      weightKg,
+    },
+    usable,
+  );
+  cache.set(key, fit);
+  return fit;
+}
+
 function glycogenOf(intake: Intake, profile: BodyProfile, atMs: number): BodySnapshot["glycogen"] {
   const from = atMs - GLYCOGEN_BACK_H * HOUR_MS;
   const to = atMs + GLYCOGEN_AHEAD_H * HOUR_MS;
   const warm = from - GLYCOGEN_WARMUP_H * HOUR_MS;
   const carbs = intake.carbs.filter((d) => d.at >= warm && d.at <= atMs);
   const workouts = intake.workouts.filter((w) => w.at >= warm && w.at <= atMs);
-  const ketones = intake.ketones.filter((r) => r.at >= warm && r.at <= atMs);
-  const points = simulateGlycogen(carbs, workouts, ketones, from, to, warm, profile.weightKg);
+  const readings = intake.readings.filter((r) => r.at >= warm && r.at <= atMs);
+  const fit = drainFitOf(intake, profile.weightKg, atMs);
+  const { points, checks } = simulateGlycogen({
+    carbs,
+    workouts,
+    readings,
+    fromMs: from,
+    toMs: to,
+    warmupFromMs: warm,
+    weightKg: profile.weightKg,
+    drain: fit?.drain ?? 1,
+  });
   const nowPoint = points.filter((p) => p.t <= atMs).pop();
-  const lastKetone = ketones.filter((r) => r.at >= atMs - 48 * HOUR_MS).pop() ?? null;
+  const last = readings.filter((r) => r.ketone != null && r.at >= atMs - 48 * HOUR_MS).pop();
   const series = liverSeries(points);
   return {
     liver: nowPoint?.liver ?? 0,
@@ -808,7 +938,11 @@ function glycogenOf(intake: Intake, profile: BodyProfile, atMs: number): BodySna
       to,
     },
     ketosisAt: liverBelowAt(points, atMs, LIVER_KETOSIS),
-    lastKetone,
+    ketone: nowPoint?.ketone ?? 0,
+    ketoneCurve: ketoneSeries(points),
+    lastKetone: last?.ketone != null ? { at: last.at, value: last.ketone } : null,
+    checks,
+    fit,
     hasData: carbs.length > 0 || workouts.length > 0,
   };
 }

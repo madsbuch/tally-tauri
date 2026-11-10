@@ -19,7 +19,10 @@ lives in a SQLite database on the device — there is no backend.
   `log_reading`. Readings are stored in mmol/L (glucose shown in whichever unit
   the meter uses); a ketone and glucose strip taken together show their
   glucose–ketone index, each reading's page has a 30-day trend, and the coach
-  sees today's readings and the week's averages.
+  sees today's readings and the week's averages. They also feed the Body
+  tab's glycogen estimate: the model predicts what a ketone strip should show,
+  a reading corrects the liver level (the glucose strip taken with it says how
+  far to trust it), and past readings fit how fast your own liver empties.
 - **Open Food Facts lookup** — the diary agent and the assistant can search
   the free Open Food Facts database, so branded/packaged products get real
   label nutrition instead of an estimate (missing micronutrients are still

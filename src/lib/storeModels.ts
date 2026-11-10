@@ -6,8 +6,9 @@
  *
  * - Hours to days: glycogen, the carbohydrate kept in liver and muscle. Carbs
  *   fill it, the brain drains the liver between meals, workouts drain the
- *   muscle. When the liver runs low the body turns to fat and ketones rise,
- *   which is how a ketone meter can check the model.
+ *   muscle. When the liver runs low the body turns to fat and ketones rise —
+ *   the model predicts them too, which is how a ketone meter can check it,
+ *   correct it, and over time teach it how fast this liver empties.
  * - Weeks to months: the omega-3 index, ferritin (stored iron), beta-alanine's
  *   muscle carnosine, and a handful of vitamin and mineral reserves.
  * - Training and sleep: fitness against fatigue from workouts, and sleep debt
@@ -307,6 +308,30 @@ export const GLYCOGEN = {
 /** Under this share of liver glycogen, ketones are expected to rise. */
 export const LIVER_KETOSIS = 0.3;
 
+/**
+ * Blood β-ketones, as the liver's glycogen predicts them. With a well-stocked
+ * liver they sit at a fed baseline; from a bit above the ketosis line down
+ * they climb toward a ceiling that is higher the emptier the liver, slowly —
+ * so they pass 0.5 mmol/L around the time the liver passes that line, and a
+ * fast reads about
+ * 0.3–0.8 mmol/L at a day, 1.5–2.5 at two, 3–4 at three (Cahill's starvation
+ * curves). Carbs coming in shut ketone production off within a couple of
+ * hours, well before the liver has refilled.
+ *
+ * This is what makes a meter reading a check on the model rather than just a
+ * correction to it: the model says what the strip should show, the strip says
+ * what it did, and the gap is what the personal drain rate is fitted from.
+ */
+export const KETONES = {
+  baseMmol: 0.1,
+  /** Where a fast of many days levels off. */
+  maxMmol: 5,
+  /** Liver share under which they start to creep up. */
+  onsetLiver: 0.45,
+  riseTauH: 36,
+  fallTauH: 2,
+};
+
 export interface WorkoutBurn {
   /** Epoch ms it started. */
   at: number;
@@ -325,69 +350,193 @@ export interface MeterReading {
   value: number;
 }
 
+/**
+ * One sitting at the meter: a ketone strip, a glucose strip, or both taken
+ * together (within half an hour). mmol/L.
+ */
+export interface FuelReading {
+  at: number;
+  ketone: number | null;
+  glucose: number | null;
+}
+
 export interface GlycogenPoint {
   t: number;
   /** 0..1 of a full store. */
   liver: number;
   muscle: number;
+  /** Predicted blood ketones, mmol/L. */
+  ketone: number;
+}
+
+/** What a reading did to the model when it arrived. */
+export interface ReadingCheck {
+  reading: FuelReading;
+  /** Ketones the model expected at that moment, mmol/L. */
+  predictedKetone: number;
+  /** Liver, 0..1, before and after the reading was taken into account. */
+  liverBefore: number;
+  liverAfter: number;
+}
+
+/** Linear interpolation through `pts` (x ascending), flat beyond the ends. */
+function interp(pts: readonly (readonly [number, number])[], x: number): number {
+  const first = pts[0]!;
+  if (x <= first[0]) return first[1];
+  for (let i = 1; i < pts.length; i++) {
+    const [x1, y1] = pts[i]!;
+    const [x0, y0] = pts[i - 1]!;
+    if (x <= x1) return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return pts[pts.length - 1]![1];
+}
+
+/** The most liver (0..1) a ketone reading of at least 0.3 mmol/L allows. */
+const LIVER_CEILING = [
+  [0.3, 0.4],
+  [0.5, 0.25],
+  [1, 0.12],
+  [1.5, 0.05],
+  [3, 0],
+] as const;
+/** The least liver (0..1) a ketone reading under 0.3 mmol/L allows. */
+const LIVER_FLOOR = [
+  [0, 0.4],
+  [0.3, 0.3],
+] as const;
+
+/** A workout this recently can raise ketones by itself. */
+const POST_WORKOUT_H = 3;
+
+/**
+ * What a reading says about the liver: a ceiling or a floor (0..1), and how
+ * far to trust it (0..1 — the share of the way the model moves to meet it).
+ *
+ * Ketones carry the signal. Glucose can't on its own — the body holds it
+ * steady whether the liver is full or half empty — but taken with the ketone
+ * strip it says how much to believe it: raised ketones with low glucose is
+ * the fasting picture and counts in full; raised ketones with high glucose is
+ * something else (a meal just eaten, MCT oil, ketone salts) and counts for
+ * less. A workout in the last few hours raises ketones too, so it also takes
+ * some weight off. A glucose strip alone only speaks when it reads low: the
+ * liver isn't keeping up, so it's probably near empty.
+ */
+export function liverEvidence(
+  r: FuelReading,
+  hoursSinceWorkout: number | null = null,
+): { ceiling?: number; floor?: number; weight: number } | null {
+  const k = r.ketone;
+  const g = r.glucose;
+  if (k == null) {
+    return g != null && g < 3.9 ? { ceiling: 0.25, weight: 0.5 } : null;
+  }
+  if (k < 0.3) {
+    return { floor: interp(LIVER_FLOOR, k), weight: g != null && g >= 4.4 ? 1 : 0.8 };
+  }
+  let weight = g == null ? 0.8 : g < 4.4 ? 1 : g > 6 ? 0.4 : 0.8;
+  if (hoursSinceWorkout != null && hoursSinceWorkout < POST_WORKOUT_H) weight *= 0.7;
+  return { ceiling: interp(LIVER_CEILING, k), weight };
+}
+
+export interface GlycogenInput {
+  /** Net carbs eaten, g. */
+  carbs: Dose[];
+  workouts: WorkoutBurn[];
+  readings: FuelReading[];
+  fromMs: number;
+  toMs: number;
+  /** Where the simulation starts, before the window opens. */
+  warmupFromMs: number;
+  weightKg?: number;
+  /**
+   * How fast this liver empties against the textbook's (1 = the same): the
+   * personal number fitDrain works out from past readings.
+   */
+  drain?: number;
+  /** False runs it blind to the readings: what the model alone would say. */
+  pin?: boolean;
+}
+
+export interface GlycogenRun {
+  points: GlycogenPoint[];
+  /** Each reading inside the window, with what the model expected. */
+  checks: ReadingCheck[];
 }
 
 /**
- * Glycogen from `fromMs` to `toMs`, every 15 minutes. Starts two days before
- * the first dose it's given (or `fromMs`) at a typical fed state, so the
- * window opens on something carbs and workouts have already shaped.
+ * Glycogen and the ketones it predicts from `fromMs` to `toMs`, every 15
+ * minutes. Starts at `warmupFromMs` at a typical fed state, so the window
+ * opens on something carbs and workouts have already shaped.
  *
- * Ketone readings pin the liver: ≥ 0.5 mmol/L means it's low (≤ 20%, ≤ 10%
- * from 1.5), under 0.3 means it isn't (≥ 35%).
+ * A reading pulls the liver toward what it implies (liverEvidence) and sets
+ * the ketone level to what the strip showed.
  */
-export function simulateGlycogen(
-  carbs: Dose[],
-  workouts: WorkoutBurn[],
-  ketones: MeterReading[],
-  fromMs: number,
-  toMs: number,
-  warmupFromMs: number,
-  weightKg = DEFAULT_WEIGHT_KG,
-): GlycogenPoint[] {
+export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
+  const { fromMs, toMs, warmupFromMs, weightKg = DEFAULT_WEIGHT_KG, drain = 1, pin = true } = input;
   const g = GLYCOGEN;
   const stepH = g.stepMs / HOUR_MS;
   const liverCap = g.liverCapG;
   const muscleCap = g.musclePerKg * weightKg;
   const absorbed = 1 - Math.pow(0.5, stepH / g.absorbHalfLifeH);
+  const rise = 1 - Math.exp(-stepH / KETONES.riseTauH);
+  const fall = 1 - Math.exp(-stepH / KETONES.fallTauH);
 
-  const doses = carbs.filter((d) => d.amount > 0 && d.at <= toMs).sort((a, b) => a.at - b.at);
-  const reads = ketones.filter((r) => r.at <= toMs).sort((a, b) => a.at - b.at);
+  const doses = input.carbs.filter((d) => d.amount > 0 && d.at <= toMs).sort((a, b) => a.at - b.at);
+  const reads = pin ? input.readings.filter((r) => r.at <= toMs).sort((a, b) => a.at - b.at) : [];
   // Per-step carbohydrate burn from workouts, spread over each one.
-  const burns = workouts.map((w) => {
-    const min = w.durationMin && w.durationMin > 0 ? w.durationMin : g.defaultWorkoutMin;
-    const z2 = Math.min(min, Math.max(0, w.zone2Min ?? 0));
-    const share = (z2 * g.carbShareZone2 + (min - z2) * g.carbShareHard) / min;
-    const carbG = (Math.max(0, w.kcal) * share) / 4;
-    return { start: w.at, end: w.at + min * 60_000, perStep: (carbG * g.stepMs) / (min * 60_000) };
-  });
+  const burns = input.workouts
+    .map((w) => {
+      const min = w.durationMin && w.durationMin > 0 ? w.durationMin : g.defaultWorkoutMin;
+      const z2 = Math.min(min, Math.max(0, w.zone2Min ?? 0));
+      const share = (z2 * g.carbShareZone2 + (min - z2) * g.carbShareHard) / min;
+      const carbG = (Math.max(0, w.kcal) * share) / 4;
+      return { start: w.at, end: w.at + min * 60_000, perStep: (carbG * g.stepMs) / (min * 60_000) };
+    })
+    .sort((a, b) => a.start - b.start);
 
   let t = Math.min(warmupFromMs, fromMs);
   t = fromMs - Math.ceil((fromMs - t) / g.stepMs) * g.stepMs;
   let gut = 0;
   let liver = 0.7 * liverCap;
   let muscle = 0.8 * muscleCap;
+  let ketone = KETONES.baseMmol;
   let di = 0;
   let ri = 0;
-  const out: GlycogenPoint[] = [];
+  /** First workout that hasn't ended yet, and the end of the last that has. */
+  let bi = 0;
+  let lastWorkoutEnd: number | null = null;
+  const points: GlycogenPoint[] = [];
+  const checks: ReadingCheck[] = [];
   for (; t <= toMs; t += g.stepMs) {
     while (di < doses.length && doses[di]!.at <= t) gut += doses[di++]!.amount;
+    while (bi < burns.length && burns[bi]!.end <= t) lastWorkoutEnd = Math.max(lastWorkoutEnd ?? 0, burns[bi++]!.end);
     while (ri < reads.length && reads[ri]!.at <= t) {
-      const k = reads[ri++]!.value;
-      if (k >= 1.5) liver = Math.min(liver, 0.1 * liverCap);
-      else if (k >= 0.5) liver = Math.min(liver, 0.2 * liverCap);
-      else if (k < 0.3) liver = Math.max(liver, 0.35 * liverCap);
+      const r = reads[ri++]!;
+      const before = liver / liverCap;
+      const sinceWorkout =
+        bi < burns.length && burns[bi]!.start <= r.at
+          ? 0
+          : lastWorkoutEnd != null
+            ? (r.at - lastWorkoutEnd) / HOUR_MS
+            : null;
+      const ev = liverEvidence(r, sinceWorkout);
+      if (ev) {
+        const target =
+          ev.ceiling != null ? Math.min(before, ev.ceiling) : Math.max(before, ev.floor ?? before);
+        liver = (before + (target - before) * ev.weight) * liverCap;
+      }
+      if (r.at >= fromMs) {
+        checks.push({ reading: r, predictedKetone: ketone, liverBefore: before, liverAfter: liver / liverCap });
+      }
+      if (r.ketone != null) ketone = r.ketone;
     }
-    if (t >= fromMs) out.push({ t, liver: liver / liverCap, muscle: muscle / muscleCap });
+    if (t >= fromMs) points.push({ t, liver: liver / liverCap, muscle: muscle / muscleCap, ketone });
 
     const inflow = gut * absorbed;
     gut -= inflow;
     const demand = g.demandGPerH * stepH;
-    if (inflow >= demand) {
+    const fed = inflow >= demand;
+    if (fed) {
       let surplus = inflow - demand;
       const toLiver = Math.min(surplus * g.liverShare, liverCap - liver);
       liver += toLiver;
@@ -398,18 +547,27 @@ export function simulateGlycogen(
       liver += Math.min(surplus, liverCap - liver);
     } else {
       // The liver covers the gap less as it empties; gluconeogenesis the rest.
-      liver = Math.max(0, liver - (demand - inflow) * Math.sqrt(liver / liverCap));
+      liver = Math.max(0, liver - (demand - inflow) * drain * Math.sqrt(liver / liverCap));
     }
-    for (const b of burns) {
-      if (t < b.start || t >= b.end) continue;
+    for (let i = bi; i < burns.length; i++) {
+      const b = burns[i]!;
+      if (b.start > t) break;
+      if (t >= b.end) continue;
       const fromLiver = b.perStep * g.workoutFromLiver;
       const fromMuscle = b.perStep - fromLiver;
       const m = Math.min(muscle, fromMuscle);
       muscle -= m;
       liver = Math.max(0, liver - (fromLiver + (fromMuscle - m)) * Math.sqrt(liver / liverCap));
     }
+
+    const lf = liver / liverCap;
+    const goal =
+      fed || lf >= KETONES.onsetLiver
+        ? KETONES.baseMmol
+        : KETONES.baseMmol + (KETONES.maxMmol - KETONES.baseMmol) * (1 - lf / KETONES.onsetLiver);
+    ketone += (goal - ketone) * (goal > ketone ? rise : fall);
   }
-  return out;
+  return { points, checks };
 }
 
 /** First point at or after `fromMs` where the liver is under `threshold`, or null. */
@@ -420,6 +578,62 @@ export function liverBelowAt(points: GlycogenPoint[], fromMs: number, threshold 
 
 export function liverSeries(points: GlycogenPoint[]): Point[] {
   return points.map((p) => ({ t: p.t, amount: p.liver * 100 }));
+}
+
+export function ketoneSeries(points: GlycogenPoint[]): Point[] {
+  return points.map((p) => ({ t: p.t, amount: p.ketone }));
+}
+
+/** The personal drain rate, and how many readings it was fitted to. */
+export interface DrainFit {
+  /** Against the textbook: 1.2 = this liver empties 20% faster. */
+  drain: number;
+  used: number;
+}
+
+/** Drain rates tried, slowest to fastest. */
+const DRAIN_CANDIDATES = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
+/** Fewer ketone readings than this say too little to fit anything to. */
+export const DRAIN_FIT_MIN_READINGS = 3;
+/** How hard the fit is held to the textbook: a few readings barely move it. */
+const DRAIN_PRIOR = 1.5;
+
+/**
+ * How fast this person's liver empties, from their own ketone readings: the
+ * model is run blind over the history at each candidate rate, and the one
+ * whose predicted ketones sit closest to what the meter showed wins — held
+ * toward the textbook, so it takes several readings that agree to move it.
+ * Errors are compared on a log scale (0.1 against 0.4 matters as much as 1
+ * against 3).
+ *
+ * `readings` should only be ones the diary can account for: a reading after
+ * days with nothing logged looks like a fast to the model when it wasn't.
+ * Null with too few of them.
+ */
+export function fitDrain(input: Omit<GlycogenInput, "readings" | "drain" | "pin">, readings: FuelReading[]): DrainFit | null {
+  const used = readings.filter(
+    (r): r is FuelReading & { ketone: number } => r.ketone != null && r.at >= input.fromMs && r.at <= input.toMs,
+  );
+  if (used.length < DRAIN_FIT_MIN_READINGS) return null;
+  const squash = (k: number) => Math.log(Math.max(0, k) + 0.2);
+  let best = 1;
+  let bestCost = Infinity;
+  for (const drain of DRAIN_CANDIDATES) {
+    const { points } = simulateGlycogen({ ...input, readings: [], drain, pin: false });
+    const first = points[0];
+    if (!first) return null;
+    let cost = DRAIN_PRIOR * Math.log(drain) ** 2;
+    for (const r of used) {
+      const p = points[Math.min(points.length - 1, Math.max(0, Math.round((r.at - first.t) / GLYCOGEN.stepMs)))]!;
+      cost += (squash(p.ketone) - squash(r.ketone)) ** 2;
+    }
+    // Ties go to the rate nearest the textbook.
+    if (cost < bestCost - 1e-9 || (Math.abs(cost - bestCost) <= 1e-9 && Math.abs(drain - 1) < Math.abs(best - 1))) {
+      best = drain;
+      bestCost = cost;
+    }
+  }
+  return { drain: best, used: used.length };
 }
 
 // ---------------------------------------------------------------------------

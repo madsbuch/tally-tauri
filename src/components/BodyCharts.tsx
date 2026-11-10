@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { STORE_SHOWN_DAYS } from "../lib/body";
 import type { HourlyLevel } from "../lib/body";
+import type { Point } from "../lib/bodyModel";
 import { shiftDay } from "../lib/daystamp";
 import { todayStr } from "../lib/db";
 import type { Band } from "../lib/storeModels";
@@ -71,6 +72,7 @@ export function LevelCurve({
   glyph,
   minScale,
   marks = [],
+  overlay,
 }: {
   level: HourlyLevel;
   now: number;
@@ -81,6 +83,17 @@ export function LevelCurve({
   minScale: number;
   /** Other moments to flag on the curve (a meter reading), with their own glyph. */
   marks?: { at: number; glyph: string; title: string }[];
+  /**
+   * A second, thinner line on its own scale (0..`max` over the chart's
+   * height), with measured values as dots against it — what the model
+   * expected next to what a meter showed.
+   */
+  overlay?: {
+    series: Point[];
+    max: number;
+    color: string;
+    dots: { at: number; value: number; title: string }[];
+  };
 }) {
   const { series, from, to, doses } = level;
   const peak = Math.max(minScale, threshold != null ? threshold * 1.6 : 0, ...series.map((p) => p.amount));
@@ -98,6 +111,9 @@ export function LevelCurve({
     if (!first || !last) return "";
     return `${line(pts)}L${x(last.t).toFixed(1)},${VB_H}L${x(first.t).toFixed(1)},${VB_H}Z`;
   };
+  const oy = (v: number) => VB_H - (Math.min(v, overlay?.max ?? 1) / (overlay?.max ?? 1)) * VB_H * 0.92;
+  const overlayLine = (pts: Point[]) =>
+    pts.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.t).toFixed(1)},${oy(p.amount).toFixed(1)}`).join("");
   const nowPoint = past[past.length - 1];
   const nowX = (x(now) / VB_W) * 100;
   const nowY = nowPoint ? (y(nowPoint.amount) / VB_H) * 100 : 100;
@@ -121,6 +137,22 @@ export function LevelCurve({
             <path d={line(future)} className="level-line-future" vectorEffect="non-scaling-stroke" />
             <path d={area(past)} className="level-area" />
             <path d={line(past)} className="level-line" vectorEffect="non-scaling-stroke" />
+            {overlay && (
+              <>
+                <path
+                  d={overlayLine(overlay.series.filter((p) => p.t <= now))}
+                  className="level-overlay"
+                  style={{ stroke: overlay.color }}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <path
+                  d={overlayLine(overlay.series.filter((p) => p.t >= now))}
+                  className="level-overlay level-overlay-future"
+                  style={{ stroke: overlay.color }}
+                  vectorEffect="non-scaling-stroke"
+                />
+              </>
+            )}
           </g>
           <line
             x1={x(now)}
@@ -149,6 +181,18 @@ export function LevelCurve({
           >
             {glyph}
           </span>
+        ))}
+        {overlay?.dots.map((d) => (
+          <span
+            key={`o${d.at}`}
+            className="level-overlay-dot"
+            style={{
+              left: `${(x(d.at) / VB_W) * 100}%`,
+              top: `${(oy(d.value) / VB_H) * 100}%`,
+              borderColor: overlay.color,
+            }}
+            title={d.title}
+          />
         ))}
         {marks.map((mk) => (
           <span

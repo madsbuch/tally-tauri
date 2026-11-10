@@ -9,6 +9,7 @@ import type { BodySnapshot } from "../lib/body";
 import {
   BETA_ALANINE,
   BETA_ALANINE_WORKING,
+  DRAIN_FIT_MIN_READINGS,
   FERRITIN,
   FERRITIN_BANDS,
   GLYCOGEN,
@@ -315,19 +316,55 @@ export function ReservesCard({ snap }: { snap: Snap }) {
 // Fuel
 // ---------------------------------------------------------------------------
 
+/** "about 20% faster than" / "about 30% slower than" / null when it's the textbook's. */
+function drainWords(drain: number): string | null {
+  const pct = Math.round(Math.abs(drain - 1) * 100);
+  if (pct === 0) return null;
+  return `about ${pct}% ${drain > 1 ? "faster" : "slower"} than`;
+}
+
 export function GlycogenCard({ snap }: { snap: Snap }) {
   const g = snap.glycogen;
   const now = snap.at;
   const pct = Math.round(LIVER_KETOSIS * 100);
+  const expected = `${g.ketone.toFixed(1)} mmol/L`;
   let caption: string;
   if (!g.hasData) caption = "No carbs or workouts logged in the last few days.";
   else if (g.ketosisAt != null && g.ketosisAt <= now)
-    caption = `Liver under ${pct}% — the body is leaning on fat, and ketones are likely up.`;
+    caption = `Liver under ${pct}% — the body is leaning on fat, and a ketone strip should read around ${expected}.`;
   else if (g.ketosisAt != null)
     caption = `With no more carbs, the liver drops under ${pct}% (ketones rising) around ${clockDay(g.ketosisAt, now)}.`;
   else caption = "Plenty in the liver for the next day.";
+
+  // The newest ketone strip on the chart, and what it did to the estimate.
+  const check = [...g.checks].reverse().find((c) => c.reading.ketone != null);
   const k = g.lastKetone;
-  const ketoneNote = k ? ` Pinned by your ketone reading of ${k.value.toFixed(1)} mmol/L at ${clockDay(k.at, now)}.` : "";
+  let readingNote = "";
+  if (check && check.reading.ketone != null) {
+    const r = check.reading;
+    const read = `${r.ketone!.toFixed(1)} mmol/L at ${clockDay(r.at, now)}`;
+    const was = `the model expected ${check.predictedKetone.toFixed(1)}`;
+    const before = Math.round(check.liverBefore * 100);
+    const after = Math.round(check.liverAfter * 100);
+    readingNote =
+      Math.abs(after - before) < 2
+        ? ` Your ketone reading of ${read} left the liver where it was (${was}).`
+        : ` Your ketone reading of ${read} (${was}) moved the liver from ${before}% to ${after}%.`;
+  } else if (k) {
+    readingNote = ` Last ketone reading: ${k.value.toFixed(1)} mmol/L at ${clockDay(k.at, now)}.`;
+  }
+  const words = g.fit ? drainWords(g.fit.drain) : null;
+  const fitNote = !g.fit
+    ? ""
+    : words
+      ? ` Going by ${g.fit.used} of your readings, your liver empties ${words} the textbook's.`
+      : ` Your last ${g.fit.used} readings fit the textbook's pace.`;
+
+  const ketonePeak = Math.max(
+    3,
+    ...g.ketoneCurve.map((p) => p.amount),
+    ...g.checks.map((c) => c.reading.ketone ?? 0),
+  );
   return (
     <div className="card level-card">
       <Head
@@ -347,19 +384,32 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
               meals (an overnight fast leaves it about half full, a day-long one
               nearly empty), and workouts burn mostly muscle glycogen — more at
               high intensity than in zone 2. Under {pct}% liver, the body leans on
-              fat and ketones climb: that&apos;s the line on the chart.
+              fat and ketones climb: that&apos;s the dotted line on the chart.
             </p>
             <p>
-              Your ketone meter readings pin it: 0.5 mmol/L or more means the
-              liver is low, under 0.3 that it isn&apos;t. 🍞 marks carbs, 🧪 your
-              readings. The curve ahead assumes you eat nothing more.
+              The thin line is the ketone level that liver predicts, and the
+              rings are what your meter showed. A reading corrects the estimate:
+              raised ketones pull the liver down, low ones lift it. A glucose
+              strip taken alongside says how far to trust it — raised ketones
+              with low glucose is fasting and counts in full; with high glucose
+              it&apos;s more likely a meal, MCT oil or a workout, and counts for
+              less. Glucose alone only matters when it reads low.
             </p>
+            <p>
+              Your readings also teach it. With {DRAIN_FIT_MIN_READINGS} or more
+              ketone readings in the last two months — on days the diary or a
+              fast accounts for — the model works out how fast your own liver
+              empties, and uses that from then on. Readings during a fast say the
+              most; an ordinary morning now and then keeps the baseline honest.
+            </p>
+            <p>🍞 marks carbs. The curve ahead assumes you eat nothing more.</p>
           </>
         }
       />
       <div className="muted small level-caption">
         {caption}
-        {ketoneNote}
+        {readingNote}
+        {fitNote}
       </div>
       <LevelCurve
         level={g.curve}
@@ -369,12 +419,37 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
         thresholdLabel="ketosis"
         glyph="🍞"
         minScale={100}
-        marks={
-          k && k.at >= g.curve.from
-            ? [{ at: k.at, glyph: "🧪", title: `${k.value.toFixed(1)} mmol/L at ${clock(k.at)}` }]
-            : []
-        }
+        overlay={{
+          series: g.ketoneCurve,
+          max: ketonePeak * 1.1,
+          color: "var(--series-2)",
+          dots: g.checks
+            .filter((c) => c.reading.ketone != null)
+            .map((c) => ({
+              at: c.reading.at,
+              value: c.reading.ketone ?? 0,
+              title:
+                `${(c.reading.ketone ?? 0).toFixed(1)} mmol/L at ${clock(c.reading.at)}` +
+                (c.reading.glucose != null ? `, glucose ${c.reading.glucose.toFixed(1)}` : ""),
+            })),
+        }}
       />
+      <div className="level-legend">
+        <span>
+          <i style={{ ["--key" as string]: "var(--vitd)" }} />
+          liver %
+        </span>
+        <span>
+          <i style={{ ["--key" as string]: "var(--series-2)" }} />
+          ketones expected, now {expected}
+        </span>
+        {g.checks.some((c) => c.reading.ketone != null) && (
+          <span>
+            <i className="dot" style={{ ["--key" as string]: "var(--series-2)" }} />
+            your readings
+          </span>
+        )}
+      </div>
       <MiniTank label="Muscle" fraction={g.muscle} color="var(--accent)" />
     </div>
   );
