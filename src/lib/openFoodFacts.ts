@@ -57,7 +57,7 @@ export const FOOD_FACTS_TOOL: ToolDef = {
       "name plus brand if known (e.g. 'Coca-Cola Zero'), or a bare EAN/UPC barcode number. " +
       "Searches products sold in the user's country first, then worldwide. Returns label " +
       "nutrition per 100 g (per 100 ml for drinks), and per serving when known, for the " +
-      "closest matches. Branded/packaged products only — never home-cooked or generic foods.",
+      "closest matches. Branded/packaged products only, never home-cooked or generic foods.",
     parameters: {
       type: "object",
       properties: {
@@ -436,7 +436,7 @@ function takeLegacySearchSlot(): boolean {
 /** The old full-text search, scoped to a country (`cc`) or the world. */
 async function legacySearch(words: string, region: FoodRegion, cc: string): Promise<OffProduct[]> {
   if (!takeLegacySearchSlot()) {
-    throw new Error("Open Food Facts search is rate-limited — wait a minute");
+    throw new Error("Open Food Facts search is rate-limited. Wait a minute");
   }
   const params = new URLSearchParams({
     action: "process",
@@ -616,7 +616,7 @@ export async function executeFoodFactsSearch(args: Record<string, unknown>): Pro
   if (products.length === 0) {
     return JSON.stringify({
       products: [],
-      note: "No match with usable nutrition data — estimate the nutrients yourself.",
+      note: "No match with usable nutrition data. Estimate the nutrients yourself.",
     });
   }
   return JSON.stringify({ searched: result.scope, products });

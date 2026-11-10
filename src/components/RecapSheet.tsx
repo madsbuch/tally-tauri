@@ -261,7 +261,7 @@ export default function RecapSheet({
         {recap && s && (
           <>
             <div className="faint small" style={{ margin: "0 2px 10px", textAlign: "center" }}>
-              {recap.inProgress ? `So far — ${s.days} of ${daysIn(range)} days. ` : ""}
+              {recap.inProgress ? `So far: ${s.days} of ${daysIn(range)} days. ` : ""}
               {recap.previous
                 ? `Arrows compare with ${recap.inProgress ? `the same days ${vs}` : vs}.`
                 : `Nothing logged ${vs} to compare with.`}

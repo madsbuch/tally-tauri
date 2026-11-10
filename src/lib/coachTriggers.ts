@@ -137,7 +137,7 @@ export const TRIGGERS: TriggerDef[] = [
         `Last week (Monday to Sunday ${yesterday.day}) just ended, with ${w.daysLogged} of 7 days ` +
         `logged: avg net ${w.avgNet ?? "no data"} kcal, avg protein ${w.avgProteinG ?? "no data"} g, ` +
         `${w.workouts} workouts, avg sleep ${w.avgSleepH ?? "no data"} h. These are the week's ` +
-        `numbers — the digest's "last 7 days" runs through today instead. Give a short weekly ` +
+        `numbers, the digest's "last 7 days" runs through today instead. Give a short weekly ` +
         `review: what went well, what slipped, and one concrete thing to focus on this week.`
       );
     },
@@ -146,7 +146,7 @@ export const TRIGGERS: TriggerDef[] = [
     key: "follow_up_due",
     kind: "occasion",
     title: "Following up",
-    help: "When something the coach noted down comes due — a symptom you mentioned, a change you were trying. It sets these itself as you talk.",
+    help: "When something the coach noted down comes due: a symptom you mentioned, a change you were trying. It sets these itself as you talk.",
     defaults: { enabled: true },
     // Above every condition: coming back to something you raised yourself is
     // the most coach-like thing it does, and the least replaceable.
@@ -157,7 +157,7 @@ export const TRIGGERS: TriggerDef[] = [
       const items = dueFollowUps.map((f) => `"${f.text}" (noted for ${f.followUpOn})`);
       return (
         `You set yourself a reminder to come back to ${items.length === 1 ? "this" : "these"}: ` +
-        `${items.join("; ")}. Ask how it's going, specifically — not in general terms.`
+        `${items.join("; ")}. Ask how it's going, specifically, not in general terms.`
       );
     },
   },
@@ -165,7 +165,7 @@ export const TRIGGERS: TriggerDef[] = [
     key: "target_drift",
     kind: "condition",
     title: "Target looks wrong",
-    help: "When a full week sits consistently above or below your calorie target, the target is probably the thing that's off — not you.",
+    help: "When a full week sits consistently above or below your calorie target, the target is probably the thing that's off, not you.",
     defaults: { enabled: true, threshold: 300 },
     thresholdLabel: "Off by more than (kcal/day)",
     salience: 40,
@@ -179,7 +179,7 @@ export const TRIGGERS: TriggerDef[] = [
       if (Math.abs(drift) <= limit) return null;
       return (
         `Over the last ${daysLogged} logged days they averaged ${Math.round(avgNet)} kcal net ` +
-        `against a ${target} kcal target — ${Math.abs(Math.round(drift))} kcal/day ` +
+        `against a ${target} kcal target, ${Math.abs(Math.round(drift))} kcal/day ` +
         `${drift > 0 ? "above" : "below"} it, consistently. Consider whether the target itself is set right.`
       );
     },
@@ -226,7 +226,7 @@ export const TRIGGERS: TriggerDef[] = [
     key: "streak_risk",
     kind: "condition",
     title: "Streak about to break",
-    help: "Late in the evening with nothing logged and a streak running. Off by default — it's the one most likely to feel like nagging.",
+    help: "Late in the evening with nothing logged and a streak running. Off by default: it's the one most likely to feel like nagging.",
     defaults: { enabled: false, hour: 20 },
     hourLabel: "Not before",
     salience: 20,
@@ -438,12 +438,12 @@ export function evaluateTriggers(args: {
 export function occasionFor(e: Evaluation): string {
   if (!e.winner) return "";
   const lines = [
-    "You are opening this conversation yourself — they haven't asked you anything. Lead with the point below, in one message.",
+    "You are opening this conversation yourself, they haven't asked you anything. Lead with the point below, in one message.",
     `Reason you're speaking: ${e.winner.fact}`,
   ];
   if (e.alsoTrue.length > 0) {
     lines.push(
-      "Also true right now, if and only if it's worth weaving in — do not list these:",
+      "Also true right now, if and only if it's worth weaving in, do not list these:",
       ...e.alsoTrue.map((c) => `- ${c.fact}`),
     );
   }

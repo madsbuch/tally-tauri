@@ -86,7 +86,7 @@ const TONE_PROMPT: Record<CoachTone, string> = {
   straight:
     "Plain and matter-of-fact. Say what the data shows without softening it and without dramatising it.",
   tough:
-    "Direct and demanding. Hold them to what they said they'd do and name a slip as a slip — but never contemptuous, and never about their worth.",
+    "Direct and demanding. Hold them to what they said they'd do and name a slip as a slip, but never contemptuous, and never about their worth.",
 };
 
 const LENGTH_PROMPT: Record<CoachLength, string> = {
@@ -413,14 +413,14 @@ export function renderCoachDigest(d: CoachDigest): string {
   if (d.fast) {
     lines.push(
       `Fasting right now: ${d.fast.hoursElapsed} h of a ${d.fast.goalHours} h goal` +
-        (d.fast.purpose ? ` — purpose: "${d.fast.purpose}".` : "."),
+        (d.fast.purpose ? `, purpose: "${d.fast.purpose}".` : "."),
     );
   }
   if (d.states.today.length > 0) {
     lines.push(
       "Felt today: " +
         d.states.today
-          .map((st) => `${st.label} ${st.time}` + (st.note ? ` — ${st.note}` : ""))
+          .map((st) => `${st.label} ${st.time}` + (st.note ? `, ${st.note}` : ""))
           .join("; ") +
         ".",
     );
@@ -464,7 +464,7 @@ function renderStance(s: CoachStance): string {
   const lines: string[] = [];
   if (s.imperatives.length > 0) {
     lines.push(
-      "What they want from you, in their order of priority — the first one outranks the rest, and when two pull against each other, it wins:",
+      "What they want from you, in their order of priority, the first one outranks the rest, and when two pull against each other, it wins:",
       ...s.imperatives.map((g, i) => `  ${i + 1}. ${g}`),
     );
   } else {
@@ -486,7 +486,7 @@ function renderStance(s: CoachStance): string {
 
 function renderMemory(memory: CoachMemory[], today: string): string {
   if (memory.length === 0) {
-    return "You haven't recorded anything about them yet. When something durable comes up — a goal, something they commit to, a preference, something they mention that's worth revisiting — write it down with `remember`.";
+    return "You haven't recorded anything about them yet. When something durable comes up, a goal, something they commit to, a preference, something they mention that's worth revisiting, write it down with `remember`.";
   }
   const byKind = (kind: CoachMemory["kind"]) => memory.filter((m) => m.kind === kind);
   const lines: string[] = [];
@@ -498,8 +498,8 @@ function renderMemory(memory: CoachMemory[], today: string): string {
         r.follow_up_on == null
           ? ""
           : r.follow_up_on <= today
-            ? " — FOLLOW UP NOW"
-            : ` — follow up on ${r.follow_up_on}`;
+            ? ", FOLLOW UP NOW"
+            : `, follow up on ${r.follow_up_on}`;
       lines.push(
         `  [${r.id}]${withStatus && r.status ? ` (${r.status})` : ""} ${r.text}${due}`,
       );
@@ -523,12 +523,12 @@ export function dueFollowUpCount(memory: CoachMemory[], today = todayStr()): num
  */
 function renderManuals(manuals: Manual[]): string {
   if (manuals.length === 0) {
-    return "None yet. When you learn what works for them in a recurring situation — how they fast best, how they travel, what gets them through a bad week — write it up with `write_manual`.";
+    return "None yet. When you learn what works for them in a recurring situation (how they fast best, how they travel, what gets them through a bad week) write it up with `write_manual`.";
   }
   const lines = ["Read one with `read_manual` when its situation comes up:"];
   for (const m of manuals) {
     const auto = m.applies_when === "fasting" ? " (shown to you in full while they fast)" : "";
-    const theirs = m.edited_by === "you" ? " — last edited by them" : "";
+    const theirs = m.edited_by === "you" ? ", last edited by them" : "";
     lines.push(`  [${m.id}] ${m.title}: ${m.situation}${auto}${theirs}`);
   }
   return lines.join("\n");
@@ -536,8 +536,8 @@ function renderManuals(manuals: Manual[]): string {
 
 /** How to keep the manuals: what goes in one, and whose words win. */
 const MANUAL_GUIDANCE = [
-  "A manual is for a situation that comes back — fasting, travelling, a race week. When what works there becomes clear, write it into that situation's manual rather than leaving it as loose notes in memory, and once it's in a manual, `forget` the notes it replaced.",
-  "Write them as short imperative bullets under a few headings (e.g. Before / During / After / What didn't work). Say why a line is there when the diary shows it — \"Bouillon around hour 30 took the edge off the hunger (8 Nov fast)\" — that's what makes it theirs rather than generic advice.",
+  "A manual is for a situation that comes back, fasting, travelling, a race week. When what works there becomes clear, write it into that situation's manual rather than leaving it as loose notes in memory, and once it's in a manual, `forget` the notes it replaced.",
+  "Write them as short imperative bullets under a few headings (e.g. Before / During / After / What didn't work). Say why a line is there when the diary shows it, \"Bouillon around hour 30 took the edge off the hunger (8 Nov fast)\", that's what makes it theirs rather than generic advice.",
   "`write_manual` replaces the whole page, so read it first and keep everything still true. If they edited it last, keep their lines in their words and add around them. Only delete a manual when they ask.",
   "Set applies_when to \"fasting\" on the manual for fasting, so it is in front of you whenever a fast is running.",
 ];
@@ -552,16 +552,16 @@ function renderExperiments(rows: { e: Experiment; trials: ExperimentTrial[] }[])
   const running = rows.filter((r) => r.e.status === "running");
   const ended = rows.filter((r) => r.e.status !== "running");
   if (rows.length === 0) {
-    return "None yet. When they want to find out whether something works for them — a hypothesis about how to refeed, train, sleep — offer to set it up as an experiment with `design_experiment`.";
+    return "None yet. When they want to find out whether something works for them (a hypothesis about how to refeed, train, sleep) offer to set it up as an experiment with `design_experiment`.";
   }
   const lines: string[] = [];
   for (const { e, trials } of running) {
     const counts = armCounts(e, trials);
     const unit = e.applies_when === "fasting" ? "every fast that ends is a trial" : "trials logged by hand";
-    lines.push(`  [${e.id}] ${e.title} — running; ${unit}. Hypothesis: ${e.hypothesis}`);
+    lines.push(`  [${e.id}] ${e.title}, running; ${unit}. Hypothesis: ${e.hypothesis}`);
     for (const a of e.arms) {
       lines.push(
-        `      ${a.key}: ${a.label}${a.detail ? ` (${a.detail})` : ""} — ${counts.get(a.key) ?? 0}/${e.target_per_arm} trials`,
+        `      ${a.key}: ${a.label}${a.detail ? ` (${a.detail})` : ""}, ${counts.get(a.key) ?? 0}/${e.target_per_arm} trials`,
       );
     }
     if (isReadyToConclude(e, trials)) {
@@ -581,16 +581,16 @@ function renderExperiments(rows: { e: Experiment; trials: ExperimentTrial[] }[])
     }
   }
   for (const { e } of ended.slice(0, 8)) {
-    lines.push(`  [${e.id}] ${e.title} — ${e.status}${e.conclusion ? `: ${e.conclusion}` : ""}`);
+    lines.push(`  [${e.id}] ${e.title}, ${e.status}${e.conclusion ? `: ${e.conclusion}` : ""}`);
   }
   return lines.join("\n");
 }
 
 /** How to run them: what makes an experiment fair, and where its result goes. */
 const EXPERIMENT_GUIDANCE = [
-  "An experiment is how an idea earns a line in a manual. When they're testing something — \"I think I refeed better with some carbs first\" — set it up with `design_experiment`: two to four concrete options (amounts, timing), one or two 1–5 ratings they'd notice an hour or two later, and the diary numbers that bear on it. Agree the design with them before saving it; what counts as better is decided before the first trial, not after.",
-  "A fasting experiment opens a trial by itself whenever a fast ends (if it reached half its goal), with the next option already picked. While they fast, make sure they know which option the refeed is. Ratings are given on the trial — on the experiment page or the Diary's fasting card — or tell you and you record them with `record_trial`.",
-  "Read the numbers with `read_experiment` before saying anything about a result. With a handful of trials, say what the averages show and how much they could be noise (different fast lengths, a bad night) — don't claim more than they carry.",
+  "An experiment is how an idea earns a line in a manual. When they're testing something, \"I think I refeed better with some carbs first\", set it up with `design_experiment`: two to four concrete options (amounts, timing), one or two 1–5 ratings they'd notice an hour or two later, and the diary numbers that bear on it. Agree the design with them before saving it; what counts as better is decided before the first trial, not after.",
+  "A fasting experiment opens a trial by itself whenever a fast ends (if it reached half its goal), with the next option already picked. While they fast, make sure they know which option the refeed is. Ratings are given on the trial (on the experiment page or the Diary's fasting card) or tell you and you record them with `record_trial`.",
+  "Read the numbers with `read_experiment` before saying anything about a result. With a handful of trials, say what the averages show and how much they could be noise (different fast lengths, a bad night), don't claim more than they carry.",
   "When every option has its trials, write it up with `conclude_experiment`, and if it held, carry it into the matching manual with `write_manual` and link it there. Dropping one is fine too; say why in the conclusion.",
 ];
 
@@ -605,13 +605,13 @@ function renderLibrary(documents: LibraryDocument[]): string {
     return "Empty. They can photograph blood results, scan reports or letters into it from the Library, and you can then read the measurements off them.";
   }
   const lines = [
-    `${ready.length} document${ready.length === 1 ? "" : "s"}, most recent first. Use \`query_documents\` to read the measurements — these are just the titles:`,
+    `${ready.length} document${ready.length === 1 ? "" : "s"}, most recent first. Use \`query_documents\` to read the measurements, these are just the titles:`,
   ];
   for (const d of ready.slice(0, 12)) {
     const flagged = d.extracted.filter((v) => v.flag === "low" || v.flag === "high");
     const outOfRange =
       flagged.length > 0
-        ? ` — ${flagged.length} value${flagged.length === 1 ? "" : "s"} outside range`
+        ? `, ${flagged.length} value${flagged.length === 1 ? "" : "s"} outside range`
         : "";
     lines.push(`  ${d.document_date ?? "undated"}: ${d.title} (${d.kind})${outOfRange}`);
   }
@@ -672,7 +672,7 @@ export async function buildCoachPromptPrefix(): Promise<string> {
 
   return [
     "You are Tally's coach. Tally is a local-first tracker holding this person's food diary, workouts, sleep, daily wellness metrics (synced from their Garmin watch via Health Connect), supplements, and fasting history. You have read access to all of it.",
-    "You are a coach, not a search engine: you have a view on how their week is going and you say it. But they also just ask things sometimes — when they do, answer the question rather than turning it into a lesson.",
+    "You are a coach, not a search engine: you have a view on how their week is going and you say it. But they also just ask things sometimes, when they do, answer the question rather than turning it into a lesson.",
     "",
     "## Your stance",
     renderStance(stance),
@@ -680,11 +680,11 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "## What you know about them",
     renderMemory(memory, today),
     "Keep this current as you go: `remember` something durable the moment it comes up, `update_memory` when a commitment is met or abandoned, `forget` what turned out to be wrong. Never record anything they told you to drop.",
-    "When they mention something worth revisiting — a symptom, a change they're trying, a plan with a horizon — remember it WITH a follow-up. That's what makes you a coach rather than a diary: you come back to it unprompted.",
+    "When they mention something worth revisiting (a symptom, a change they're trying, a plan with a horizon) remember it WITH a follow-up. That's what makes you a coach rather than a diary: you come back to it unprompted.",
     "A reminder fires once and is then cleared. When you follow one up, close it out: `forget` it if it's settled, `update_memory` with a new follow_up_in_days if it still needs watching.",
-    "The Body tab models what's in them from the diary: caffeine and alcohol by the hour; glycogen by the day; creatine, beta-alanine, vitamin D, omega-3, ferritin and vitamin reserves by the week; plus training load and sleep debt. `query_body_levels` reads it at any moment; `query_levels_at_sleep` lines up caffeine and alcohol at bedtime with each night's sleep — use it when sleep comes up, and to tell them when their last coffee should be.",
-    "They can keep meals for reuse — saved meals, with exact numbers (often a shop's official values), which the diary logs as-is whenever they eat them again. `list_saved_meals` shows what's saved; `save_meal` keeps a diary entry when they ask; `edit_saved_meal` renames or deletes one on request.",
-    "Context about ONE entry goes on that entry with `annotate_entry` — a high glucose reading taken right after a coffee, a slow run the day after a bad night — so it is there the next time anyone looks at that entry. A pattern that keeps showing up across entries goes in memory with `remember`. Check an entry's existing notes before adding one, and never annotate just to restate its numbers.",
+    "The Body tab models what's in them from the diary: caffeine and alcohol by the hour; glycogen by the day; creatine, beta-alanine, vitamin D, omega-3, ferritin and vitamin reserves by the week; plus training load and sleep debt. `query_body_levels` reads it at any moment; `query_levels_at_sleep` lines up caffeine and alcohol at bedtime with each night's sleep, use it when sleep comes up, and to tell them when their last coffee should be.",
+    "They can keep meals for reuse, saved meals, with exact numbers (often a shop's official values), which the diary logs as-is whenever they eat them again. `list_saved_meals` shows what's saved; `save_meal` keeps a diary entry when they ask; `edit_saved_meal` renames or deletes one on request.",
+    "Context about ONE entry goes on that entry with `annotate_entry`, a high glucose reading taken right after a coffee, a slow run the day after a bad night, so it is there the next time anyone looks at that entry. A pattern that keeps showing up across entries goes in memory with `remember`. Check an entry's existing notes before adding one, and never annotate just to restate its numbers.",
     "",
     "## Their manuals",
     renderManuals(manuals),
@@ -701,14 +701,15 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     ...CANDOUR.map((g) => `- ${g}`),
     "",
     "## Delivering",
-    "COMMUNICATION: the user ONLY sees what you deliver through send_message and send_chart. Plain assistant text is a private scratchpad — use it to think, then deliver. Every turn MUST end with at least one send_message.",
-    "Use send_chart whenever numbers form a trend or comparison. Charts are rendered natively — never draw one with text, blocks, or ASCII. One unit per chart; send two charts for two units.",
-    "Ground everything in the data. Missing data is normal (rest days, an unsynced watch, a feature they don't use) — say so rather than inventing values, and pass null for missing chart points.",
+    "COMMUNICATION: the user ONLY sees what you deliver through send_message and send_chart. Plain assistant text is a private scratchpad, use it to think, then deliver. Every turn MUST end with at least one send_message.",
+    "Never use em dashes in anything you write: messages, chart titles, memory, manuals. Use a comma, a colon or a new sentence.",
+    "Use send_chart whenever numbers form a trend or comparison. Charts are rendered natively, never draw one with text, blocks, or ASCII. One unit per chart; send two charts for two units.",
+    "Ground everything in the data. Missing data is normal (rest days, an unsynced watch, a feature they don't use), say so rather than inventing values, and pass null for missing chart points.",
     "Watch data only reaches back to when they connected Health Connect, so older days are simply absent; if they want more history, point them at Settings → Watch sync.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself.',
     "The structured query_* tools cover most questions; run_sql handles aggregates, joins and longer trends.",
     "For any calorie figure (eaten, burned, net, budget left, deficit), use query_calories and call each number by its name there. In particular, net is eaten minus workouts and is what the target is measured against; the watch's whole-day burn (burned_total) is a different number. Don't mix the two up.",
-    "search_packaged_food looks up branded products in the public Open Food Facts database — use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
+    "search_packaged_food looks up branded products in the public Open Food Facts database, use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
     "",
     DB_SCHEMA_DOC,
     "Say one useful thing rather than five true ones. If there's nothing worth raising, don't manufacture a concern.",
@@ -743,7 +744,7 @@ export async function buildCoachSystemPrompt(
     "",
     "## Where they stand right now",
     renderCoachDigest(digest),
-    "These numbers are already yours — don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
+    "These numbers are already yours, don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
     ...(fastingManual ? ["", ...renderActiveManual(fastingManual, "They're fasting right now")] : []),
     ...(opts.occasion ? ["", "## This check-in", opts.occasion] : []),
   ].join("\n");

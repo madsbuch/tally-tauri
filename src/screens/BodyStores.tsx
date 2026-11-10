@@ -102,7 +102,7 @@ export function BetaAlanineCard({ snap }: { snap: Snap }) {
         info={
           <>
             <p>
-              Beta-alanine builds up carnosine in your muscles — the buffer
+              Beta-alanine builds up carnosine in your muscles, the buffer
               behind the burn in hard efforts of one to four minutes. Like
               creatine it works by filling a store, not by the day&apos;s dose.
             </p>
@@ -151,7 +151,7 @@ export function Omega3Card({ snap }: { snap: Snap }) {
         info={
           <>
             <p>
-              The share of EPA and DHA — the marine omega-3s — in your red
+              The share of EPA and DHA (the marine omega-3s) in your red
               blood cells. Under 4% is linked to higher heart risk, 8% and over
               is the usual target. Red cells live about four months, so it moves
               slowly.
@@ -174,7 +174,7 @@ export function Omega3Card({ snap }: { snap: Snap }) {
       />
       <Status label={o.band.label} tone={o.band.tone} />
       <div className="muted small level-caption">
-        {advice} {o.test ? `From your test on ${dayLabel(o.test.day)}.` : "An estimate — a test pins it."}
+        {advice} {o.test ? `From your test on ${dayLabel(o.test.day)}.` : "An estimate; a test pins it."}
       </div>
       <BandGauge
         value={o.index}
@@ -198,7 +198,7 @@ export function FerritinCard({ snap }: { snap: Snap }) {
     f.level < 50 && rising
       ? `${f.level < 30 ? "Low" : "Borderline"}, but rising: ${f.avg30.toFixed(1)} mg iron a day settles around ${Math.round(f.settles)} µg/L.`
       : f.level < 30
-      ? `Low. About ${f.ironForGood.toFixed(0)} mg iron a day would bring it toward 50 — but low ferritin has other causes too, worth a word with a doctor.`
+      ? `Low. About ${f.ironForGood.toFixed(0)} mg iron a day would bring it toward 50, but low ferritin has other causes too, worth a word with a doctor.`
       : f.level < 50
         ? `Borderline. About ${f.ironForGood.toFixed(0)} mg iron a day settles it around 50.`
         : f.avg30 > 0
@@ -213,14 +213,14 @@ export function FerritinCard({ snap }: { snap: Snap }) {
         info={
           <>
             <p>
-              Ferritin is how a blood test sees your stored iron — each µg/L is
+              Ferritin is how a blood test sees your stored iron: each µg/L is
               roughly {FERRITIN.mgPerUgL} mg in store. Under 30 is depleted,
               30–50 borderline (many feel it, especially athletes), 50–200 good.
             </p>
             <p>
               The body absorbs more iron when the store is low and less when
               it&apos;s full, so here absorption slides from ~17% to ~7%. The
-              store loses about {FERRITIN.lossMgPerDay} mg a day — more with
+              store loses about {FERRITIN.lossMgPerDay} mg a day, more with
               periods or blood donation, which the app doesn&apos;t know. Iron
               from meat absorbs better than from plants, and tea or coffee with
               a meal cuts it.
@@ -236,7 +236,7 @@ export function FerritinCard({ snap }: { snap: Snap }) {
       />
       <Status label={f.band.label} tone={f.band.tone} />
       <div className="muted small level-caption">
-        {advice} {f.test ? `From your test on ${dayLabel(f.test.day)}.` : "An estimate — a test pins it."}
+        {advice} {f.test ? `From your test on ${dayLabel(f.test.day)}.` : "An estimate; a test pins it."}
       </div>
       <BandGauge
         value={f.level}
@@ -269,7 +269,7 @@ export function ReservesCard({ snap }: { snap: Snap }) {
             </p>
             {snap.reserves.map((r) => (
               <p key={r.def.key}>
-                <b>{r.def.label}</b> — kept in {r.def.where}. Reference{" "}
+                <b>{r.def.label}</b>: kept in {r.def.where}. Reference{" "}
                 {formatAmount(r.def.key, r.def.ref)} a day.
               </p>
             ))}
@@ -318,7 +318,7 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
   // One line on the card; the rest is behind the ⓘ.
   let caption: string;
   if (!g.hasData) caption = "No carbs or workouts logged in the last few days.";
-  else if (g.ketosisAt != null && g.ketosisAt <= now) caption = `Liver low — running on fat, ketones around ${g.ketone.toFixed(1)}.`;
+  else if (g.ketosisAt != null && g.ketosisAt <= now) caption = `Liver low: running on fat, ketones around ${g.ketone.toFixed(1)}.`;
   else if (g.ketosisAt != null) caption = `Under ${pct}% around ${clockDay(g.ketosisAt, now)} if you eat no more carbs.`;
   else caption = "Plenty in the liver for the next day.";
 
@@ -416,7 +416,7 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
   }
   const words = g.fit ? drainWords(g.fit.drain) : null;
   const fit = !g.fit
-    ? `Not enough ketone readings yet to fit your own liver — it takes ${DRAIN_FIT_MIN_READINGS} in two months — so it empties at the textbook's pace.`
+    ? `Not enough ketone readings yet to fit your own liver (it takes ${DRAIN_FIT_MIN_READINGS} in two months), so it empties at the textbook's pace.`
     : words
       ? `Going by ${g.fit.used} of your readings, your liver empties ${words} the textbook's.`
       : `Your last ${g.fit.used} readings fit the textbook's pace.`;
@@ -431,7 +431,7 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
     <>
       <h3>Right now</h3>
       <p>
-        <strong>Liver {Math.round(g.liver * 100)}%</strong> — about {Math.round(g.liver * GLYCOGEN.liverCapG)} of{" "}
+        <strong>Liver {Math.round(g.liver * 100)}%</strong>, about {Math.round(g.liver * GLYCOGEN.liverCapG)} of{" "}
         {GLYCOGEN.liverCapG} g. A ketone strip should read around{" "}
         <strong>{g.ketone.toFixed(1)} mmol/L</strong>.{" "}
         {g.ketosisAt == null
@@ -443,7 +443,7 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
       <p>{reading}</p>
       <p>{fit}</p>
       <p>
-        <strong>Muscle {Math.round(g.muscle * 100)}%</strong> — about {Math.round(g.muscleG)} of{" "}
+        <strong>Muscle {Math.round(g.muscle * 100)}%</strong>, about {Math.round(g.muscleG)} of{" "}
         {Math.round(g.muscleCapG)} g. Over the last {days} days{" "}
         {n === 0
           ? "no workouts took from it"
@@ -457,15 +457,15 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
       <h3>The liver</h3>
       <p>
         About {GLYCOGEN.liverCapG} g of carbohydrate, which keeps your blood sugar up between meals. Net carbs you
-        log refill it; your brain draws on it at about {GLYCOGEN.demandGPerH} g an hour, less as it empties — an
+        log refill it; your brain draws on it at about {GLYCOGEN.demandGPerH} g an hour, less as it empties: an
         overnight fast leaves it about half full, a day-long one nearly empty. Under {pct}% the body leans on fat and
         ketones climb: that&apos;s the dotted line on the chart.
       </p>
 
       <h3>Your meter</h3>
       <p>
-        The thin line is the ketone level the liver predicts — about {KETONES.baseMmol} mmol/L when it&apos;s
-        stocked, climbing through a fast — and the rings are what your meter showed. A reading corrects the
+        The thin line is the ketone level the liver predicts (about {KETONES.baseMmol} mmol/L when it&apos;s
+        stocked, climbing through a fast) and the rings are what your meter showed. A reading corrects the
         estimate: raised ketones pull the liver down, low ones lift it.
       </p>
       <p>
@@ -474,8 +474,8 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
         for less. Glucose alone only matters when it reads low.
       </p>
       <p>
-        Your readings also teach it. With {DRAIN_FIT_MIN_READINGS} or more ketone readings in the last two months —
-        on days the diary or a fast accounts for — the model works out how fast your own liver empties and uses that
+        Your readings also teach it. With {DRAIN_FIT_MIN_READINGS} or more ketone readings in the last two months,
+        on days the diary or a fast accounts for, the model works out how fast your own liver empties and uses that
         from then on. Readings during a fast say the most; an ordinary morning now and then keeps the baseline
         honest.
       </p>
@@ -483,7 +483,7 @@ function GlycogenInfo({ snap }: { snap: Snap }) {
       <h3>Muscle</h3>
       <p>
         About {GLYCOGEN.musclePerKg} g per kg of body weight, which only the muscle itself can use. It moves two
-        ways. A workout takes carbohydrate out of it — about {Math.round(GLYCOGEN.carbShareZone2 * 100)}% of the
+        ways. A workout takes carbohydrate out of it: about {Math.round(GLYCOGEN.carbShareZone2 * 100)}% of the
         energy in zone 2, {Math.round(GLYCOGEN.carbShareHard * 100)}% when it&apos;s hard, more for sprints. Carbs
         beyond what the brain and liver take put it back, faster the emptier it is: about a day of carb-heavy eating
         after a hard session, two of eating normally. Rest and fasting leave it alone.
@@ -582,12 +582,12 @@ export function TrainingCard({ snap }: { snap: Snap }) {
     <div className="card level-card">
       <Head
         title="🏃 Training load"
-        value={t.ratio == null ? "—" : t.ratio.toFixed(2)}
+        value={t.ratio == null ? "–" : t.ratio.toFixed(2)}
         unit=" ratio"
         info={
           <>
             <p>
-              Each workout counts by Garmin&apos;s training load for it — the
+              Each workout counts by Garmin&apos;s training load for it: the
               heart-rate based number your watch adds up. Acute load is the
               last week of it, chronic load the last four weeks, both as a
               weekly figure, the way Garmin shows them. A workout without a
@@ -613,7 +613,7 @@ export function TrainingCard({ snap }: { snap: Snap }) {
       ) : null}
       <div className="muted small level-caption">
         {t.ratio == null
-          ? "Not enough training yet to read a ratio — it takes a few weeks of workouts."
+          ? "Not enough training yet to read a ratio. It takes a few weeks of workouts."
           : `Acute ${Math.round(acute)} · chronic ${Math.round(chronic)}${fromGarmin ? " (Garmin)" : ""}.`}
         {garminBits.length > 0 && (
           <span style={{ display: "block" }}>Garmin: {garminBits.join(" · ")}.</span>
@@ -731,8 +731,8 @@ export function SleepCard({ snap, onNeed }: { snap: Snap; onNeed: (h: number) =>
           <>
             <p>
               Each night short of what you need adds to the debt; longer nights
-              pay it back. Old debt fades — half of it in about{" "}
-              {SLEEP.halfLifeNights} nights — so a bad night three weeks ago
+              pay it back. Old debt fades (half of it in about{" "}
+              {SLEEP.halfLifeNights} nights), so a bad night three weeks ago
               isn&apos;t still counting. Nights with no sleep synced are left out.
             </p>
             <p>How much sleep you need:</p>
@@ -747,7 +747,7 @@ export function SleepCard({ snap, onNeed }: { snap: Snap; onNeed: (h: number) =>
       <Status label={s.band.label} tone={s.band.tone} />
       <div className="muted small level-caption">
         {s.nights14 === 0
-          ? "No sleep synced in the last two weeks — Health Connect brings it in."
+          ? "No sleep synced in the last two weeks. Health Connect brings it in."
           : s.avg7H == null
             ? `No nights synced this week; need set to ${s.needH} h.`
             : `Averaging ${hm(s.avg7H)} over the last week, against ${s.needH} h.`}

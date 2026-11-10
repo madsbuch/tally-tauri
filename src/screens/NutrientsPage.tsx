@@ -161,7 +161,7 @@ function RefRow({
             color: over ? "var(--warn)" : undefined,
           }}
         >
-          {value != null ? formatAmount(def.key, value) : "—"}
+          {value != null ? formatAmount(def.key, value) : "–"}
         </span>
       </div>
       {ref != null && (
@@ -184,7 +184,7 @@ function RefRow({
               color: over ? "var(--warn)" : "var(--faint)",
             }}
           >
-            {pct != null ? `${Math.round(pct)}%` : "—"}
+            {pct != null ? `${Math.round(pct)}%` : "–"}
           </span>
         </div>
       )}
@@ -508,7 +508,7 @@ export default function NutrientsPage() {
                 <InfoButton title="Keto">
                   <p>
                     <strong>Net carbs</strong> are carbs minus fiber, counted from
-                    food only — supplements don&apos;t move this bar.
+                    food only: supplements don&apos;t move this bar.
                   </p>
                   <p>
                     Most people stay in ketosis under {carbLimit} g a day with fat
@@ -551,7 +551,7 @@ export default function NutrientsPage() {
                     color: overCarbLimit ? "var(--warn)" : undefined,
                   }}
                 >
-                  {netCarbsPerDay != null ? formatAmount("carbs_g", netCarbsPerDay) : "—"}
+                  {netCarbsPerDay != null ? formatAmount("carbs_g", netCarbsPerDay) : "–"}
                 </span>{" "}
                 <span className="faint">/ {carbLimit} g</span>
               </span>
@@ -565,7 +565,7 @@ export default function NutrientsPage() {
                   <div key={key} className="nutrient-row">
                     <span className="n-label">{def.label}</span>
                     <span className="n-value">
-                      {value != null ? formatAmount(key, value) : "—"}
+                      {value != null ? formatAmount(key, value) : "–"}
                     </span>
                   </div>
                 );
@@ -573,7 +573,7 @@ export default function NutrientsPage() {
               <div className="nutrient-row">
                 <span className="n-label">Fat energy</span>
                 <span className="n-value">
-                  {fatEnergyPct != null ? `${fatEnergyPct}%` : "—"}
+                  {fatEnergyPct != null ? `${fatEnergyPct}%` : "–"}
                 </span>
               </div>
             </div>
@@ -608,7 +608,7 @@ export default function NutrientsPage() {
                   <div key={key} className="nutrient-row">
                     <span className="n-label">{def.label}</span>
                     <span className="n-value">
-                      {value != null ? formatAmount(key, value) : "—"}
+                      {value != null ? formatAmount(key, value) : "–"}
                     </span>
                   </div>
                 );
@@ -626,7 +626,7 @@ export default function NutrientsPage() {
               <InfoButton title="Micronutrients">
                 <p>
                   Each bar compares your intake with an approximate adult daily
-                  reference — a rough yardstick, not a prescription.
+                  reference: a rough yardstick, not a prescription.
                 </p>
                 <p>
                   Over a range of days the bars show the average per day, so one
@@ -655,7 +655,7 @@ export default function NutrientsPage() {
               <InfoButton title="Other compounds">
                 <p>
                   The creatine bar tracks a common 5 g a day supplementation
-                  target, not a dietary reference — nobody eats that much of it.
+                  target, not a dietary reference: nobody eats that much of it.
                 </p>
               </InfoButton>
             </div>

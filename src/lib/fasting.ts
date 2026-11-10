@@ -142,7 +142,7 @@ export const FASTING_STAGES: FastingStage[] = [
     emoji: "⚡",
     title: "Ketosis",
     blurb:
-      "Ketone levels climb and start fueling the brain. Autophagy — cellular self-cleanup — begins switching on.",
+      "Ketone levels climb and start fueling the brain. Autophagy (cellular self-cleanup) begins switching on.",
   },
   {
     fromH: 24,

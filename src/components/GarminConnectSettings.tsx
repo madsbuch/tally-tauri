@@ -47,7 +47,7 @@ function resultLine(r: GarminSyncResult): string {
   const tail = r.backfillDone
     ? " History complete."
     : r.wellnessBackTo
-      ? ` Wellness history back to ${r.wellnessBackTo} so far — each sync reaches further.`
+      ? ` Wellness history back to ${r.wellnessBackTo} so far. Each sync reaches further.`
       : "";
   return head + tail;
 }
@@ -113,7 +113,7 @@ export default function GarminConnectSettings() {
     run(async () => {
       await setGarminKey(key);
       setKey("");
-      setMessage("Key accepted. Reading your history — the first sync takes a minute.");
+      setMessage("Key accepted. Reading your history. The first sync takes a minute.");
       const r = await syncGarmin({ manual: true });
       if (r) setMessage(resultLine(r));
     });
@@ -124,7 +124,7 @@ export default function GarminConnectSettings() {
       setPassword("");
       if (outcome === "mfa") {
         setStatus((st) => ({ personal: st?.personal ?? false, connected: false, mfaPending: true }));
-        setMessage("Garmin sent a verification code — enter it below.");
+        setMessage("Garmin sent a verification code. Enter it below.");
         return;
       }
       setMessage("Signed in.");

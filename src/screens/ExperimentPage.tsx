@@ -135,7 +135,7 @@ function Results({
                       key={summary[i]?.arm.key ?? i}
                       className={judge && v != null && v === best ? "exp-best" : ""}
                     >
-                      {v == null ? "—" : r.auto ? formatMetric(r.auto, v) : v.toFixed(1)}
+                      {v == null ? "–" : r.auto ? formatMetric(r.auto, v) : v.toFixed(1)}
                     </td>
                   ))}
                 </tr>

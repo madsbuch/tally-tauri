@@ -359,7 +359,7 @@ function run(): void {
         status = "interrupted";
         autoResumable = true;
         error =
-          "Paused while the app was in the background — it picks up again when you come back.";
+          "Paused while the app was in the background. It picks up again when you come back.";
       } else {
         status = "error";
         error = msg;
@@ -494,7 +494,7 @@ export async function openAssistantChat(
   if (endsOnUnansweredTurn()) {
     status = "interrupted";
     autoResumable = false; // an old chat shouldn't fire off a request on its own
-    error = "This turn never finished — the app was closed while it was running.";
+    error = "This turn never finished: the app was closed while it was running.";
   } else {
     status = "idle";
     error = null;

@@ -114,7 +114,7 @@ function metricLine(m: HealthMetric): string {
 }
 
 function sleepLine(s: SleepSession): string {
-  const parts: string[] = [fmtDuration(s.duration_min) ?? "—"];
+  const parts: string[] = [fmtDuration(s.duration_min) ?? "–"];
   if (s.deep_min != null) parts.push(`deep ${Math.round(s.deep_min)}m`);
   if (s.rem_min != null) parts.push(`REM ${Math.round(s.rem_min)}m`);
   if (s.light_min != null) parts.push(`light ${Math.round(s.light_min)}m`);
@@ -363,7 +363,7 @@ export default function SettingsPage() {
       const res = await exportDatabase();
       setExportMsg(
         res.shared
-          ? "Snapshot ready — pick where to send it in the share sheet."
+          ? "Snapshot ready. Pick where to send it in the share sheet."
           : `Snapshot saved to ${res.path}`,
       );
     } catch (e) {
@@ -414,7 +414,7 @@ export default function SettingsPage() {
       }
       setHcMessage(
         parts.length === 0
-          ? "Up to date — nothing new in the sync window."
+          ? "Up to date. Nothing new in the sync window."
           : `Synced ${parts.join(", ")}.`,
       );
     } catch (e) {
@@ -455,7 +455,7 @@ export default function SettingsPage() {
     if (
       !window.confirm(
         "Disconnect Health Connect? Already-synced entries stay on this " +
-          "device, and you can reconnect anytime — the permission sheet will " +
+          "device, and you can reconnect anytime. The permission sheet will " +
           "appear again, including “access data history”.",
       )
     ) {
@@ -473,7 +473,7 @@ export default function SettingsPage() {
       setHcData(null);
       setHcMessage(
         status.permissionsGranted
-          ? "Disconnect requested — restart the app if it still shows as connected."
+          ? "Disconnect requested. Restart the app if it still shows as connected."
           : "Disconnected. Tap “Connect Health Connect” to reconnect and grant history access.",
       );
     } catch (e) {
@@ -693,7 +693,7 @@ export default function SettingsPage() {
         {!showModelPicker ? (
           <p className="muted small" style={{ margin: 0 }}>
             The model that analyzes your captures. Only vision models with tool
-            calling are listed — the diary agent needs both.
+            calling are listed: the diary agent needs both.
           </p>
         ) : (
           <>
@@ -762,7 +762,7 @@ export default function SettingsPage() {
                     className="faint small"
                     style={{ textAlign: "center", padding: "6px 0" }}
                   >
-                    …and {hiddenCount} more — refine your search
+                    …and {hiddenCount} more. Refine your search
                   </div>
                 )}
               </div>
@@ -787,7 +787,7 @@ export default function SettingsPage() {
           <div className="spinner" />
         ) : hcStatus.availability === "unavailable" ? (
           <p className="muted small" style={{ margin: 0 }}>
-            Health Connect isn’t available here — it needs an Android phone
+            Health Connect isn’t available here. It needs an Android phone
             with the Health Connect app (built into Android 14+).
           </p>
         ) : hcStatus.availability === "updateRequired" ? (
@@ -858,7 +858,7 @@ export default function SettingsPage() {
               Synced entries are matched by their Health Connect id, so
               re-syncing never duplicates. Health Connect only holds data from
               after you enabled the Garmin&nbsp;Connect → Health&nbsp;Connect
-              link — older activity stays in Garmin and can’t be pulled from
+              link. Older activity stays in Garmin and can’t be pulled from
               here.
             </p>
             {hcDataOpen && (
@@ -869,7 +869,7 @@ export default function SettingsPage() {
                   hcData.sleep.length === 0 &&
                   hcData.metrics.length === 0 ? (
                   <p className="muted small" style={{ margin: 0 }}>
-                    Nothing synced yet — tap “Sync now” above.
+                    Nothing synced yet. Tap “Sync now” above.
                   </p>
                 ) : (
                   <div style={{ display: "grid", gap: 8 }}>
@@ -890,7 +890,7 @@ export default function SettingsPage() {
                       >
                         {hcData.metrics.map((m) => (
                           <div key={m.day}>
-                            <strong>{fmtDay(m.day)}</strong> — {metricLine(m)}
+                            <strong>{fmtDay(m.day)}</strong>: {metricLine(m)}
                           </div>
                         ))}
                       </div>
@@ -912,7 +912,7 @@ export default function SettingsPage() {
                       >
                         {hcData.sleep.map((s) => (
                           <div key={s.external_id}>
-                            <strong>{fmtDayIso(s.ended_at)}</strong> — {sleepLine(s)}
+                            <strong>{fmtDayIso(s.ended_at)}</strong>: {sleepLine(s)}
                           </div>
                         ))}
                       </div>
@@ -933,7 +933,7 @@ export default function SettingsPage() {
                       >
                         {hcData.workouts.map((w) => (
                           <div key={w.id}>
-                            <strong>{fmtDateTime(w.performed_at)}</strong> — {w.title}
+                            <strong>{fmtDateTime(w.performed_at)}</strong>: {w.title}
                             {workoutLine(w) ? ` · ${workoutLine(w)}` : ""}
                             {w.source ? ` (${w.source})` : ""}
                           </div>
@@ -993,7 +993,7 @@ export default function SettingsPage() {
           </div>
           <p className="muted small" style={{ margin: "8px 2px 0" }}>
             The Diary page tracks your net kcal (eaten − burned) against this
-            budget — daily, weekly (target × 7) and monthly (target × days in
+            budget: daily, weekly (target × 7) and monthly (target × days in
             the month). Leave empty for no target. A single day can be
             corrected from the Diary; that shifts the day, not the week.
           </p>
@@ -1026,7 +1026,7 @@ export default function SettingsPage() {
             )}
           </div>
           <p className="muted small" style={{ margin: "8px 2px 0" }}>
-            Used when starting a new fast (1–168 hours — multi-day fasts welcome).
+            Used when starting a new fast (1–168 hours, multi-day fasts welcome).
           </p>
         </div>
       </div>
@@ -1073,7 +1073,7 @@ export default function SettingsPage() {
       <div className="card">
         <h2 className="card-title">Export database</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
-          Saves a consistent snapshot of the raw SQLite database — every meal,
+          Saves a consistent snapshot of the raw SQLite database: every meal,
           workout, supplement, fast, and photo. Open it with
           any SQLite tool, or keep it as a backup.
         </p>
@@ -1105,7 +1105,7 @@ export default function SettingsPage() {
       <div className="card">
         <h2 className="card-title">About</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          Tally 0.1.0 — local-first fitness tracker. All your data lives in a
+          Tally 0.1.0, a local-first fitness tracker. All your data lives in a
           SQLite database on this device; food photos never leave your phone
           except to the AI model you choose for analysis.
         </p>

@@ -543,13 +543,13 @@ export default function FastingSection() {
             >
               <span className="chip chip-accent">✓ Goal reached</span>
               <span className="muted small">
-                {formatDurationDays(overtimeMs, true)} past your goal — nicely done.
+                {formatDurationDays(overtimeMs, true)} past your goal. Nicely done.
               </span>
             </div>
           )}
           {notifWarn && (
             <span className="chip chip-warn" style={{ marginTop: 12 }}>
-              Notifications disabled — countdown hidden
+              Notifications disabled, countdown hidden
             </span>
           )}
         </div>
@@ -610,7 +610,7 @@ export default function FastingSection() {
           ) : (
             <>
               <div className={active.purpose ? undefined : "muted"}>
-                {active.purpose ?? "None — judged as a plain fast."}
+                {active.purpose ?? "None, judged as a plain fast."}
               </div>
               <button
                 className="btn btn-ghost btn-sm"
@@ -651,7 +651,7 @@ export default function FastingSection() {
               <div key={m.id} className="small" style={{ padding: "3px 0" }}>
                 <span style={{ fontWeight: 600 }}>{m.title}</span>
                 <span className="muted">
-                  {" — "}
+                  {": "}
                   {formatDayStamp(new Date(m.eaten_at), longSpan)}
                   {m.nutrients.calories != null
                     ? ` · ~${Math.round(m.nutrients.calories)} kcal`
@@ -706,8 +706,8 @@ export default function FastingSection() {
             ))}
             <div className="muted small" style={{ marginTop: 6 }}>
               If this broke your fast, end it at the meal's time so the record stays
-              honest. Something that fits the fast — a supplement, a splash of milk,
-              food within what you allowed yourself? Mark it and say why. Backfilling a meal you
+              honest. Something that fits the fast (a supplement, a splash of milk,
+              food within what you allowed yourself)? Mark it and say why. Backfilling a meal you
               ate before the fast? Give it a time before{" "}
               {formatDayStamp(new Date(active.started_at), longSpan)} and this note
               disappears.

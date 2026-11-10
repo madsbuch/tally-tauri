@@ -209,7 +209,7 @@ async function runSync(manual: boolean): Promise<GarminSyncResult | null> {
     if (manual) {
       throw new GarminError({
         code: "rate_limited",
-        message: "Paused after Garmin rate-limited us — try again tomorrow",
+        message: "Paused after Garmin rate-limited us. Try again tomorrow",
       });
     }
     return null;
@@ -517,7 +517,7 @@ export function syncGarminIfStale(): Promise<GarminSyncResult | null> {
 export function garminErrorMessage(e: unknown): string {
   if (e instanceof GarminError) {
     if (e.code === "blocked" || e.code === "unexpected" || e.code === "http") {
-      return `${e.message}. If this is the unofficial sign-in, Garmin may have changed it — this needs a code update.`;
+      return `${e.message}. If this is the unofficial sign-in, Garmin may have changed it, and this needs a code update.`;
     }
     return e.message;
   }

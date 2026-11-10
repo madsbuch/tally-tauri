@@ -69,7 +69,7 @@ export default function FastingExperiments({ fasting }: { fasting: boolean }) {
                   ? `${e.title}: every option has its trials`
                   : e.assignment === "balanced"
                     ? `Refeed: ${armName(next)}`
-                    : `Refeed: your pick — ${e.arms.map((a) => a.key).join(" / ")}`}
+                    : `Refeed, your pick: ${e.arms.map((a) => a.key).join(" / ")}`}
                 <span className="muted small" style={{ display: "block" }}>
                   {ready
                     ? "This fast still counts; ask the coach to conclude it."
@@ -110,7 +110,7 @@ export default function FastingExperiments({ fasting }: { fasting: boolean }) {
             </button>
             {early && (
               <div className="muted small">
-                Best rated an hour or two after eating — but now is fine too.
+                Best rated an hour or two after eating, but now is fine too.
               </div>
             )}
             <TrialCard experiment={e} trial={t} compact />

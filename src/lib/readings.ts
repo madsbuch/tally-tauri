@@ -73,7 +73,7 @@ export function parseReading(kind: ReadingKind, raw: string, unit: GlucoseUnit):
       const other = unit === "mmol" ? n / MGDL_PER_MMOL : n * MGDL_PER_MMOL;
       if (other >= min && other <= max) {
         throw new Error(
-          `${label} ${n} isn't possible in ${unitLabel(kind, unit)} — is your meter showing ${unitLabel(kind, unit === "mmol" ? "mgdl" : "mmol")}?`,
+          `${label} ${n} isn't possible in ${unitLabel(kind, unit)}. Is your meter showing ${unitLabel(kind, unit === "mmol" ? "mgdl" : "mmol")}?`,
         );
       }
     }

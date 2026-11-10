@@ -182,7 +182,7 @@ pub async fn garmin_mfa(
         .lock()
         .await
         .take()
-        .ok_or_else(|| local("mfa_expired", "The sign-in timed out — start again"))?;
+        .ok_or_else(|| local("mfa_expired", "The sign-in timed out. Start again"))?;
     let session = garmin_connect::resume_mfa(pending, &code).await?;
     save(&app, SESSION_FILE, Some(&session))?;
     *state.session.lock().await = Some(Some(session));

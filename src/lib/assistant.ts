@@ -149,7 +149,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_workouts",
       description:
-        "Exercise sessions in a day range — manual entries and Garmin/Health Connect synced ones (calories burned, duration, distance/HR in the description). Synced ones carry `garmin` when the direct Garmin Connect sync has them: Training Effect (aerobic/anaerobic, 0–5), training load, minutes in HR zones 1–5, power, cadence, pace, elevation, and laps.",
+        "Exercise sessions in a day range, manual entries and Garmin/Health Connect synced ones (calories burned, duration, distance/HR in the description). Synced ones carry `garmin` when the direct Garmin Connect sync has them: Training Effect (aerobic/anaerobic, 0–5), training load, minutes in HR zones 1–5, power, cadence, pace, elevation, and laps.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },
@@ -176,7 +176,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_garmin_wellness",
       description:
-        "Garmin Connect's own daily numbers (direct sync, not Health Connect) per day: Body Battery (high/low/charged/drained), stress (avg/max, 0–100), HRV last night + weekly avg + status, sleep score/stress/respiration, intensity minutes, floors, respiration, SpO2, resting HR, steps, weight. Training readiness (score + level), training status (e.g. PRODUCTIVE, MAINTAINING), acute/chronic load and VO2 max only for recent days, and only when the optional unofficial sign-in is on — absent otherwise, which says nothing about the day.",
+        "Garmin Connect's own daily numbers (direct sync, not Health Connect) per day: Body Battery (high/low/charged/drained), stress (avg/max, 0–100), HRV last night + weekly avg + status, sleep score/stress/respiration, intensity minutes, floors, respiration, SpO2, resting HR, steps, weight. Training readiness (score + level), training status (e.g. PRODUCTIVE, MAINTAINING), acute/chronic load and VO2 max only for recent days, and only when the optional unofficial sign-in is on, absent otherwise, which says nothing about the day.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },
@@ -231,7 +231,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "query_documents",
       description:
-        "Documents the user has photographed into their library — blood panels, scan reports, letters — with the measurements read off them. Filed by the date printed on the document, not when it was added. Use this whenever a question touches lab values, a diagnosis, or anything a clinician wrote down.",
+        "Documents the user has photographed into their library (blood panels, scan reports, letters) with the measurements read off them. Filed by the date printed on the document, not when it was added. Use this whenever a question touches lab values, a diagnosis, or anything a clinician wrote down.",
       parameters: {
         type: "object",
         properties: {
@@ -254,7 +254,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "add_rule",
       description:
-        "Add a rule for living (\"leveregel\") to their list — a standing belief like \"I must always do things perfectly\". ONLY once they have agreed to the exact wording: if you helped put it into words, read the sentence back and wait for a yes before calling this. It is saved verbatim as theirs, so never paraphrase what they agreed to.",
+        "Add a rule for living (\"leveregel\") to their list, a standing belief like \"I must always do things perfectly\". ONLY once they have agreed to the exact wording: if you helped put it into words, read the sentence back and wait for a yes before calling this. It is saved verbatim as theirs, so never paraphrase what they agreed to.",
       parameters: {
         type: "object",
         properties: {
@@ -277,13 +277,13 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "annotate_entry",
       description:
-        "Attach a short note to ONE diary entry: context that explains its number without changing it — " +
+        "Attach a short note to ONE diary entry: context that explains its number without changing it, " +
         "\"Taken ~10 min after a coffee with milk\" on a glucose reading that came out high, \"First run " +
         "after a week sick\" on a slow workout. It shows on that entry for them and comes back to you " +
         "whenever the entry does (the query_* tools return it as coach_notes; for readings, states and " +
         "performance logs, join entry_notes in SQL). Use it when you've spotted context in the diary or " +
         "they've told you something about a specific entry. It never edits the entry; a recurring pattern " +
-        "(\"glucose reads high after coffee\") belongs in `remember` instead. One note per thing — don't " +
+        "(\"glucose reads high after coffee\") belongs in `remember` instead. One note per thing, don't " +
         "repeat what the entry or an earlier note already says.",
       parameters: {
         type: "object",
@@ -313,15 +313,15 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       name: "query_body_levels",
       description:
         "What's in their body at one moment, modelled from the diary (the Body tab shows the same): " +
-        `caffeine (mg in the body, and when it drops under ${CAFFEINE_SLEEP_MG} mg — roughly where it stops costing deep sleep), ` +
+        `caffeine (mg in the body, and when it drops under ${CAFFEINE_SLEEP_MG} mg, roughly where it stops costing deep sleep), ` +
         "alcohol (g, rough ‰, and when it's cleared), creatine (how full the muscle store is from supplements) and " +
         "vitamin D (estimated 25(OH)D blood level in nmol/L: a seasonal northern-European sun baseline plus logged intake, " +
-        "pinned to the newest blood test in the library when there is one — otherwise it's an average, not their number; " +
-        "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L) — " +
-        "both pinned to a library blood test when there is one — beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
-        "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, muscle in grams with what workouts took and carbs put back over the last 4 days — muscle is unmeasured, so speak of it as full / ready / drawn down / low — and the blood ketones that liver predicts; their meter readings correct it — a ketone strip " +
-        "moves the liver, the glucose strip taken with it says how far to trust it — and past ketone readings fit how fast their own liver empties; when the liver " +
-        "drops under 30% with no more carbs), training load (acute and chronic load — each workout counted by Garmin's training load, energy as a fallback — their ratio, the last 4 weeks' load focus — low aerobic / high aerobic / anaerobic, with Garmin's targets when synced — and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
+        "pinned to the newest blood test in the library when there is one, otherwise it's an average, not their number; " +
+        "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L), " +
+        "both pinned to a library blood test when there is one, beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
+        "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, muscle in grams with what workouts took and carbs put back over the last 4 days (muscle is unmeasured, so speak of it as full / ready / drawn down / low) and the blood ketones that liver predicts; their meter readings correct it, a ketone strip " +
+        "moves the liver, the glucose strip taken with it says how far to trust it, and past ketone readings fit how fast their own liver empties; when the liver " +
+        "drops under 30% with no more carbs), training load (acute and chronic load (each workout counted by Garmin's training load, energy as a fallback) their ratio, the last 4 weeks' load focus (low aerobic / high aerobic / anaerobic, with Garmin's targets when synced) and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
         "Estimates from average kinetics: say so when it matters.",
       parameters: {
         type: "object",
@@ -343,7 +343,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
       description:
         "For each night in the range: caffeine (mg) and alcohol (g) still in the body when they fell asleep, next to " +
         "that night's sleep (duration, deep, REM, awake). Use it to look for what late coffee or drinks do to THEIR " +
-        "sleep — compare nights with more against nights with less, and say how many nights the pattern rests on.",
+        "sleep, compare nights with more against nights with less, and say how many nights the pattern rests on.",
       parameters: DAY_RANGE_SCHEMA,
     },
   },
@@ -363,7 +363,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "save_meal",
       description:
-        "Save a diary meal entry for reuse, under a name — when they ask you to keep one " +
+        "Save a diary meal entry for reuse, under a name, when they ask you to keep one " +
         "(\"save yesterday's 7-Eleven bun\"). Saving under a name that already exists updates it " +
         "with this entry's numbers. Find the entry id with query_meals first.",
       parameters: {
@@ -404,7 +404,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "remember",
       description:
-        "Record something durable about this person so future conversations start knowing it. Use it the moment a goal, a commitment, or a preference comes up — memory is what makes you a coach rather than a stranger each time. Don't record passing facts the diary already holds (what they ate, a single workout); record what shapes how you coach them.",
+        "Record something durable about this person so future conversations start knowing it. Use it the moment a goal, a commitment, or a preference comes up, memory is what makes you a coach rather than a stranger each time. Don't record passing facts the diary already holds (what they ate, a single workout); record what shapes how you coach them.",
       parameters: {
         type: "object",
         properties: {
@@ -422,7 +422,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           follow_up_in_days: {
             type: "number",
             description:
-              "Come back to this unprompted in this many days. Use it whenever something is worth revisiting — a symptom they mentioned, a change they're trying, a commitment with a horizon. Judge the interval from the thing itself: a few days for something that should settle quickly, a week or two for a habit. Omit when there is nothing to check back on.",
+              "Come back to this unprompted in this many days. Use it whenever something is worth revisiting, a symptom they mentioned, a change they're trying, a commitment with a horizon. Judge the interval from the thing itself: a few days for something that should settle quickly, a week or two for a habit. Omit when there is nothing to check back on.",
           },
         },
         required: ["kind", "text"],
@@ -454,7 +454,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           clear_follow_up: {
             type: "boolean",
             description:
-              "Drop the reminder while keeping the memory — the thing is settled but still worth knowing.",
+              "Drop the reminder while keeping the memory, the thing is settled but still worth knowing.",
           },
         },
         required: ["id"],
@@ -549,7 +549,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "design_experiment",
       description:
-        "Set up an experiment — a fair test of something that might work for them — or revise one. Agree the design with them first. Options are lettered A, B, C… in the order given.",
+        "Set up an experiment (a fair test of something that might work for them) or revise one. Agree the design with them first. Options are lettered A, B, C… in the order given.",
       parameters: {
         type: "object",
         properties: {
@@ -655,7 +655,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           note: { type: "string", description: "Anything that bears on the result, in a line." },
           excluded: {
             type: "boolean",
-            description: "true when it shouldn't count — the option wasn't followed, they were ill.",
+            description: "true when it shouldn't count, the option wasn't followed, they were ill.",
           },
           started_at: {
             type: "string",
@@ -672,7 +672,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "conclude_experiment",
       description:
-        "End an experiment with what it showed, or drop it — or set it running again. Read it first.",
+        "End an experiment with what it showed, or drop it, or set it running again. Read it first.",
       parameters: {
         type: "object",
         properties: {
@@ -697,7 +697,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "send_message",
       description:
-        "Deliver a message to the user. This is the ONLY way the user sees anything — plain assistant text is private reasoning. Markdown is rendered.",
+        "Deliver a message to the user. This is the ONLY way the user sees anything, plain assistant text is private reasoning. Markdown is rendered.",
       parameters: {
         type: "object",
         properties: {
@@ -717,11 +717,11 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     function: {
       name: "send_chart",
       description:
-        "Deliver a rendered chart to the user. Use this for trends and comparisons instead of listing numbers — NEVER draw charts as text/ASCII in a message. All series share one unit and one y-axis; use a second chart for a second unit.",
+        "Deliver a rendered chart to the user. Use this for trends and comparisons instead of listing numbers, NEVER draw charts as text/ASCII in a message. All series share one unit and one y-axis; use a second chart for a second unit.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Short chart title, e.g. 'Sleep — last 7 nights'." },
+          title: { type: "string", description: "Short chart title, e.g. 'Sleep, last 7 nights'." },
           type: {
             type: "string",
             enum: ["bar", "line"],
@@ -783,13 +783,13 @@ export function sanitizeChart(args: Record<string, unknown>): ChartSpec {
   const xRaw = Array.isArray(args["x_labels"]) ? args["x_labels"] : null;
   if (!xRaw || xRaw.length === 0) throw new Error("x_labels must be a non-empty array");
   if (xRaw.length > MAX_CHART_POINTS) {
-    throw new Error(`Too many points (${xRaw.length}) — aggregate to at most ${MAX_CHART_POINTS}`);
+    throw new Error(`Too many points (${xRaw.length}), aggregate to at most ${MAX_CHART_POINTS}`);
   }
   const x_labels = xRaw.map((l) => String(l));
   const sRaw = Array.isArray(args["series"]) ? args["series"] : null;
   if (!sRaw || sRaw.length === 0) throw new Error("series must be a non-empty array");
   if (sRaw.length > MAX_CHART_SERIES) {
-    throw new Error(`At most ${MAX_CHART_SERIES} series per chart — split into several charts`);
+    throw new Error(`At most ${MAX_CHART_SERIES} series per chart, split into several charts`);
   }
   const series: ChartSeries[] = sRaw.map((s, i) => {
     const o = (s ?? {}) as Record<string, unknown>;
@@ -848,7 +848,7 @@ function capList<T>(items: T[]): { items: T[]; note?: string } {
   if (items.length <= MAX_ITEMS) return { items };
   return {
     items: items.slice(0, MAX_ITEMS),
-    note: `Truncated to the first ${MAX_ITEMS} of ${items.length} items — narrow the range or use run_sql with aggregates.`,
+    note: `Truncated to the first ${MAX_ITEMS} of ${items.length} items, narrow the range or use run_sql with aggregates.`,
   };
 }
 
@@ -1262,7 +1262,7 @@ export async function executeAssistantTool(
         band: b.vitaminD.band.label,
         pinned_to_blood_test: b.vitaminD.test
           ? `${b.vitaminD.test.day}: ${round(b.vitaminD.test.value, 0)} nmol/L`
-          : "none — average sun assumed",
+          : "none, average sun assumed",
         logged_intake_adds_nmol_l: round(b.vitaminD.contribution, 0),
         avg_ug_per_day_last_30d: round(b.vitaminD.avg30, 1),
         [`projected_nmol_l_on_${b.vitaminD.projectedDay}_at_that_pace`]: round(b.vitaminD.projected, 0),
@@ -1736,23 +1736,23 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - sleep_sessions(id, started_at, ended_at, day /* the morning it ended on */, tz_offset_min, duration_min, deep_min, rem_min, light_min, awake_min, source)
 - health_metrics(day /* local "YYYY-MM-DD" */, steps, resting_hr, hrv_ms, spo2_pct, weight_kg, vo2_max, calories_total /* kcal, the watch's whole-day burn incl. resting and workouts = burned_total */, updated_at)
 - supplements(id, name, dose_amount, dose_unit, nutrients /* JSON per dose */, notes, archived)
-- supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */) — older supplement intake only. Supplements are now logged as food: food_entries rows with icon = 'supplement' (title like "Fish oil 800 mg", nutrients for the amount taken). Query both when asked about supplements
+- supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */), older supplement intake only. Supplements are now logged as food: food_entries rows with icon = 'supplement' (title like "Fish oil 800 mg", nutrients for the amount taken). Query both when asked about supplements
 - fasts(id, started_at, goal_hours, purpose /* their words: what it's for and what they allow themselves; NULL = plain fast */, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
-- state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */) — logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
-- blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note) — finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)
-- garmin_activities(activity_id, workout_id /* → workouts.id; NULL once they deleted it */, dismissed, linked_by /* "exact" | "time" | "created" */, started_at, duration_sec, type_key, name, distance_m, avg_hr, max_hr, calories, aerobic_te, anaerobic_te /* Training Effect 0–5 */, te_label, training_load, avg_power, max_power, norm_power, avg_cadence, elevation_gain_m, avg_speed_mps, vo2_max, zone_secs /* JSON [z1..z5] seconds */, laps /* JSON array, recent activities only */, summary /* JSON: Garmin's full activity summary */) — direct Garmin Connect sync; join on workout_id for the extras Health Connect doesn't carry
-- garmin_days(day, steps, calories_total, calories_active, resting_hr, min_hr, max_hr, stress_avg, stress_max, body_battery_high, body_battery_low, body_battery_charged, body_battery_drained, body_battery_wake, respiration_avg, spo2_avg, spo2_low, floors_up, intensity_min_moderate, intensity_min_vigorous, readiness_score, readiness_level, training_status, acute_load, chronic_load, hrv_last_night, hrv_weekly_avg, hrv_status, vo2_max, weight_kg, sleep_score, sleep_stress, sleep_respiration, sleep_body_battery, sleep_started_at, sleep_ended_at, raw /* JSON: the endpoints' answers */) — Garmin's own daily numbers; prefer query_garmin_wellness
-- performance_logs(id, measured_at, day, tz_offset_min, title, note /* e.g. HRV status "Balanced", training status */, photo_path, model_id) — fitness stats read off a watch-app screenshot (usually Garmin Connect)
-- performance_stats(id, log_id /* → performance_logs.id */, metric /* "ftp", "vo2max", "vo2max_cycling", "ftp_wkg", "hrv", "hrv_7d", "resting_hr", "max_hr", "lactate_threshold_hr", "lactate_threshold_pace", "lactate_threshold_power", "training_readiness", "endurance_score", "hill_score", "acute_load", "recovery_time", "body_battery", "stress", "fitness_age", "race_5k", "race_10k", "race_half", "race_marathon", or "custom_<slug>" */, label, value /* in unit; paces are SECONDS per km and race predictions SECONDS */, unit) — join on log_id for the day; this is where FTP and lactate threshold live (Health Connect doesn't carry them)
-- incomplete_days(day /* local "YYYY-MM-DD" */, updated_at) — days they marked with the Diary's "Incomplete tracking" switch
-- entry_notes(id, entry_kind /* "meal" | "workout" | "reading" | "state" | "performance" | "sleep" */, entry_id /* id in food_entries / workouts / blood_readings / state_logs / performance_logs / sleep_sessions */, text, created_at) — notes YOU attached with annotate_entry: context that explains an entry. Join them in whenever you look at readings, states or performance logs
+- state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */), logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
+- blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note), finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)
+- garmin_activities(activity_id, workout_id /* → workouts.id; NULL once they deleted it */, dismissed, linked_by /* "exact" | "time" | "created" */, started_at, duration_sec, type_key, name, distance_m, avg_hr, max_hr, calories, aerobic_te, anaerobic_te /* Training Effect 0–5 */, te_label, training_load, avg_power, max_power, norm_power, avg_cadence, elevation_gain_m, avg_speed_mps, vo2_max, zone_secs /* JSON [z1..z5] seconds */, laps /* JSON array, recent activities only */, summary /* JSON: Garmin's full activity summary */), direct Garmin Connect sync; join on workout_id for the extras Health Connect doesn't carry
+- garmin_days(day, steps, calories_total, calories_active, resting_hr, min_hr, max_hr, stress_avg, stress_max, body_battery_high, body_battery_low, body_battery_charged, body_battery_drained, body_battery_wake, respiration_avg, spo2_avg, spo2_low, floors_up, intensity_min_moderate, intensity_min_vigorous, readiness_score, readiness_level, training_status, acute_load, chronic_load, hrv_last_night, hrv_weekly_avg, hrv_status, vo2_max, weight_kg, sleep_score, sleep_stress, sleep_respiration, sleep_body_battery, sleep_started_at, sleep_ended_at, raw /* JSON: the endpoints' answers */), Garmin's own daily numbers; prefer query_garmin_wellness
+- performance_logs(id, measured_at, day, tz_offset_min, title, note /* e.g. HRV status "Balanced", training status */, photo_path, model_id), fitness stats read off a watch-app screenshot (usually Garmin Connect)
+- performance_stats(id, log_id /* → performance_logs.id */, metric /* "ftp", "vo2max", "vo2max_cycling", "ftp_wkg", "hrv", "hrv_7d", "resting_hr", "max_hr", "lactate_threshold_hr", "lactate_threshold_pace", "lactate_threshold_power", "training_readiness", "endurance_score", "hill_score", "acute_load", "recovery_time", "body_battery", "stress", "fitness_age", "race_5k", "race_10k", "race_half", "race_marathon", or "custom_<slug>" */, label, value /* in unit; paces are SECONDS per km and race predictions SECONDS */, unit), join on log_id for the day; this is where FTP and lactate threshold live (Health Connect doesn't carry them)
+- incomplete_days(day /* local "YYYY-MM-DD" */, updated_at), days they marked with the Diary's "Incomplete tracking" switch
+- entry_notes(id, entry_kind /* "meal" | "workout" | "reading" | "state" | "performance" | "sleep" */, entry_id /* id in food_entries / workouts / blood_readings / state_logs / performance_logs / sleep_sessions */, text, created_at), notes YOU attached with annotate_entry: context that explains an entry. Join them in whenever you look at readings, states or performance logs
 - life_rules(id, text /* a rule for living in their exact words: "I must always do things perfectly" */, alternative /* the rule they practise instead, or NULL */, status /* "kept" | "suggested" (the diary heard it, they haven't confirmed) | "archived" */, created_at, day, tz_offset_min)
-- life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */) — the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
-- saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at) — meals kept for reuse with exact numbers; prefer list_saved_meals
-- documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
-- manuals(id, title, situation, applies_when, body /* markdown */, edited_by, created_at, updated_at) — prefer read_manual / write_manual
-- experiments(id, title, hypothesis, applies_when, arms /* JSON [{key,label,detail}] */, measures /* JSON [{key,label,kind,better}] */, assignment, target_per_arm, status, conclusion, manual_id, created_at, updated_at, ended_at) and experiment_trials(id, experiment_id, arm, fast_id, started_at, day, tz_offset_min, ratings /* JSON {key: 1-5} */, note, excluded) — prefer read_experiment
+- life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */), the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
+- saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at), meals kept for reuse with exact numbers; prefer list_saved_meals
+- documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status), prefer query_documents over SQL here
+- manuals(id, title, situation, applies_when, body /* markdown */, edited_by, created_at, updated_at), prefer read_manual / write_manual
+- experiments(id, title, hypothesis, applies_when, arms /* JSON [{key,label,detail}] */, measures /* JSON [{key,label,kind,better}] */, assignment, target_per_arm, status, conclusion, manual_id, created_at, updated_at, ended_at) and experiment_trials(id, experiment_id, arm, fast_id, started_at, day, tz_offset_min, ratings /* JSON {key: 1-5} */, note, excluded), prefer read_experiment
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;
 
@@ -1813,7 +1813,7 @@ export async function runAssistantTurn(
         // delivered. Don't push an empty assistant message into the
         // transcript — some providers reject it on the next request.
         if (delivered > 0) return;
-        throw new Error("The model returned nothing — try rephrasing.");
+        throw new Error("The model returned nothing. Try rephrasing.");
       }
       messages.push({ role: "assistant", content: turn.content });
       // A model that answers in prose instead of send_message still reaches
@@ -1858,6 +1858,6 @@ export async function runAssistantTurn(
     opts.onRound?.();
   }
   if (delivered === 0) {
-    throw new Error("The assistant got stuck calling tools — try rephrasing.");
+    throw new Error("The assistant got stuck calling tools. Try rephrasing.");
   }
 }

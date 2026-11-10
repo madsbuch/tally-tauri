@@ -201,7 +201,7 @@ function SuggestionRow({ rule, onChanged }: { rule: LifeRule; onChanged: () => v
     <div className="list-row rule-suggestion">
       <div className="row-main">
         <div className="rule-text">“{rule.text}”</div>
-        <div className="row-sub">Heard in a note — is this one of yours?</div>
+        <div className="row-sub">Heard in a note. Is this one of yours?</div>
         <RuleSuggestionButtons busy={busy} onKeep={() => void act(true)} onDismiss={() => void act(false)} />
       </div>
     </div>
@@ -309,7 +309,7 @@ export function RuleEditSheet({
           <textarea
             className="input state-note"
             rows={2}
-            placeholder="Optional — e.g. good enough is good enough"
+            placeholder="Optional, e.g. good enough is good enough"
             value={alternative}
             onChange={(e) => setAlternative(e.target.value)}
           />
@@ -434,7 +434,7 @@ function ManageRulesSheet({
           <textarea
             className="input state-note"
             rows={2}
-            placeholder="Write one down as it sounds in your head — I must always…"
+            placeholder="Write one down as it sounds in your head: I must always…"
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={busy}
@@ -685,7 +685,7 @@ export default function RuleSheet({
 
         {kept.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            No rules written down yet. Add one under Your rules — or just tell the
+            No rules written down yet. Add one under Your rules, or just tell the
             diary: “new rule: I must always…”.
           </p>
         ) : (

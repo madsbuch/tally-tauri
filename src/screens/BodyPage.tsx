@@ -66,20 +66,20 @@ const WORKING_PCT = Math.round(CREATINE_WORKING * 100);
 function vitaminDCaption(v: BodySnapshot["vitaminD"]): string {
   const source = v.test
     ? `From your blood test on ${dayLabel(v.test.day)}.`
-    : "Estimated from an average sun year — add a blood test to pin it.";
+    : "Estimated from an average sun year. Add a blood test to pin it.";
   const pace =
     v.avg30 >= 0.1 ? `At ${v.avg30.toFixed(1)} µg/day you'll be around ${Math.round(v.projected)} by ${dayLabel(v.projectedDay)}.` : "";
   let advice: string;
   if (v.level < VITAMIN_D_ENOUGH || v.projected < VITAMIN_D_ENOUGH) {
-    advice = `Not enough stored — about ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH} through winter.`;
+    advice = `Not enough stored. About ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH} through winter.`;
   } else if (v.avg30 + 0.5 < v.ugForEnough) {
-    advice = `Enough for now, but winter will drain it — about ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH}.`;
+    advice = `Enough for now, but winter will drain it. About ${Math.ceil(v.ugForEnough)} µg a day keeps you over ${VITAMIN_D_ENOUGH}.`;
   } else if (v.level < VITAMIN_D_TARGET) {
     advice = `Enough stored. ${Math.ceil(v.ugForTarget)} µg a day would keep you over ${VITAMIN_D_TARGET}, the higher target, all winter.`;
   } else if (v.level < 150) {
     advice = "Well stocked.";
   } else {
-    advice = "Higher than it needs to be — there's no gain past 150.";
+    advice = "Higher than it needs to be. There's no gain past 150.";
   }
   return [advice, pace, source].filter(Boolean).join(" ");
 }
@@ -152,7 +152,7 @@ export default function BodyPage() {
                     every {snap.profile.caffeineHalfLifeH} hours.
                   </p>
                   <p>
-                    People clear it anywhere from 3 to 7 hours — slower on the pill
+                    People clear it anywhere from 3 to 7 hours: slower on the pill
                     or when pregnant, faster for smokers. If late coffee keeps you
                     up, yours is probably on the long side. Your half-life:
                   </p>
@@ -180,7 +180,7 @@ export default function BodyPage() {
                 : snap.caffeine.belowSleepAt == null
                   ? `Above ${CAFFEINE_SLEEP_MG} mg for the next two days.`
                   : snap.caffeine.belowSleepAt <= now
-                    ? `Under ${CAFFEINE_SLEEP_MG} mg — clear for sleep.`
+                    ? `Under ${CAFFEINE_SLEEP_MG} mg: clear for sleep.`
                     : `Under ${CAFFEINE_SLEEP_MG} mg at ${clockDay(snap.caffeine.belowSleepAt, now)}.`}
             </div>
             <LevelCurve
@@ -201,10 +201,10 @@ export default function BodyPage() {
                 <InfoButton title="Alcohol">
                   <p>
                     Worked out from the alcohol in what you&apos;ve logged. Unlike
-                    caffeine it clears at a steady rate — about{" "}
+                    caffeine it clears at a steady rate, about{" "}
                     {Math.round(snap.profile.weightKg * 0.11)} g an hour at{" "}
                     {Math.round(snap.profile.weightKg)} kg
-                    {snap.profile.weightKnown ? "" : " (assumed — no weight synced)"} —
+                    {snap.profile.weightKnown ? "" : " (assumed, no weight synced)"},
                     however much is in you, which is why the fifth drink takes as
                     long to clear as the first.
                   </p>
@@ -252,7 +252,7 @@ export default function BodyPage() {
                 <InfoButton title="Creatine">
                   <p>
                     Creatine works by filling up the store in your muscles, which
-                    takes weeks — so this shows how full that store is, not what
+                    takes weeks, so this shows how full that store is, not what
                     you took today. Only creatine taken as a supplement counts; meat
                     keeps the baseline you start from.
                   </p>
@@ -262,7 +262,7 @@ export default function BodyPage() {
                     four to six weeks (half in about {CREATINE.halfLifeDays} days).
                     The line at {WORKING_PCT}% is roughly where it&apos;s working: the
                     card tells you until when you stay over it if you stopped
-                    today. An average model — nobody&apos;s store is measured
+                    today. An average model: nobody&apos;s store is measured
                     without a biopsy.
                   </p>
                 </InfoButton>
@@ -276,7 +276,7 @@ export default function BodyPage() {
               {snap.creatine.lastDay == null
                 ? "No creatine logged in the last four months."
                 : snap.creatine.belowWorkingOn == null
-                  ? `Under ${WORKING_PCT}% — about ${snap.creatine.daysToWorking} days of 5 g a day gets it back over.`
+                  ? `Under ${WORKING_PCT}%. About ${snap.creatine.daysToWorking} days of 5 g a day gets it back over.`
                   : `Over ${WORKING_PCT}% until ${dayLabel(snap.creatine.belowWorkingOn)} without more.`}
             </div>
             <StoreBar
@@ -297,7 +297,7 @@ export default function BodyPage() {
                 ☀️ Vitamin D
                 <InfoButton title="Vitamin D">
                   <p>
-                    Your estimated blood level of 25(OH)D — the stored form, and
+                    Your estimated blood level of 25(OH)D, the stored form, and
                     what a blood test measures. Under {30} nmol/L is a deficiency,{" "}
                     {VITAMIN_D_ENOUGH} is enough for most people, and{" "}
                     {VITAMIN_D_TARGET} is the higher target some guidelines aim for.
@@ -305,8 +305,8 @@ export default function BodyPage() {
                   </p>
                   <p>
                     It starts from where an unsupplemented northern-European level
-                    sits at this time of year — around 70 in late summer, 40 by late
-                    winter, when the sun is too low to make any — and adds what
+                    sits at this time of year (around 70 in late summer, 40 by late
+                    winter, when the sun is too low to make any) and adds what
                     you&apos;ve logged: each µg a day adds about{" "}
                     {VITAMIN_D.nmolPerUgDaily} nmol/L once it settles, and half of
                     it is gone {VITAMIN_D.halfLifeDays} days after you stop.

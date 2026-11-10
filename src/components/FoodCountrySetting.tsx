@@ -96,7 +96,7 @@ export default function FoodCountrySetting() {
         </div>
         <p className="muted small" style={{ margin: "8px 2px 0" }}>
           When you log something packaged, the diary looks its label up in Open
-          Food Facts — products sold in this country first, then worldwide — and
+          Food Facts (products sold in this country first, then worldwide) and
           uses the label's numbers for the amount you ate. Automatic follows your
           phone's region.
         </p>

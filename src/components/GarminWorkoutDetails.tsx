@@ -49,7 +49,7 @@ export default function GarminWorkoutDetails({ workoutId }: { workoutId: number 
     rows.push({
       label: "Training Effect",
       value:
-        `${d.aerobicTe?.toFixed(1) ?? "—"} aerobic · ${d.anaerobicTe?.toFixed(1) ?? "—"} anaerobic` +
+        `${d.aerobicTe?.toFixed(1) ?? "–"} aerobic · ${d.anaerobicTe?.toFixed(1) ?? "–"} anaerobic` +
         (d.teLabel ? ` · ${d.teLabel.toLowerCase().replace(/_/g, " ")}` : ""),
     });
   }

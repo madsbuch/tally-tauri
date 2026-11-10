@@ -105,7 +105,7 @@ function ManageStatesSheet({
         <div className="state-new-row">
           <input
             className="input"
-            placeholder="Name one — ears ringing, restless legs…"
+            placeholder="Name one: ears ringing, restless legs…"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => {
@@ -245,7 +245,7 @@ export default function StateSheet({
 
         {categories.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            No states on your list yet — add one under Manage.
+            No states on your list yet. Add one under Manage.
           </p>
         ) : (
           <div className="state-chips">

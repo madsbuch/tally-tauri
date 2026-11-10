@@ -122,12 +122,12 @@ function RankedList({
 
 /** Why a forced check-in produced nothing, in the user's terms. */
 const CHECKIN_REASONS: Record<string, string> = {
-  nothing: "Nothing worth raising right now — that's the coach working as intended.",
+  nothing: "Nothing worth raising right now. That's the coach working as intended.",
   cooldown: "Everything it would have raised, it raised recently. Give it a few days.",
   budget: "It has already spoken today.",
   "no-key": "Add your OpenRouter API key first.",
   busy: "A check-in is already running.",
-  failed: "The check-in failed — check your connection and key.",
+  failed: "The check-in failed. Check your connection and key.",
 };
 
 export default function CoachSettings() {
@@ -178,7 +178,7 @@ export default function CoachSettings() {
       const r = await runCoachCheckin({ force: true });
       setCheckinNote(
         r.sent
-          ? "Done — it's at the top of your chats."
+          ? "Done. It's at the top of your chats."
           : (CHECKIN_REASONS[r.reason] ?? "Nothing to say right now."),
       );
     } finally {
@@ -212,7 +212,7 @@ export default function CoachSettings() {
       <div className="card">
         <h2 className="card-title">What you want from it</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
-          In priority order — the top one wins when two pull against each other.
+          In priority order: the top one wins when two pull against each other.
           A coach chasing five things at once isn&apos;t coaching.
         </p>
         <RankedList
@@ -301,7 +301,7 @@ export default function CoachSettings() {
       <div className="card">
         <h2 className="card-title">When it speaks up</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
-          At most one check-in a day, whatever fires — and each of these waits
+          At most one check-in a day, whatever fires, and each of these waits
           days before raising the same thing twice. When several are true at
           once, the coach opens with the most useful one and folds the rest in.
         </p>
@@ -397,7 +397,7 @@ export default function CoachSettings() {
           </div>
           <p className="muted small" style={{ margin: "8px 2px 0" }}>
             On Android the app wakes itself at this hour and checks in even when
-            it&apos;s closed. Once a day, matching the one-message budget — the
+            it&apos;s closed. Once a day, matching the one-message budget: the
             times above still apply as &quot;not before&quot; guards.
           </p>
         </div>

@@ -500,7 +500,7 @@ export default function EntryPage() {
                 night.tz_offset_min,
               )}
             />
-            <InfoRow label="Time asleep" value={fmtDuration(night.duration_min) ?? "—"} />
+            <InfoRow label="Time asleep" value={fmtDuration(night.duration_min) ?? "–"} />
           </>
         ) : (
           <InfoRow
@@ -565,7 +565,7 @@ export default function EntryPage() {
             <InfoRow
               label="Duration"
               value={
-                workout.duration_min != null ? `${Math.round(workout.duration_min)} min` : "—"
+                workout.duration_min != null ? `${Math.round(workout.duration_min)} min` : "–"
               }
               onClick={() => setEditing({ field: "duration" })}
             />
@@ -597,7 +597,7 @@ export default function EntryPage() {
                 value={
                   meal.nutrients[d.key] != null
                     ? `${numToInput(meal.nutrients[d.key] as number)} ${d.unit}`
-                    : "—"
+                    : "–"
                 }
                 onClick={() => setEditing({ field: "nutrient", key: d.key })}
               />
@@ -654,7 +654,7 @@ export default function EntryPage() {
                 felt?.note ??
                 reading?.note ??
                 perf?.note ??
-                "—"
+                "–"
               }
               onClick={() => setEditing({ field: "description" })}
             />
@@ -778,7 +778,7 @@ function SleepStages({ night }: { night: SleepSession }) {
                 <span className={`sleep-dot sleep-seg-${s.key}`} /> {s.label}
               </>
             }
-            value={`${fmtDuration(s.min) ?? "—"} · ${Math.round((s.min / total) * 100)}%`}
+            value={`${fmtDuration(s.min) ?? "–"} · ${Math.round((s.min / total) * 100)}%`}
           />
         ))}
       </div>
@@ -1219,7 +1219,7 @@ function FieldEditor({
                 : "text"
             }
             autoFocus
-            placeholder="—"
+            placeholder="–"
             value={num}
             onChange={(e) => setNum(e.target.value)}
           />
@@ -1244,7 +1244,7 @@ function FieldEditor({
             step="any"
             inputMode="decimal"
             autoFocus
-            placeholder="—"
+            placeholder="–"
             value={num}
             onChange={(e) => setNum(e.target.value)}
           />

@@ -251,7 +251,7 @@ export const RESERVES: ReserveDef[] = [
   },
   { key: "vitamin_a_ug", label: "Vitamin A", glyph: "🥕", ref: 900, halfLifeDays: 150, where: "the liver, months to years" },
   { key: "vitamin_e_mg", label: "Vitamin E", glyph: "🌻", ref: 15, halfLifeDays: 200, where: "body fat, many months" },
-  { key: "vitamin_k_ug", label: "Vitamin K", glyph: "🥦", ref: 120, halfLifeDays: 3, where: "barely — a few days" },
+  { key: "vitamin_k_ug", label: "Vitamin K", glyph: "🥦", ref: 120, halfLifeDays: 3, where: "barely: a few days" },
 ];
 
 /** Above this a reserve is just full; more doesn't show. */
@@ -392,7 +392,7 @@ export interface ReadingCheck {
 
 /** How a muscle store reads, by how full it is. */
 export const MUSCLE_BANDS: readonly Band[] = [
-  { upTo: 0.3, key: "low", label: "Low — hard efforts will fade early", tone: "bad" },
+  { upTo: 0.3, key: "low", label: "Low: hard efforts will fade early", tone: "bad" },
   { upTo: 0.5, key: "drawn", label: "Drawn down", tone: "warn" },
   { upTo: 0.8, key: "ready", label: "Ready for a normal session", tone: "ok" },
   { upTo: Infinity, key: "full", label: "Topped up", tone: "good" },
@@ -718,7 +718,7 @@ export const TRAINING_BANDS: readonly Band[] = [
   { upTo: 0.8, key: "easing", label: "Easing off", tone: "ok" },
   { upTo: 1.3, key: "building", label: "Building", tone: "good" },
   { upTo: 1.5, key: "pushing", label: "Pushing", tone: "warn" },
-  { upTo: Infinity, key: "spike", label: "Spike — injury risk", tone: "bad" },
+  { upTo: Infinity, key: "spike", label: "Spike: injury risk", tone: "bad" },
 ];
 
 export interface TrainingDay {

@@ -206,7 +206,7 @@ function DocumentSheet({
             Date on the document
             <InfoButton title="Date on the document">
               <p>
-                What the document is filed under — the day the sample was taken,
+                What the document is filed under: the day the sample was taken,
                 not the day you added it.
               </p>
               <p>
@@ -357,7 +357,7 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
               it&apos;s the same thing with one page.
             </p>
             <p>
-              It gets read in the background — the date, what was measured, and
+              It gets read in the background: the date, what was measured, and
               which values sit outside their range. You can correct any of it
               afterwards.
             </p>
@@ -389,7 +389,7 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
             />
             {dropped > 0 && (
               <p className="faint small" style={{ margin: "8px 2px 0" }}>
-                Only the first {MAX_PDF_PAGES} pages are kept — {dropped} more
+                Only the first {MAX_PDF_PAGES} pages are kept; {dropped} more
                 weren&apos;t.
               </p>
             )}
@@ -495,7 +495,7 @@ export default function LibraryPage() {
           <InfoButton title="Library">
             <p>
               Blood results, scan reports, letters. Photograph one or add a PDF
-              and it&apos;s read in the background — the date, what was measured,
+              and it&apos;s read in the background: the date, what was measured,
               and which values sit outside their range.
             </p>
             <p>

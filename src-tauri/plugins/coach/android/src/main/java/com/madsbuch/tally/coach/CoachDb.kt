@@ -369,7 +369,7 @@ internal object CoachDb {
                         val time = if (at == null) "" else hhmm(at + c.getLong(2) * 60_000L)
                         val note = c.getString(4)
                         todayStates.add(
-                            "$label $time" + (if (note.isNullOrBlank()) "" else " — $note"),
+                            "$label $time" + (if (note.isNullOrBlank()) "" else ", $note"),
                         )
                     }
                 }
@@ -611,7 +611,7 @@ internal object CoachDb {
                 lines.add("Fasting right now: ${num(fastHours)} h of a ${num(fastGoalHours)} h goal.")
             }
             if (latestDocument != null) {
-                lines.add("Most recent document in their library — $latestDocument.")
+                lines.add("Most recent document in their library, $latestDocument.")
             }
             if (todayStates.isNotEmpty()) {
                 lines.add("Felt today: " + todayStates.joinToString("; ") + ".")

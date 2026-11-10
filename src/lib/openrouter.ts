@@ -111,6 +111,24 @@ function contentToText(content: unknown): string | null {
   return null;
 }
 
+/**
+ * The app doesn't use em dashes, and models reach for them constantly, so
+ * whatever a model writes has them taken out on the way in, replaced by a
+ * comma. A prompt asking nicely isn't enough to rely on.
+ */
+export function withoutEmDashes(text: string): string {
+  return text.replace(/^([ \t]*)—[ \t]*/gm, "$1- ").replace(/[ \t]*\u2014[ \t]*$/gm, "").replace(/[ \t]*\u2014[ \t]*/g, ", ");
+}
+
+/**
+ * The same for a tool call's arguments, which are JSON text: the dash can be
+ * there as itself or escaped, and neither is JSON syntax, so the text stays
+ * valid.
+ */
+function argumentsWithoutEmDashes(json: string): string {
+  return json.replace(/ *(?:\u2014|\\u2014) */g, ", ");
+}
+
 export interface ChatOptions {
   /**
    * Return an empty turn instead of retrying/failing when the model produces
@@ -176,7 +194,13 @@ async function requestChatTurn(
         lastError = new OpenRouterError("Model returned an empty response", res.status);
         continue;
       }
-      return { content, tool_calls };
+      return {
+        content: content == null ? null : withoutEmDashes(content),
+        tool_calls: tool_calls.map((c) => ({
+          ...c,
+          function: { ...c.function, arguments: argumentsWithoutEmDashes(c.function.arguments) },
+        })),
+      };
     } catch (e) {
       // Non-retryable errors are OpenRouterErrors thrown above; anything else
       // is a network failure or timeout — retry.
@@ -519,7 +543,7 @@ export async function askAboutMealEntry(
     `Schema: {"reply": string, "entry": {"title": string (short, max 5 words), "description": string (1-2 sentences: what it is and the portion assumption), "nutrients": {${nutrientKeyDoc()}}}, "save": {"name": string}}`,
     "`entry` is present ONLY when the entry should change. Omit the key otherwise - do not send an empty object.",
     "Nutrients are TOTALS for the whole portion as corrected. Include every key you can reasonably estimate; omit the rest rather than guessing zeros.",
-    'Saved meals: they can keep a meal for reuse, so the next time they eat it it is logged with exactly these numbers. Add `"save": {"name": string}` when they ask you to save, remember or keep this meal for later ("gem den", "save this"), AND when their message hands you a specific product\'s official nutrition values (a label, a shop\'s website, a chain\'s nutrition table) — those are worth keeping without being asked. The name is what they would call it, including the brand or shop (e.g. "7-Eleven surdejsbolle med smør og ost"). What is saved is the entry as it stands after this message, so include any correction in `entry` as usual. Omit `save` otherwise. When you save, say so in `reply`, and that they can ask the coach for their saved meals.',
+    'Saved meals: they can keep a meal for reuse, so the next time they eat it it is logged with exactly these numbers. Add `"save": {"name": string}` when they ask you to save, remember or keep this meal for later ("gem den", "save this"), AND when their message hands you a specific product\'s official nutrition values (a label, a shop\'s website, a chain\'s nutrition table), those are worth keeping without being asked. The name is what they would call it, including the brand or shop (e.g. "7-Eleven surdejsbolle med smør og ost"). What is saved is the entry as it stands after this message, so include any correction in `entry` as usual. Omit `save` otherwise. When you save, say so in `reply`, and that they can ask the coach for their saved meals.',
   ].join("\n");
   return MealChatSchema.parse(extractJsonObject(await askAboutEntry(opts, system)));
 }

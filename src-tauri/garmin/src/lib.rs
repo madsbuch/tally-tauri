@@ -48,17 +48,17 @@ const REFRESH_MARGIN_S: i64 = 120;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GarminError {
-    #[error("Garmin is rate limiting requests — try again later")]
+    #[error("Garmin is rate limiting requests, try again later")]
     RateLimited,
     #[error("Garmin rejected the email or password")]
     InvalidCredentials,
-    #[error("Garmin has locked the account — unlock it on connect.garmin.com")]
+    #[error("Garmin has locked the account, unlock it on connect.garmin.com")]
     AccountLocked,
     #[error("The verification code wasn't accepted")]
     MfaFailed,
-    #[error("The Garmin sign-in has expired — sign in again")]
+    #[error("The Garmin sign-in has expired, sign in again")]
     AuthExpired,
-    #[error("Garmin rejected the personal API key — it may have expired or been deleted; create a new one on Garmin Connect")]
+    #[error("Garmin rejected the personal API key, it may have expired or been deleted; create a new one on Garmin Connect")]
     InvalidKey,
     #[error("Garmin blocked the request ({0})")]
     Blocked(String),

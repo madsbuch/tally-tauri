@@ -207,7 +207,7 @@ export default function ProgressPhotosPage() {
           Progress
           <InfoButton title="Progress photos">
             <p>
-              A selfie every week or two shows change the scale doesn&apos;t —
+              A selfie every week or two shows change the scale doesn&apos;t:
               same spot, same light, same pose makes it easiest to see.
             </p>
             <p>
@@ -236,7 +236,7 @@ export default function ProgressPhotosPage() {
           <div className="empty-icon">🤳</div>
           No photos yet.
           <div className="faint small" style={{ marginTop: 4 }}>
-            Take the first one below — it&apos;s the one you&apos;ll compare against.
+            Take the first one below. It&apos;s the one you&apos;ll compare against.
           </div>
         </div>
       )}

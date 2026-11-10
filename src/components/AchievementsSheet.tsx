@@ -186,13 +186,13 @@ export default function AchievementsSheet({
               </div>
             </div>
             <div className="faint small" style={{ margin: "8px 2px 0" }}>
-              A day counts once you log something here — a meal, a workout, a
+              A day counts once you log something here: a meal, a workout, a
               supplement, or a running fast. Workouts synced from your watch don't
               count on their own. Every {FREEZE_EARN_DAYS} straight days banks a
               freeze (max {MAX_FREEZES}); a missed day spends one automatically
               instead of breaking the streak.
               {!streak.todayLogged && streak.current > 0 && (
-                <> Nothing logged today yet — log something to extend the streak.</>
+                <> Nothing logged today yet. Log something to extend the streak.</>
               )}
             </div>
           </>

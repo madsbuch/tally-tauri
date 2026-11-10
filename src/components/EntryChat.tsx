@@ -117,13 +117,13 @@ export default function EntryChat({
         Ask about it
         <InfoButton title="Asking about an entry">
           <p>
-            Two things happen here. Ask a question — &quot;why is that so
-            high?&quot;, &quot;does that include the oil?&quot; — and you get an
+            Two things happen here. Ask a question (&quot;why is that so
+            high?&quot;, &quot;does that include the oil?&quot;) and you get an
             answer; the entry doesn&apos;t move.
           </p>
           <p>
-            Tell it something new — &quot;the cheese block was 7 g, not 3 g&quot;
-            — and it re-estimates the whole entry around that, because a portion
+            Tell it something new (&quot;the cheese block was 7 g, not 3 g&quot;)
+            and it re-estimates the whole entry around that, because a portion
             change moves every nutrient with it. What it changed is listed under
             the reply, and the last change can be undone.
           </p>
@@ -141,7 +141,7 @@ export default function EntryChat({
 
       {messages.length === 0 && !pending && (
         <p className="muted small chat-empty">
-          Nothing asked yet. These numbers are an estimate — ask what they
+          Nothing asked yet. These numbers are an estimate. Ask what they
           assume, or say what was actually on the plate.
         </p>
       )}

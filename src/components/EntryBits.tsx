@@ -96,7 +96,7 @@ export function IconPicker({
           type="button"
           className={`icon-opt${value === null ? " icon-opt-active" : ""}`}
           onClick={() => onChange(null)}
-          title="Automatic — matched from the title"
+          title="Automatic: matched from the title"
           aria-label="Automatic icon"
         >
           <span>{entryGlyph(null, title, kind)}</span>

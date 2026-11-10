@@ -52,7 +52,7 @@ function BalanceRow({
       <div
         className={`balance balance-${limit}`}
         role="img"
-        aria-label={`${name}: ${fmt(value)} ${unit}, goal ${word} ${fmt(target)} ${unit}${bad ? " — on the wrong side" : ""}`}
+        aria-label={`${name}: ${fmt(value)} ${unit}, goal ${word} ${fmt(target)} ${unit}${bad ? ", on the wrong side" : ""}`}
       >
         <div className="balance-bad" />
         <div className="balance-target" />

@@ -104,7 +104,7 @@ async function run(): Promise<number> {
     const taken = `${fmt(l.amount)} dose${l.amount === 1 ? "" : "s"}${dose ? ` of ${dose}` : ""}`;
     const description = [
       `Logged as a supplement: ${taken}.`,
-      est.model ? `Nutrients estimated per dose${est.notes ? ` — ${est.notes}` : "."}` : null,
+      est.model ? `Nutrients estimated per dose${est.notes ? `: ${est.notes}` : "."}` : null,
     ]
       .filter(Boolean)
       .join(" ");

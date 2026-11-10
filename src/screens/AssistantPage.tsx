@@ -236,8 +236,8 @@ export default function AssistantPage() {
           Coach
           <InfoButton title="Coach">
             <p>
-              It reads the whole diary — meals, workouts, sleep, heart rate,
-              steps, weight, supplements, fasting — and remembers what you agree
+              It reads the whole diary (meals, workouts, sleep, heart rate,
+              steps, weight, supplements, fasting) and remembers what you agree
               on between chats.
             </p>
             <p>
@@ -269,7 +269,7 @@ export default function AssistantPage() {
         <div className="card">
           <h2 className="card-title">Set up first</h2>
           <p className="muted small" style={{ margin: 0 }}>
-            The coach needs an OpenRouter API key — add one under Settings →
+            The coach needs an OpenRouter API key. Add one under Settings →
             OpenRouter, then come back.
           </p>
         </div>
@@ -423,7 +423,7 @@ export default function AssistantPage() {
             <div className="chat-msg chat-msg-assistant">
               <div className="chat-bubble">
                 <div className="muted small">
-                  The coach is answering in another conversation — you can reply
+                  The coach is answering in another conversation. You can reply
                   here once it&apos;s done.
                 </div>
                 {runnerChat !== null && (

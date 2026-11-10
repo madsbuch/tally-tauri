@@ -60,11 +60,11 @@ export function isSaveLine(line: string): boolean {
 const round = (n: number): number => Math.round(n * 100) / 100;
 
 function changed(label: string, from: unknown, to: unknown, unit = ""): string | null {
-  const a = typeof from === "number" ? round(from) : (from ?? "—");
-  const b = typeof to === "number" ? round(to) : (to ?? "—");
+  const a = typeof from === "number" ? round(from) : (from ?? "–");
+  const b = typeof to === "number" ? round(to) : (to ?? "–");
   if (String(a) === String(b)) return null;
   const suffix = unit ? ` ${unit}` : "";
-  return `${label}: ${a}${a === "—" ? "" : suffix} → ${b}${b === "—" ? "" : suffix}`;
+  return `${label}: ${a}${a === "–" ? "" : suffix} → ${b}${b === "–" ? "" : suffix}`;
 }
 
 /** Every difference between two versions of a meal, in display order. */

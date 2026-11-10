@@ -694,7 +694,7 @@ function AddSheet({
                         min={0}
                         step="any"
                         inputMode="decimal"
-                        placeholder="—"
+                        placeholder="–"
                         value={nutrVals[d.key] ?? ""}
                         onChange={(e) =>
                           setNutrVals((p) => ({ ...p, [d.key]: e.target.value }))
@@ -734,7 +734,7 @@ function AddSheet({
                     min={0}
                     step="any"
                     inputMode="decimal"
-                    placeholder="—"
+                    placeholder="–"
                     value={durStr}
                     onChange={(e) => setDurStr(e.target.value)}
                   />
@@ -930,7 +930,7 @@ function NewRuleRow({ rule, onOpen }: { rule: LifeRule; onOpen: () => void }) {
         <div className="rule-text">“{rule.text}”</div>
         <div className="row-sub">
           {timeOf(rule.created_at, rule.tz_offset_min)} ·{" "}
-          {suggested ? "Sounds like a rule — is it one of yours?" : "New rule written down"}
+          {suggested ? "Sounds like a rule. Is it one of yours?" : "New rule written down"}
         </div>
         {suggested && (
           <RuleSuggestionButtons
@@ -1483,7 +1483,7 @@ export default function DiaryPage() {
                   <InfoButton title="Days with nothing logged">
                     <p>
                       A day with no meals on it counts as zero here, so the totals
-                      below — and the pace, if the period includes today — read
+                      below (and the pace, if the period includes today) read
                       lower than the days you did track.
                     </p>
                     <p>
@@ -1511,13 +1511,13 @@ export default function DiaryPage() {
                       Calorie target
                       <InfoButton title="Calorie target">
                         <p>
-                          The bar is <strong>net kcal</strong> — what you ate minus
-                          what your workouts burned — against your daily target from
+                          The bar is <strong>net kcal</strong> (what you ate minus
+                          what your workouts burned) against your daily target from
                           Settings.
                         </p>
                         <p>
                           <strong>Total burn</strong>, when your watch syncs it, is
-                          everything you burned, resting included — today's keeps
+                          everything you burned, resting included. Today's keeps
                           counting until midnight. It's there to set against what
                           you ate; the bar doesn't take it off, since your target
                           already covers an ordinary day.
@@ -1623,7 +1623,7 @@ export default function DiaryPage() {
                   )}
                   {sleepMin != null && (
                     <span>
-                      😴 {fmtDuration(sleepMin) ?? "—"}
+                      😴 {fmtDuration(sleepMin) ?? "–"}
                       {period !== "day" && <span className="faint"> a night</span>}
                     </span>
                   )}
@@ -1661,7 +1661,7 @@ export default function DiaryPage() {
                       <GlyphThumb glyph="😴" />
                       <div className="row-main">
                         <div className="row-title">
-                          Slept {fmtDuration(n.duration_min) ?? "—"}
+                          Slept {fmtDuration(n.duration_min) ?? "–"}
                         </div>
                         <div className="row-sub">
                           {formatRangeHere(n.started_at, n.ended_at, n.tz_offset_min)}

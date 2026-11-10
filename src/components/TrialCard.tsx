@@ -140,7 +140,7 @@ export default function TrialCard({
             const v = metrics[k];
             return (
               <span key={k} className="chip">
-                {AUTO_METRIC_INFO[k].label}: {v == null ? "—" : formatMetric(k, v)}
+                {AUTO_METRIC_INFO[k].label}: {v == null ? "–" : formatMetric(k, v)}
               </span>
             );
           })}

@@ -41,7 +41,7 @@ export const AUTO_METRIC_INFO: Record<AutoMetric, AutoMetricInfo> = {
     unit: "g",
     better: "higher",
     dp: 0,
-    means: `carbs logged in the first ${REFEED_WINDOW_H} h — checks the option was followed`,
+    means: `carbs logged in the first ${REFEED_WINDOW_H} h; checks the option was followed`,
   },
   refeed_protein_g: {
     label: "Refeed protein",

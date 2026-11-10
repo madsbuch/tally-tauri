@@ -94,7 +94,7 @@ internal object CoachWorker {
                     "logged: avg net ${num(y.avgNet?.let { Math.round(it).toDouble() })} kcal, " +
                     "avg protein ${num(y.avgProteinG?.let { Math.round(it).toDouble() })} g, " +
                     "${y.workouts} workouts, avg sleep ${num(y.avgSleepH)} h. These are the week's " +
-                    "numbers — the digest's \"last 7 days\" runs through today instead. Give a short " +
+                    "numbers, the digest's \"last 7 days\" runs through today instead. Give a short " +
                     "weekly review: what went well, what slipped, and one concrete thing to focus on this week."
             }
         "follow_up_due" ->
@@ -104,7 +104,7 @@ internal object CoachWorker {
                 val items = due.joinToString("; ") { "\"${it.text}\" (noted for ${it.followUpOn})" }
                 "You set yourself a reminder to come back to " +
                     "${if (due.size == 1) "this" else "these"}: $items. " +
-                    "Ask how it's going, specifically — not in general terms."
+                    "Ask how it's going, specifically, not in general terms."
             }
         "target_drift" -> {
             val target = d.todayTarget
@@ -118,7 +118,7 @@ internal object CoachWorker {
                     null
                 } else {
                     "Over the last ${d.daysLogged} logged days they averaged ${Math.round(avg)} kcal net " +
-                        "against a ${Math.round(target)} kcal target — ${Math.abs(Math.round(drift))} kcal/day " +
+                        "against a ${Math.round(target)} kcal target, ${Math.abs(Math.round(drift))} kcal/day " +
                         "${if (drift > 0) "above" else "below"} it, consistently. " +
                         "Consider whether the target itself is set right."
                 }
@@ -270,13 +270,13 @@ internal object CoachWorker {
         }
         sb.append("\n\n## This check-in\n")
         sb.append(
-            "You are opening this conversation yourself — they haven't asked you anything. " +
+            "You are opening this conversation yourself, they haven't asked you anything. " +
                 "Lead with the point below, in one message.\n",
         )
         sb.append("Reason you're speaking: ").append(winner.fact).append("\n")
         val others = all.filter { it.trigger.key != winner.trigger.key }
         if (others.isNotEmpty()) {
-            sb.append("Also true right now, if and only if it's worth weaving in — do not list these:\n")
+            sb.append("Also true right now, if and only if it's worth weaving in, do not list these:\n")
             for (c in others) sb.append("- ").append(c.fact).append("\n")
         }
         sb.append("Say one useful thing and stop. No greeting, no preamble about checking their data.\n")
@@ -284,7 +284,7 @@ internal object CoachWorker {
         // would send it looking for send_message that isn't there.
         sb.append(
             "\nIMPORTANT: you have no tools available in this run. Reply with the message itself " +
-                "as plain markdown and nothing else — no tool calls, no preamble, no sign-off.",
+                "as plain markdown and nothing else, no tool calls, no preamble, no sign-off. Never use em dashes.",
         )
         return sb.toString()
     }
@@ -322,7 +322,10 @@ internal object CoachWorker {
             }
             val choices = JSONObject(text).optJSONArray("choices") ?: return null
             val content = choices.optJSONObject(0)?.optJSONObject("message")?.optString("content")
-            return if (content.isNullOrBlank()) null else content.trim()
+            // No em dashes in the app, whatever the model likes (see withoutEmDashes
+            // in src/lib/openrouter.ts).
+            return if (content.isNullOrBlank()) null
+            else content.trim().replace(Regex("[ \\t]*\u2014[ \\t]*"), ", ")
         } catch (e: Exception) {
             android.util.Log.w("Tally", "Coach check-in request failed", e)
             return null
