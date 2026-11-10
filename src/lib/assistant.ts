@@ -34,12 +34,31 @@ import {
   renameSavedMeal,
   deleteSavedMeal,
   getManual,
+  getExperiment,
+  getTrial,
+  listTrials,
+  listAllFasts,
 } from "./db";
 import { createManual, isManualTrigger, removeManual, saveManual } from "./manuals";
+import { AUTO_METRIC_INFO } from "./experimentMetrics";
+import {
+  armOf,
+  autoMetricsOf,
+  createExperiment,
+  experimentPath,
+  loadTrialMetrics,
+  nextArm,
+  ratingMeasures,
+  saveExperiment,
+  saveTrial,
+  startTrial,
+  summarize,
+} from "./experiments";
 import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
 import type { ChatMessage, ToolDef } from "./openrouter";
-import { parseToolArgs } from "./schemas";
+import { AUTO_METRICS, ExperimentDesignSchema, RatingArgsSchema, parseToolArgs } from "./schemas";
+import type { AutoMetric } from "./schemas";
 import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
 import type { GarminWorkoutDetail } from "./garminDb";
 import { FOOD_FACTS_TOOL, executeFoodFactsSearch } from "./openFoodFacts";
@@ -519,6 +538,154 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
           id: { type: "number", description: "The id shown in square brackets." },
         },
         required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "design_experiment",
+      description:
+        "Set up an experiment — a fair test of something that might work for them — or revise one. Agree the design with them first. Options are lettered A, B, C… in the order given.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The experiment to revise. Omit to start a new one." },
+          title: { type: "string", description: 'Short, e.g. "How I refeed".' },
+          hypothesis: {
+            type: "string",
+            description: "The idea being tested, in their words where possible.",
+          },
+          applies_when: {
+            type: "string",
+            enum: ["fasting", "none"],
+            description:
+              '"fasting": every fast that ends while it runs becomes a trial, its refeed being what\'s varied. "none": trials are recorded with record_trial.',
+          },
+          arms: {
+            type: "array",
+            description: "Two to four options, concrete enough to follow without asking.",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: 'Short, e.g. "Carbs first".' },
+                detail: {
+                  type: "string",
+                  description: 'What to actually do, e.g. "60–80 g easy carbs (rice, fruit), protein an hour later".',
+                },
+              },
+              required: ["label"],
+              additionalProperties: false,
+            },
+          },
+          ratings: {
+            type: "array",
+            description: "One to three 1–5 ratings they give after each trial (energy, gut feel, cravings).",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                better: { type: "string", enum: ["higher", "lower"] },
+              },
+              required: ["label"],
+              additionalProperties: false,
+            },
+          },
+          auto: {
+            type: "array",
+            description:
+              `Numbers read from the diary for each trial: ${AUTO_METRICS.map((k) => `${k} = ${AUTO_METRIC_INFO[k].means}`).join("; ")}.`,
+            items: { type: "string", enum: [...AUTO_METRICS] },
+          },
+          assignment: {
+            type: "string",
+            enum: ["balanced", "choose"],
+            description:
+              '"balanced" (default): the app picks each trial\'s option so they alternate. "choose": they pick each time.',
+          },
+          target_per_arm: {
+            type: "number",
+            description: "Trials per option before concluding; 3 is the usual minimum.",
+          },
+        },
+        required: ["title", "hypothesis", "arms"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_experiment",
+      description:
+        "Read an experiment in full: its design, every trial with its ratings and diary numbers, and each option's averages.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The id shown in square brackets." },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "record_trial",
+      description:
+        "Record a trial or fill one in: give trial_id to rate, re-assign, annotate or exclude an existing trial (fasting trials open by themselves); omit it to log a new trial of a hand-logged experiment.",
+      parameters: {
+        type: "object",
+        properties: {
+          experiment_id: { type: "number" },
+          trial_id: { type: "number", description: "The trial to update. Omit to log a new one." },
+          arm: {
+            type: "string",
+            description: "Option key (A, B…) actually followed. New trials default to the next option.",
+          },
+          ratings: {
+            type: "object",
+            description: "Rating key or label → 1–5, as they told you.",
+            additionalProperties: { type: "number" },
+          },
+          note: { type: "string", description: "Anything that bears on the result, in a line." },
+          excluded: {
+            type: "boolean",
+            description: "true when it shouldn't count — the option wasn't followed, they were ill.",
+          },
+          started_at: {
+            type: "string",
+            description: 'New trials only: local "YYYY-MM-DD HH:MM" it began; defaults to now.',
+          },
+        },
+        required: ["experiment_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "conclude_experiment",
+      description:
+        "End an experiment with what it showed, or drop it — or set it running again. Read it first.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number" },
+          status: { type: "string", enum: ["concluded", "dropped", "running"] },
+          conclusion: {
+            type: "string",
+            description: "Two or three sentences: what the numbers showed and how firmly.",
+          },
+          manual_id: {
+            type: "number",
+            description: "The manual the result went into, if you wrote it into one.",
+          },
+        },
+        required: ["id", "status"],
         additionalProperties: false,
       },
     },
@@ -1338,6 +1505,173 @@ export async function executeAssistantTool(
     return JSON.stringify({ deleted_manual: id });
   }
 
+  if (name === "design_experiment") {
+    const d = ExperimentDesignSchema.parse(args);
+    if (!d.title || !d.hypothesis) throw new Error("title and hypothesis are required");
+    if (d.arms.length < 1) throw new Error("at least one option (arm) with a label is required");
+    const measures = [
+      ...d.ratings,
+      ...d.auto.map((k) => ({
+        key: k,
+        label: AUTO_METRIC_INFO[k].label,
+        kind: "auto" as const,
+        better: AUTO_METRIC_INFO[k].better,
+      })),
+    ];
+    const draft = {
+      title: d.title,
+      hypothesis: d.hypothesis,
+      applies_when: d.applies_when === "fasting" ? ("fasting" as const) : null,
+      arms: d.arms,
+      measures,
+      assignment: d.assignment,
+      target_per_arm: d.target_per_arm,
+    };
+    if (typeof args["id"] === "number") {
+      const id = args["id"];
+      if (!(await getExperiment(id))) return JSON.stringify({ error: `No experiment with id ${id}.` });
+      await saveExperiment(id, draft);
+      return JSON.stringify({ revised_experiment: id });
+    }
+    const id = await createExperiment(draft);
+    return JSON.stringify({ created_experiment: id, path: experimentPath(id) });
+  }
+
+  if (name === "read_experiment") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const e = await getExperiment(id);
+    if (!e) return JSON.stringify({ error: `No experiment with id ${id}.` });
+    const trials = await listTrials(id);
+    const fasts = new Map((await listAllFasts()).map((f) => [f.id, f]));
+    const metrics = await loadTrialMetrics(trials, fasts);
+    const autos = autoMetricsOf(e);
+    const ratings = ratingMeasures(e);
+    const fmt = (key: string, v: number) =>
+      key in AUTO_METRIC_INFO ? round(v, AUTO_METRIC_INFO[key as AutoMetric].dp + 1) : round(v, 2);
+    return JSON.stringify({
+      id: e.id,
+      title: e.title,
+      hypothesis: e.hypothesis,
+      status: e.status,
+      applies_when: e.applies_when ?? "none",
+      assignment: e.assignment,
+      target_per_arm: e.target_per_arm,
+      arms: e.arms,
+      ratings: ratings.map((m) => ({ key: m.key, label: m.label, better: m.better })),
+      diary_numbers: Object.fromEntries(autos.map((k) => [k, AUTO_METRIC_INFO[k].means])),
+      next_arm: e.status === "running" ? nextArm(e, trials).key : null,
+      conclusion: e.conclusion,
+      manual_id: e.manual_id,
+      trials: trials.map((t) =>
+        compact({
+          id: t.id,
+          arm: t.arm,
+          day: t.day,
+          started_at: localStamp(new Date(t.started_at).getTime()),
+          fast_id: t.fast_id,
+          excluded: t.excluded || undefined,
+          ratings: t.ratings,
+          note: t.note,
+          numbers: Object.fromEntries(
+            autos.map((k) => {
+              const v = metrics.get(t.id)?.[k];
+              return [k, v == null ? null : fmt(k, v)];
+            }),
+          ),
+        }),
+      ),
+      averages: summarize(e, trials, metrics).map((s) => ({
+        arm: s.arm.key,
+        trials: s.n,
+        means: Object.fromEntries(
+          [...s.means].map(([k, v]) => [k, { mean: fmt(k, v.mean), n: v.n }]),
+        ),
+      })),
+    });
+  }
+
+  if (name === "record_trial") {
+    const expId = typeof args["experiment_id"] === "number" ? args["experiment_id"] : NaN;
+    if (!isFinite(expId)) throw new Error("experiment_id is required");
+    const e = await getExperiment(expId);
+    if (!e) return JSON.stringify({ error: `No experiment with id ${expId}.` });
+    const armArg = typeof args["arm"] === "string" ? args["arm"].trim().toUpperCase() : undefined;
+    if (armArg !== undefined && !armOf(e, armArg)) {
+      return JSON.stringify({ error: `No option "${armArg}"; options are ${e.arms.map((a) => a.key).join(", ")}.` });
+    }
+    // Ratings may come keyed by label; anything that isn't one of the
+    // experiment's ratings is dropped rather than stored.
+    const given = RatingArgsSchema.parse(args["ratings"]);
+    const ratings: Record<string, number> = {};
+    const ignored: string[] = [];
+    for (const [k, v] of Object.entries(given)) {
+      const m = ratingMeasures(e).find(
+        (r) => r.key === k || r.label.toLowerCase() === k.trim().toLowerCase(),
+      );
+      if (m) ratings[m.key] = v;
+      else ignored.push(k);
+    }
+    const note = typeof args["note"] === "string" ? args["note"].trim() || null : undefined;
+    const excluded = typeof args["excluded"] === "boolean" ? args["excluded"] : undefined;
+
+    let trialId: number;
+    if (typeof args["trial_id"] === "number") {
+      const t = await getTrial(args["trial_id"]);
+      if (!t || t.experiment_id !== e.id) {
+        return JSON.stringify({ error: `No trial ${args["trial_id"]} in experiment ${e.id}.` });
+      }
+      trialId = t.id;
+      await saveTrial(t.id, {
+        arm: armArg,
+        ratings: Object.keys(ratings).length ? { ...(t.ratings ?? {}), ...ratings } : undefined,
+        note,
+        excluded,
+      });
+    } else {
+      if (e.status !== "running") return JSON.stringify({ error: "That experiment isn't running." });
+      const rawAt = typeof args["started_at"] === "string" ? args["started_at"] : "";
+      const at = rawAt ? parseLocalMoment(rawAt) : Date.now();
+      if (at == null) throw new Error('started_at must be local "YYYY-MM-DD HH:MM"');
+      const arm = armArg ?? nextArm(e, await listTrials(e.id)).key;
+      trialId = await startTrial(e, arm, new Date(at).toISOString());
+      if (Object.keys(ratings).length || note !== undefined || excluded !== undefined) {
+        await saveTrial(trialId, {
+          ratings: Object.keys(ratings).length ? ratings : undefined,
+          note,
+          excluded,
+        });
+      }
+    }
+    return JSON.stringify(
+      compact({
+        recorded_trial: trialId,
+        ignored_ratings: ignored.length ? ignored : undefined,
+        rating_keys: ignored.length ? ratingMeasures(e).map((m) => m.key) : undefined,
+      }),
+    );
+  }
+
+  if (name === "conclude_experiment") {
+    const id = typeof args["id"] === "number" ? args["id"] : NaN;
+    if (!isFinite(id)) throw new Error("id is required");
+    const status = args["status"];
+    if (status !== "concluded" && status !== "dropped" && status !== "running") {
+      throw new Error('status must be "concluded", "dropped" or "running"');
+    }
+    if (!(await getExperiment(id))) return JSON.stringify({ error: `No experiment with id ${id}.` });
+    const conclusion = typeof args["conclusion"] === "string" ? args["conclusion"].trim() || null : undefined;
+    let manualId: number | undefined;
+    if (typeof args["manual_id"] === "number") {
+      if (!(await getManual(args["manual_id"]))) {
+        return JSON.stringify({ error: `No manual with id ${args["manual_id"]}.` });
+      }
+      manualId = args["manual_id"];
+    }
+    await saveExperiment(id, { status, conclusion, manual_id: manualId });
+    return JSON.stringify({ experiment: id, status });
+  }
+
   throw new Error(`Unknown tool "${name}"`);
 }
 
@@ -1367,6 +1701,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at) — meals kept for reuse with exact numbers; prefer list_saved_meals
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status) — prefer query_documents over SQL here
 - manuals(id, title, situation, applies_when, body /* markdown */, edited_by, created_at, updated_at) — prefer read_manual / write_manual
+- experiments(id, title, hypothesis, applies_when, arms /* JSON [{key,label,detail}] */, measures /* JSON [{key,label,kind,better}] */, assignment, target_per_arm, status, conclusion, manual_id, created_at, updated_at, ended_at) and experiment_trials(id, experiment_id, arm, fast_id, started_at, day, tz_offset_min, ratings /* JSON {key: 1-5} */, note, excluded) — prefer read_experiment
 Use json_extract(nutrients, '$.protein_g') for nutrient JSON.
 ALWAYS group and filter by the \`day\` column, never by date(timestamp): \`day\` is stamped in the timezone the user was actually in, so it stays right when they travel, while a timestamp would be read as UTC.`;
 

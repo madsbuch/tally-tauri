@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { Fast } from "./types";
 import { getActiveFast, getLastMealAt, insertFast, markFastEnded, setFastPurpose } from "./db";
+import { openTrialsForFast } from "./experiments";
 import { scanAchievements } from "./achievements";
 
 /** Notification id for the scheduled "fast complete" alert. */
@@ -284,6 +285,10 @@ export async function endFast(fast: Fast, endedAt = new Date()): Promise<void> {
   await markFastEnded(fast.id, endedAt.toISOString());
   // Fasting badges are judged on the finished fast; see startFast.
   void scanAchievements().catch(() => {});
+  // The refeed that follows is a trial of any running fasting experiment.
+  await openTrialsForFast(fast, endedAt).catch((e) => {
+    console.warn("Could not open experiment trials", e);
+  });
   try {
     await invoke("plugin:fasting|stop_countdown");
   } catch (e) {

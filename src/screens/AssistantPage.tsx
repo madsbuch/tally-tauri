@@ -80,6 +80,8 @@ export default function AssistantPage() {
   const unread = useUnreadCheckin();
 
   const [history, setHistory] = useState<ChatSummary[]>([]);
+  /** Whether the chat list has loaded, so the starters don't flash past. */
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   /** This chat as saved, shown read-only while a turn runs in another one. */
@@ -152,7 +154,12 @@ export default function AssistantPage() {
 
   useEffect(() => {
     if (!inChat) {
-      void listChats().then(setHistory).catch(console.error);
+      void listChats()
+        .then((h) => {
+          setHistory(h);
+          setHistoryLoaded(true);
+        })
+        .catch(console.error);
     }
   }, [inChat, status]);
 
@@ -288,23 +295,27 @@ export default function AssistantPage() {
             </button>
           )}
           <CoachShelf />
-          <div className="list">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                className="list-row chat-suggestion"
-                onClick={() => send(s)}
-                disabled={busy || hasKey !== true}
-              >
-                <div className="row-main">
-                  <div className="row-title" style={{ whiteSpace: "normal" }}>
-                    {s}
+          {/* Conversation starters, for a coach you haven't talked to yet;
+              once there are chats, those are the way back in. */}
+          {historyLoaded && history.length === 0 && (
+            <div className="list">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  className="list-row chat-suggestion"
+                  onClick={() => send(s)}
+                  disabled={busy || hasKey !== true}
+                >
+                  <div className="row-main">
+                    <div className="row-title" style={{ whiteSpace: "normal" }}>
+                      {s}
+                    </div>
                   </div>
-                </div>
-                <div className="row-end">→</div>
-              </button>
-            ))}
-          </div>
+                  <div className="row-end">→</div>
+                </button>
+              ))}
+            </div>
+          )}
 
           {history.length > 0 && (
             <>

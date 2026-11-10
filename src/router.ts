@@ -7,6 +7,8 @@ export type Path =
   | `/`
   | `/assistant`
   | `/assistant/:chatId`
+  | `/assistant/experiments`
+  | `/assistant/experiments/:experimentId`
   | `/assistant/library`
   | `/assistant/manuals`
   | `/assistant/manuals/:manualId`
@@ -19,6 +21,7 @@ export type Path =
 
 export type Params = {
   '/assistant/:chatId': { chatId: string }
+  '/assistant/experiments/:experimentId': { experimentId: string }
   '/assistant/manuals/:manualId': { manualId: string }
   '/entry/:kind/:id': { kind: string; id: string }
 }

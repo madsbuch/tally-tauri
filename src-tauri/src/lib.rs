@@ -201,6 +201,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0030_fast_purpose.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 32,
+            description: "experiments",
+            sql: include_str!("../migrations/0031_experiments.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

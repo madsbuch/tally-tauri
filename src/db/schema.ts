@@ -369,6 +369,79 @@ export const manualRevisions = sqliteTable(
 );
 
 /**
+ * Experiments: something that might work, under test — "breaking a fast with
+ * carbs first makes re-entry easier". Where a manual says what works, an
+ * experiment is how a line earns its place there: a few options compared
+ * over a handful of trials, with what counts as better written down before
+ * the first one (see lib/experiments.ts).
+ */
+export const experiments = sqliteTable("experiments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  /** The idea being tested, in their words. */
+  hypothesis: text("hypothesis").notNull(),
+  /**
+   * What one trial is: "fasting" makes every fast that ends while this runs a
+   * trial, its refeed the thing being varied. Null when trials are logged by
+   * hand (a day, a workout).
+   */
+  appliesWhen: text("applies_when"),
+  /** JSON array of {key, label, detail} — the options compared. */
+  arms: text("arms").notNull(),
+  /** JSON array of {key, label, kind, better} — what is measured. */
+  measures: text("measures").notNull(),
+  /** "balanced" — the app picks the next option; "choose" — they do. */
+  assignment: text("assignment").notNull(),
+  /** Trials per option before it's worth concluding. */
+  targetPerArm: integer("target_per_arm").notNull(),
+  /** "running" | "concluded" | "dropped". */
+  status: text("status").notNull(),
+  /** What it showed, written when it ends. */
+  conclusion: text("conclusion"),
+  /** The manual the result went into, if any. */
+  manualId: integer("manual_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  endedAt: text("ended_at"),
+});
+
+/**
+ * One go at an experiment: which option it got, and how it went. For a
+ * fasting experiment it is anchored to the fast it followed, and the numbers
+ * the diary already holds (the refeed, the night after) are read from there
+ * rather than copied in — only the ratings are theirs to give.
+ */
+export const experimentTrials = sqliteTable(
+  "experiment_trials",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    experimentId: integer("experiment_id")
+      .notNull()
+      .references(() => experiments.id),
+    /** The option's key ("A"). */
+    arm: text("arm").notNull(),
+    /** The fast it followed, for fasting experiments. */
+    fastId: integer("fast_id"),
+    /** When the trial began — for a refeed, the moment the fast ended. */
+    startedAt: text("started_at").notNull(),
+    /** Local day it began on. */
+    day: text("day").notNull(),
+    tzOffsetMin: integer("tz_offset_min").notNull(),
+    /** JSON object of rating measure key → 1–5. Null until rated. */
+    ratings: text("ratings"),
+    note: text("note"),
+    /** 1 when it shouldn't count (didn't follow the option, ill that day). */
+    excluded: integer("excluded").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    index("idx_experiment_trials_experiment").on(t.experimentId),
+    index("idx_experiment_trials_fast").on(t.fastId),
+  ],
+);
+
+/**
  * Every check-in the coach started, so it can't repeat itself. Gives the
  * trigger engine three things at once: when a trigger last fired (cooldown),
  * how many times it has spoken today (budget), and which chat it wrote into.

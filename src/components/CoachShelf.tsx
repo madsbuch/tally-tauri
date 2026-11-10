@@ -1,16 +1,24 @@
 /**
  * The Coach tab's shelf: what the coach knows, one tap from its chats.
  *
- * Three tiles rather than three rows, so the suggestions and recent chats —
- * what the tab is mostly for — stay near the top. Each tile carries a count
- * that's worth a glance on its own: follow-ups that have come due, how many
- * manuals there are, how much is in the library.
+ * Two rows. The first is the coach's own working knowledge — manuals (what
+ * works), memory (what it noted), experiments (what's being tested) — as
+ * three tiles, so the chats below stay near the top. The library, the
+ * outside evidence, gets the full width beneath. Each carries a count worth
+ * a glance on its own: follow-ups come due, trials waiting for a rating.
  */
 import { useEffect, useState } from "react";
-import { listCoachMemory, listDocuments, listManuals } from "../lib/db";
+import {
+  listCoachMemory,
+  listDocuments,
+  listExperiments,
+  listManuals,
+  listTrials,
+} from "../lib/db";
 import { dueFollowUpCount } from "../lib/coach";
 import { MANUAL_GLYPH, onManualsChanged } from "../lib/manuals";
 import { onLibraryChanged } from "../lib/documents";
+import { EXPERIMENT_GLYPH, needsRating, onExperimentsChanged } from "../lib/experiments";
 import { Link } from "../router";
 
 interface Counts {
@@ -18,10 +26,21 @@ interface Counts {
   memory: number;
   due: number;
   documents: number;
+  running: number;
+  toRate: number;
 }
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+async function experimentCounts(): Promise<{ running: number; toRate: number }> {
+  const running = (await listExperiments()).filter((e) => e.status === "running");
+  let toRate = 0;
+  for (const e of running) {
+    toRate += (await listTrials(e.id)).filter((t) => needsRating(e, t)).length;
+  }
+  return { running: running.length, toRate };
 }
 
 export default function CoachShelf() {
@@ -34,13 +53,15 @@ export default function CoachShelf() {
       listManuals().catch(() => []),
       listCoachMemory().catch(() => []),
       listDocuments().catch(() => []),
-    ]).then(([manuals, memory, documents]) => {
+      experimentCounts().catch(() => ({ running: 0, toRate: 0 })),
+    ]).then(([manuals, memory, documents, experiments]) => {
       if (!alive) return;
       setCounts({
         manuals: manuals.length,
         memory: memory.length,
         due: dueFollowUpCount(memory),
         documents: documents.length,
+        ...experiments,
       });
     });
     return () => {
@@ -52,42 +73,66 @@ export default function CoachShelf() {
     const bump = () => setRefresh((n) => n + 1);
     const offManuals = onManualsChanged(bump);
     const offLibrary = onLibraryChanged(bump);
+    const offExperiments = onExperimentsChanged(bump);
     return () => {
       offManuals();
       offLibrary();
+      offExperiments();
     };
   }, []);
 
-  const sub = (s: string) => (counts === null ? " " : s);
+  const sub = (s: string) => (counts === null ? " " : s);
 
   return (
     <div className="coach-shelf">
-      <Link to="/assistant/manuals" className="coach-tile">
-        <span className="coach-tile-icon">{MANUAL_GLYPH}</span>
-        <span className="coach-tile-title">Manuals</span>
-        <span className="coach-tile-sub">
-          {sub(counts?.manuals ? plural(counts.manuals, "manual") : "None yet")}
-        </span>
-      </Link>
-      <Link to="/assistant/memory" className="coach-tile">
-        <span className="coach-tile-icon">🧠</span>
-        <span className="coach-tile-title">Memory</span>
-        <span className={`coach-tile-sub${counts?.due ? " coach-tile-due" : ""}`}>
-          {sub(
-            counts?.due
-              ? `${counts.due} due`
-              : counts?.memory
-                ? plural(counts.memory, "item")
-                : "Empty",
-          )}
-        </span>
-      </Link>
-      <Link to="/assistant/library" className="coach-tile">
+      <div className="coach-shelf-row">
+        <Link to="/assistant/manuals" className="coach-tile">
+          <span className="coach-tile-icon">{MANUAL_GLYPH}</span>
+          <span className="coach-tile-title">Manuals</span>
+          <span className="coach-tile-sub">
+            {sub(counts?.manuals ? plural(counts.manuals, "manual") : "None yet")}
+          </span>
+        </Link>
+        <Link to="/assistant/memory" className="coach-tile">
+          <span className="coach-tile-icon">🧠</span>
+          <span className="coach-tile-title">Memory</span>
+          <span className={`coach-tile-sub${counts?.due ? " coach-tile-due" : ""}`}>
+            {sub(
+              counts?.due
+                ? `${counts.due} due`
+                : counts?.memory
+                  ? plural(counts.memory, "item")
+                  : "Empty",
+            )}
+          </span>
+        </Link>
+        <Link to="/assistant/experiments" className="coach-tile">
+          <span className="coach-tile-icon">{EXPERIMENT_GLYPH}</span>
+          <span className="coach-tile-title">Experiments</span>
+          <span className={`coach-tile-sub${counts?.toRate ? " coach-tile-due" : ""}`}>
+            {sub(
+              counts?.toRate
+                ? `${counts.toRate} to rate`
+                : counts?.running
+                  ? `${counts.running} running`
+                  : "None yet",
+            )}
+          </span>
+        </Link>
+      </div>
+      <Link to="/assistant/library" className="coach-tile coach-tile-wide">
         <span className="coach-tile-icon">🗄</span>
-        <span className="coach-tile-title">Library</span>
-        <span className="coach-tile-sub">
-          {sub(counts?.documents ? plural(counts.documents, "doc") : "Empty")}
+        <span className="coach-tile-main">
+          <span className="coach-tile-title">Library</span>
+          <span className="coach-tile-sub">
+            {sub(
+              counts?.documents
+                ? `${plural(counts.documents, "document")} the coach can read`
+                : "Blood results and reports the coach can read",
+            )}
+          </span>
         </span>
+        <span className="faint">›</span>
       </Link>
     </div>
   );

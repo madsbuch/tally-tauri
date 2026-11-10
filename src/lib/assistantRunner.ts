@@ -59,6 +59,10 @@ const TOOL_LABELS: Record<string, string> = {
   query_supplements: "supplements",
   query_fasts: "fasts",
   run_sql: "database",
+  read_experiment: "experiment",
+  design_experiment: "experiment",
+  record_trial: "experiment",
+  conclude_experiment: "experiment",
 };
 
 export function toolLabel(name: string): string {

@@ -617,6 +617,150 @@ export const CoachStanceSchema = z.object({
   language: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim() : "")),
 });
 
+// ---------------------------------------------------------------------------
+// Experiments (see lib/experiments.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Numbers the app reads for a trial from what's already logged. Kept here so
+ * the persisted and the model-facing schemas share one list.
+ */
+export const AUTO_METRICS = [
+  "fast_h",
+  "refeed_kcal",
+  "refeed_carbs_g",
+  "refeed_protein_g",
+  "sleep_h",
+  "hrv_ms",
+  "resting_hr",
+  "weight_change_kg",
+] as const;
+export type AutoMetric = (typeof AUTO_METRICS)[number];
+
+const ArmSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  detail: z.string(),
+});
+export type ExperimentArm = z.infer<typeof ArmSchema>;
+
+const MeasureSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  /** rating = a 1–5 they give; auto = read from the diary (key is the metric). */
+  kind: z.enum(["rating", "auto"]),
+  better: z.enum(["higher", "lower"]),
+});
+export type ExperimentMeasure = z.infer<typeof MeasureSchema>;
+
+/** Our own rows, so strict: a corrupt experiment should show, not shrink. */
+const ArmsSchema = z.array(ArmSchema).min(1);
+const MeasuresSchema = z.array(MeasureSchema);
+const RatingsSchema = z.record(z.string(), z.number().int().min(1).max(5));
+export type TrialRatings = z.infer<typeof RatingsSchema>;
+
+export function parseExperimentArms(raw: string): ExperimentArm[] {
+  return ArmsSchema.parse(parseJson(raw));
+}
+
+export function parseExperimentMeasures(raw: string): ExperimentMeasure[] {
+  return MeasuresSchema.parse(parseJson(raw));
+}
+
+export function parseTrialRatings(raw: string | null): TrialRatings | null {
+  return raw == null ? null : RatingsSchema.parse(parseJson(raw));
+}
+
+const looseLine = z
+  .unknown()
+  .transform((v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : ""));
+
+/** Turn a label into a measure key: "Gut feel" → "gut_feel". */
+function slug(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 32) || "rating"
+  );
+}
+
+/**
+ * The coach's `design_experiment` arguments. Forgiving: options without a
+ * label are dropped, keys are assigned A, B, C…, unknown auto metrics are
+ * dropped and rating keys are made from their labels — a sloppy design
+ * should come out smaller, not fail.
+ */
+export const ExperimentDesignSchema = z.object({
+  title: looseLine,
+  hypothesis: looseLine,
+  applies_when: z.enum(["fasting", "none"]).catch("none"),
+  arms: z
+    .array(z.object({ label: looseLine, detail: looseLine.optional() }).catch({ label: "" }))
+    .catch([])
+    .transform((arms) =>
+      arms
+        .filter((a) => a.label)
+        .slice(0, 4)
+        .map((a, i) => ({
+          key: String.fromCharCode(65 + i),
+          label: a.label,
+          detail: a.detail ?? "",
+        })),
+    ),
+  ratings: z
+    .array(
+      z
+        .object({
+          label: looseLine,
+          better: z.enum(["higher", "lower"]).catch("higher"),
+        })
+        .catch({ label: "", better: "higher" as const }),
+    )
+    .catch([])
+    .transform((rs) => {
+      const out: ExperimentMeasure[] = [];
+      for (const r of rs) {
+        if (!r.label) continue;
+        let key = slug(r.label);
+        while (out.some((m) => m.key === key)) key += "_";
+        out.push({ key, label: r.label, kind: "rating", better: r.better });
+      }
+      return out.slice(0, 5);
+    }),
+  auto: z
+    .array(z.unknown())
+    .catch([])
+    .transform((ms) => [
+      ...new Set(
+        ms.filter((m): m is AutoMetric => (AUTO_METRICS as readonly unknown[]).includes(m)),
+      ),
+    ]),
+  assignment: z.enum(["balanced", "choose"]).catch("balanced"),
+  target_per_arm: z.coerce
+    .number()
+    .catch(3)
+    .transform((n) => (isFinite(n) ? Math.min(10, Math.max(1, Math.round(n))) : 3)),
+});
+export type ExperimentDesign = z.infer<typeof ExperimentDesignSchema>;
+
+/**
+ * Ratings as the coach passes them: measure key (or label) → 1–5. Forgiving:
+ * numbers are rounded and clamped, anything that isn't one is dropped.
+ */
+export const RatingArgsSchema = z
+  .record(z.string(), z.unknown())
+  .catch({})
+  .transform((r) => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(r)) {
+      const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+      if (isFinite(n)) out[k] = Math.min(5, Math.max(1, Math.round(n)));
+    }
+    return out;
+  });
+
 /**
  * Per-trigger check-in config (see lib/coachTriggers.ts). Every field is
  * optional and clamped: a stale or partial blob should degrade to the

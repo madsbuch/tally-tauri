@@ -25,6 +25,8 @@ import {
   listDocuments,
   getManualFor,
   listManuals,
+  listExperiments,
+  listTrials,
   listFoodEntriesForRange,
   listBloodReadingsForRange,
   listIncompleteDays,
@@ -44,7 +46,8 @@ import { cardioMinutes, getCardioTarget, getDayGoal, getProteinTarget } from "./
 import { getStreakInfo } from "./streak";
 import { DB_SCHEMA_DOC } from "./assistant";
 import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
-import type { CoachMemory, LibraryDocument, Manual } from "./types";
+import type { CoachMemory, Experiment, ExperimentTrial, LibraryDocument, Manual } from "./types";
+import { armCounts, armName, armOf, isReadyToConclude, isUnrated, nextArm, ratingMeasures } from "./experiments";
 import type { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -540,6 +543,58 @@ const MANUAL_GUIDANCE = [
 ];
 
 /**
+ * The experiments, with where each one stands: what's being compared, how
+ * many trials each option has, which option is next, and what's waiting for
+ * a rating. Enough to hold them to it without a tool call; `read_experiment`
+ * has the numbers.
+ */
+function renderExperiments(rows: { e: Experiment; trials: ExperimentTrial[] }[]): string {
+  const running = rows.filter((r) => r.e.status === "running");
+  const ended = rows.filter((r) => r.e.status !== "running");
+  if (rows.length === 0) {
+    return "None yet. When they want to find out whether something works for them — a hypothesis about how to refeed, train, sleep — offer to set it up as an experiment with `design_experiment`.";
+  }
+  const lines: string[] = [];
+  for (const { e, trials } of running) {
+    const counts = armCounts(e, trials);
+    const unit = e.applies_when === "fasting" ? "every fast that ends is a trial" : "trials logged by hand";
+    lines.push(`  [${e.id}] ${e.title} — running; ${unit}. Hypothesis: ${e.hypothesis}`);
+    for (const a of e.arms) {
+      lines.push(
+        `      ${a.key}: ${a.label}${a.detail ? ` (${a.detail})` : ""} — ${counts.get(a.key) ?? 0}/${e.target_per_arm} trials`,
+      );
+    }
+    if (isReadyToConclude(e, trials)) {
+      lines.push("      Every option has its trials: time to read it and say what it showed.");
+    } else if (e.assignment === "balanced") {
+      lines.push(`      Next trial gets ${armName(nextArm(e, trials))}.`);
+    } else {
+      lines.push("      They choose each trial's option themselves.");
+    }
+    const unrated = trials.filter((t) => isUnrated(e, t));
+    if (unrated.length > 0) {
+      const which = unrated
+        .map((t) => `trial ${t.id} (${t.day}, ${armName(armOf(e, t.arm), t.arm)})`)
+        .join(", ");
+      const asks = ratingMeasures(e).map((m) => m.label).join(", ");
+      lines.push(`      Not rated yet (${asks}, 1–5): ${which}.`);
+    }
+  }
+  for (const { e } of ended.slice(0, 8)) {
+    lines.push(`  [${e.id}] ${e.title} — ${e.status}${e.conclusion ? `: ${e.conclusion}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+/** How to run them: what makes an experiment fair, and where its result goes. */
+const EXPERIMENT_GUIDANCE = [
+  "An experiment is how an idea earns a line in a manual. When they're testing something — \"I think I refeed better with some carbs first\" — set it up with `design_experiment`: two to four concrete options (amounts, timing), one or two 1–5 ratings they'd notice an hour or two later, and the diary numbers that bear on it. Agree the design with them before saving it; what counts as better is decided before the first trial, not after.",
+  "A fasting experiment opens a trial by itself whenever a fast ends (if it reached half its goal), with the next option already picked. While they fast, make sure they know which option the refeed is. Ratings are given on the trial — on the experiment page or the Diary's fasting card — or tell you and you record them with `record_trial`.",
+  "Read the numbers with `read_experiment` before saying anything about a result. With a handful of trials, say what the averages show and how much they could be noise (different fast lengths, a bad night) — don't claim more than they carry.",
+  "When every option has its trials, write it up with `conclude_experiment`, and if it held, carry it into the matching manual with `write_manual` and link it there. Dropping one is fine too; say why in the conclusion.",
+];
+
+/**
  * An index of the library, not its contents: enough for the coach to know
  * what exists and reach for `query_documents`, without pouring every lab
  * value it has ever seen into the prompt.
@@ -577,6 +632,17 @@ const CANDOUR = [
   "When you don't know, say so plainly rather than hedging your way around it.",
 ];
 
+async function loadExperimentsWithTrials(): Promise<
+  { e: Experiment; trials: ExperimentTrial[] }[]
+> {
+  try {
+    const all = await listExperiments();
+    return await Promise.all(all.map(async (e) => ({ e, trials: await listTrials(e.id) })));
+  } catch {
+    return [];
+  }
+}
+
 export interface CoachPromptOptions {
   /** Extra framing for a proactive check-in; absent for a normal chat. */
   occasion?: string;
@@ -595,11 +661,12 @@ export interface CoachPromptOptions {
  * occasion.
  */
 export async function buildCoachPromptPrefix(): Promise<string> {
-  const [stance, memory, documents, manuals] = await Promise.all([
+  const [stance, memory, documents, manuals, experiments] = await Promise.all([
     loadCoachStance(),
     listCoachMemory().catch(() => [] as CoachMemory[]),
     listDocuments().catch(() => []),
     listManuals().catch(() => [] as Manual[]),
+    loadExperimentsWithTrials(),
   ]);
   const today = todayStr();
 
@@ -622,6 +689,10 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "## Their manuals",
     renderManuals(manuals),
     ...MANUAL_GUIDANCE.map((g) => `- ${g}`),
+    "",
+    "## Their experiments",
+    renderExperiments(experiments),
+    ...EXPERIMENT_GUIDANCE.map((g) => `- ${g}`),
     "",
     "## Their document library",
     renderLibrary(documents),

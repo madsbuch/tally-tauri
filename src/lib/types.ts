@@ -1,3 +1,5 @@
+import type { ExperimentArm, ExperimentMeasure, TrialRatings } from "./schemas";
+
 /** Fixed set of tracked nutrients. Units are encoded in the key suffix. */
 export type NutrientKey =
   // Macros
@@ -474,6 +476,48 @@ export interface ManualRevision {
   body: string;
   edited_by: ManualAuthor;
   written_at: string;
+}
+
+/** Where an experiment stands (see lib/experiments.ts). */
+export type ExperimentStatus = "running" | "concluded" | "dropped";
+
+/** Who picks the next trial's option. */
+export type ExperimentAssignment = "balanced" | "choose";
+
+/** Something that might work, under test (see lib/experiments.ts). */
+export interface Experiment {
+  id: number;
+  title: string;
+  hypothesis: string;
+  /** "fasting": every fast that ends while it runs is a trial. */
+  applies_when: ManualTrigger | null;
+  arms: ExperimentArm[];
+  measures: ExperimentMeasure[];
+  assignment: ExperimentAssignment;
+  target_per_arm: number;
+  status: ExperimentStatus;
+  conclusion: string | null;
+  manual_id: number | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
+/** One go at an experiment. */
+export interface ExperimentTrial {
+  id: number;
+  experiment_id: number;
+  arm: string;
+  fast_id: number | null;
+  started_at: string;
+  day: string;
+  tz_offset_min: number;
+  /** Null until rated. */
+  ratings: TrialRatings | null;
+  note: string | null;
+  excluded: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 /** A check-in the coach started (see lib/coachTriggers.ts). */

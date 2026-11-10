@@ -27,6 +27,7 @@ import {
 } from "../lib/fasting";
 import type { FastingStage } from "../lib/fasting";
 import InfoButton from "../components/InfoButton";
+import FastingExperiments from "../components/FastingExperiments";
 import { MANUAL_GLYPH, manualPath, onManualsChanged } from "../lib/manuals";
 import { useGo } from "../lib/navigation";
 
@@ -639,6 +640,8 @@ export default function FastingSection() {
           </button>
         )}
 
+        <FastingExperiments fasting />
+
         {flaggedMeal && (
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="card-title">
@@ -747,95 +750,98 @@ export default function FastingSection() {
     );
   } else {
     body = (
-      <div className="card">
-        <div className="card-title">Goal</div>
-        <div className="seg">
-          {PRESET_HOURS.map((h) => (
+      <>
+        <FastingExperiments fasting={false} />
+        <div className="card">
+          <div className="card-title">Goal</div>
+          <div className="seg">
+            {PRESET_HOURS.map((h) => (
+              <button
+                key={h}
+                className={`seg-item${!customMode && presetHours === h ? " seg-item-active" : ""}`}
+                onClick={() => {
+                  setCustomMode(false);
+                  setPresetHours(h);
+                  setError(null);
+                }}
+              >
+                {h}h
+              </button>
+            ))}
             <button
-              key={h}
-              className={`seg-item${!customMode && presetHours === h ? " seg-item-active" : ""}`}
+              className={`seg-item${customMode ? " seg-item-active" : ""}`}
               onClick={() => {
-                setCustomMode(false);
-                setPresetHours(h);
+                setCustomMode(true);
                 setError(null);
               }}
             >
-              {h}h
+              Custom
             </button>
-          ))}
-          <button
-            className={`seg-item${customMode ? " seg-item-active" : ""}`}
-            onClick={() => {
-              setCustomMode(true);
-              setError(null);
-            }}
-          >
-            Custom
-          </button>
-        </div>
-        {customMode && (
+          </div>
+          {customMode && (
+            <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+              <label className="label" htmlFor="fast-custom-hours">
+                Custom goal (hours)
+              </label>
+              <input
+                id="fast-custom-hours"
+                className="input"
+                type="number"
+                inputMode="decimal"
+                min={MIN_HOURS}
+                max={MAX_HOURS}
+                step={0.5}
+                value={customHours}
+                onChange={(e) => setCustomHours(e.target.value)}
+              />
+              {customHours !== "" && !customValid && (
+                <div className="error-text" style={{ marginTop: 5 }}>
+                  Enter between {MIN_HOURS} and {MAX_HOURS} hours.
+                </div>
+              )}
+            </div>
+          )}
+  
           <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
-            <label className="label" htmlFor="fast-custom-hours">
-              Custom goal (hours)
+            <label className="label" htmlFor="fast-purpose">
+              Purpose (optional)
             </label>
             <input
-              id="fast-custom-hours"
+              id="fast-purpose"
               className="input"
-              type="number"
-              inputMode="decimal"
-              min={MIN_HOURS}
-              max={MAX_HOURS}
-              step={0.5}
-              value={customHours}
-              onChange={(e) => setCustomHours(e.target.value)}
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              placeholder="e.g. Recoup after the weekend, up to 225 kcal is fine"
+              maxLength={300}
             />
-            {customHours !== "" && !customValid && (
-              <div className="error-text" style={{ marginTop: 5 }}>
-                Enter between {MIN_HOURS} and {MAX_HOURS} hours.
-              </div>
-            )}
+            <div className="muted small" style={{ marginTop: 5 }}>
+              What it&apos;s for and what you allow yourself. Entries you log during
+              the fast are judged by it; leave it empty for a plain fast.
+            </div>
           </div>
-        )}
-
-        <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
-          <label className="label" htmlFor="fast-purpose">
-            Purpose (optional)
-          </label>
-          <input
-            id="fast-purpose"
-            className="input"
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            placeholder="e.g. Recoup after the weekend, up to 225 kcal is fine"
-            maxLength={300}
-          />
-          <div className="muted small" style={{ marginTop: 5 }}>
-            What it&apos;s for and what you allow yourself. Entries you log during
-            the fast are judged by it; leave it empty for a plain fast.
-          </div>
+  
+          {error && (
+            <div className="error-text" style={{ marginTop: 10 }}>
+              {error}
+            </div>
+          )}
+  
+          <button
+            className="btn btn-primary btn-block"
+            style={{ marginTop: 12 }}
+            disabled={starting || (customMode && !customValid)}
+            onClick={handleStart}
+          >
+            {starting ? <span className="spinner" /> : "Start fasting"}
+          </button>
+  
+          {lastMealAt && lastMealMs != null && lastMealMs > 0 && (
+            <div className="muted small" style={{ marginTop: 10 }}>
+              Fasting since: {formatDayStamp(new Date(lastMealAt), lastMealMs > 6 * DAY_MS)}
+            </div>
+          )}
         </div>
-
-        {error && (
-          <div className="error-text" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          className="btn btn-primary btn-block"
-          style={{ marginTop: 12 }}
-          disabled={starting || (customMode && !customValid)}
-          onClick={handleStart}
-        >
-          {starting ? <span className="spinner" /> : "Start fasting"}
-        </button>
-
-        {lastMealAt && lastMealMs != null && lastMealMs > 0 && (
-          <div className="muted small" style={{ marginTop: 10 }}>
-            Fasting since: {formatDayStamp(new Date(lastMealAt), lastMealMs > 6 * DAY_MS)}
-          </div>
-        )}
-      </div>
+      </>
     );
   }
 

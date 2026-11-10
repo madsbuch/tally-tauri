@@ -10,6 +10,8 @@ import {
   coachMemory,
   manuals,
   manualRevisions,
+  experiments,
+  experimentTrials,
   coachRuns,
   dayGoalAdjustments,
   documents,
@@ -43,6 +45,10 @@ import type {
   ManualAuthor,
   ManualRevision,
   ManualTrigger,
+  Experiment,
+  ExperimentAssignment,
+  ExperimentStatus,
+  ExperimentTrial,
   CoachRun,
   DayGoalAdjustment,
   EntryKind,
@@ -70,6 +76,7 @@ import type {
   Workout,
 } from "./types";
 import type { ChatMessage } from "./openrouter";
+import type { ExperimentArm, ExperimentMeasure, TrialRatings } from "./schemas";
 import { SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
@@ -85,7 +92,10 @@ import {
   parseDocumentValues,
   parseEntryChanges,
   parseEntrySnapshot,
+  parseExperimentArms,
+  parseExperimentMeasures,
   parseJson,
+  parseTrialRatings,
 } from "./schemas";
 
 const DB_URL = "sqlite:tally.db";
@@ -1177,6 +1187,8 @@ export async function listRecentFasts(limit = 20): Promise<Fast[]> {
 }
 
 export async function deleteFast(id: number): Promise<void> {
+  // A fast that never happened can't have been a trial either.
+  await db.delete(experimentTrials).where(eq(experimentTrials.fastId, id));
   await db.delete(fasts).where(eq(fasts.id, id));
 }
 
@@ -1565,6 +1577,221 @@ export async function listManualRevisions(manualId: number): Promise<ManualRevis
     edited_by: toAuthor(r.editedBy),
     written_at: r.writtenAt,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Experiments
+// ---------------------------------------------------------------------------
+
+type ExperimentRow = typeof experiments.$inferSelect;
+type TrialRow = typeof experimentTrials.$inferSelect;
+
+function toExperimentStatus(v: string): ExperimentStatus {
+  return v === "concluded" || v === "dropped" ? v : "running";
+}
+
+function toExperiment(r: ExperimentRow): Experiment {
+  return {
+    id: r.id,
+    title: r.title,
+    hypothesis: r.hypothesis,
+    applies_when: toTrigger(r.appliesWhen),
+    arms: parseExperimentArms(r.arms),
+    measures: parseExperimentMeasures(r.measures),
+    assignment: r.assignment === "choose" ? "choose" : "balanced",
+    target_per_arm: r.targetPerArm,
+    status: toExperimentStatus(r.status),
+    conclusion: r.conclusion,
+    manual_id: r.manualId,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+    ended_at: r.endedAt,
+  };
+}
+
+function toTrial(r: TrialRow): ExperimentTrial {
+  return {
+    id: r.id,
+    experiment_id: r.experimentId,
+    arm: r.arm,
+    fast_id: r.fastId,
+    started_at: r.startedAt,
+    day: r.day,
+    tz_offset_min: r.tzOffsetMin,
+    ratings: parseTrialRatings(r.ratings),
+    note: r.note,
+    excluded: r.excluded !== 0,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+/** Every experiment, running ones first, then most recently changed. */
+export async function listExperiments(): Promise<Experiment[]> {
+  const rows = await db
+    .select()
+    .from(experiments)
+    .orderBy(sql`${experiments.status} != 'running'`, desc(experiments.updatedAt));
+  return rows.map(toExperiment);
+}
+
+export async function getExperiment(id: number): Promise<Experiment | null> {
+  const rows = await db.select().from(experiments).where(eq(experiments.id, id)).limit(1);
+  const row = rows[0];
+  return row ? toExperiment(row) : null;
+}
+
+/** Running experiments whose trials the app opens itself in this situation. */
+export async function listRunningExperimentsFor(trigger: ManualTrigger): Promise<Experiment[]> {
+  const rows = await db
+    .select()
+    .from(experiments)
+    .where(and(eq(experiments.appliesWhen, trigger), eq(experiments.status, "running")))
+    .orderBy(experiments.id);
+  return rows.map(toExperiment);
+}
+
+export interface ExperimentDraft {
+  title: string;
+  hypothesis: string;
+  applies_when: ManualTrigger | null;
+  arms: ExperimentArm[];
+  measures: ExperimentMeasure[];
+  assignment: ExperimentAssignment;
+  target_per_arm: number;
+}
+
+export async function addExperiment(draft: ExperimentDraft): Promise<number> {
+  const now = new Date().toISOString();
+  const rows = await db
+    .insert(experiments)
+    .values({
+      title: draft.title,
+      hypothesis: draft.hypothesis,
+      appliesWhen: draft.applies_when,
+      arms: JSON.stringify(draft.arms),
+      measures: JSON.stringify(draft.measures),
+      assignment: draft.assignment,
+      targetPerArm: draft.target_per_arm,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: experiments.id });
+  return rows[0]?.id ?? 0;
+}
+
+export interface ExperimentPatch extends Partial<ExperimentDraft> {
+  status?: ExperimentStatus | undefined;
+  conclusion?: string | null | undefined;
+  manual_id?: number | null | undefined;
+}
+
+export async function updateExperiment(id: number, patch: ExperimentPatch): Promise<void> {
+  const set: Partial<typeof experiments.$inferInsert> = { updatedAt: new Date().toISOString() };
+  if (patch.title !== undefined) set.title = patch.title;
+  if (patch.hypothesis !== undefined) set.hypothesis = patch.hypothesis;
+  if (patch.applies_when !== undefined) set.appliesWhen = patch.applies_when;
+  if (patch.arms !== undefined) set.arms = JSON.stringify(patch.arms);
+  if (patch.measures !== undefined) set.measures = JSON.stringify(patch.measures);
+  if (patch.assignment !== undefined) set.assignment = patch.assignment;
+  if (patch.target_per_arm !== undefined) set.targetPerArm = patch.target_per_arm;
+  if (patch.conclusion !== undefined) set.conclusion = patch.conclusion;
+  if (patch.manual_id !== undefined) set.manualId = patch.manual_id;
+  if (patch.status !== undefined) {
+    set.status = patch.status;
+    set.endedAt = patch.status === "running" ? null : set.updatedAt;
+  }
+  await db.update(experiments).set(set).where(eq(experiments.id, id));
+}
+
+export async function deleteExperiment(id: number): Promise<void> {
+  await db.delete(experimentTrials).where(eq(experimentTrials.experimentId, id));
+  await db.delete(experiments).where(eq(experiments.id, id));
+}
+
+/** An experiment's trials, oldest first. */
+export async function listTrials(experimentId: number): Promise<ExperimentTrial[]> {
+  const rows = await db
+    .select()
+    .from(experimentTrials)
+    .where(eq(experimentTrials.experimentId, experimentId))
+    .orderBy(experimentTrials.startedAt, experimentTrials.id);
+  return rows.map(toTrial);
+}
+
+export async function getTrial(id: number): Promise<ExperimentTrial | null> {
+  const rows = await db
+    .select()
+    .from(experimentTrials)
+    .where(eq(experimentTrials.id, id))
+    .limit(1);
+  const row = rows[0];
+  return row ? toTrial(row) : null;
+}
+
+/** Trials anchored to a fast, across every experiment. */
+export async function listTrialsForFast(fastId: number): Promise<ExperimentTrial[]> {
+  const rows = await db
+    .select()
+    .from(experimentTrials)
+    .where(eq(experimentTrials.fastId, fastId))
+    .orderBy(experimentTrials.id);
+  return rows.map(toTrial);
+}
+
+export async function addTrial(t: {
+  experiment_id: number;
+  arm: string;
+  fast_id: number | null;
+  started_at: string;
+  note?: string | null;
+}): Promise<number> {
+  const now = new Date().toISOString();
+  const stamp = stampOf(t.started_at);
+  const rows = await db
+    .insert(experimentTrials)
+    .values({
+      experimentId: t.experiment_id,
+      arm: t.arm,
+      fastId: t.fast_id,
+      startedAt: t.started_at,
+      day: stamp.day,
+      tzOffsetMin: stamp.tz_offset_min,
+      note: t.note ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: experimentTrials.id });
+  await db
+    .update(experiments)
+    .set({ updatedAt: now })
+    .where(eq(experiments.id, t.experiment_id));
+  return rows[0]?.id ?? 0;
+}
+
+export interface TrialPatch {
+  arm?: string | undefined;
+  ratings?: TrialRatings | null | undefined;
+  note?: string | null | undefined;
+  excluded?: boolean | undefined;
+}
+
+export async function updateTrial(id: number, patch: TrialPatch): Promise<void> {
+  const set: Partial<typeof experimentTrials.$inferInsert> = {
+    updatedAt: new Date().toISOString(),
+  };
+  if (patch.arm !== undefined) set.arm = patch.arm;
+  if (patch.ratings !== undefined) {
+    set.ratings = patch.ratings == null ? null : JSON.stringify(patch.ratings);
+  }
+  if (patch.note !== undefined) set.note = patch.note;
+  if (patch.excluded !== undefined) set.excluded = patch.excluded ? 1 : 0;
+  await db.update(experimentTrials).set(set).where(eq(experimentTrials.id, id));
+}
+
+export async function deleteTrial(id: number): Promise<void> {
+  await db.delete(experimentTrials).where(eq(experimentTrials.id, id));
 }
 
 // ---------------------------------------------------------------------------

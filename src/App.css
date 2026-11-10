@@ -2356,13 +2356,19 @@ button.rule-row {
   text-decoration: none;
 }
 
-/* Coach shelf: manuals, memory, library ---------------------------------- */
+/* Coach shelf: manuals, memory, experiments; library beneath ------------- */
 
 .coach-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.coach-shelf-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 12px;
 }
 
 .coach-tile {
@@ -2403,6 +2409,138 @@ button.rule-row {
 .coach-tile-due {
   color: var(--warn);
   font-weight: 700;
+}
+
+/* The library: one row across, icon beside the words. */
+.coach-tile-wide {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.coach-tile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Experiments ------------------------------------------------------------- */
+
+.exp-arms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exp-arm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.exp-arm-key {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.exp-arm-next .exp-arm-key {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.exp-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.exp-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.exp-table-wrap {
+  overflow-x: auto;
+  margin: 0 -2px;
+}
+
+.exp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.exp-table th,
+.exp-table td {
+  padding: 6px 4px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.exp-table th:first-child,
+.exp-table td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+
+.exp-table th {
+  font-weight: 650;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.exp-best {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* A 1–5 rating: five buttons, big enough for a thumb. */
+.exp-rating {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.exp-rating button {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.exp-rating button.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+.exp-rating-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--faint, var(--muted));
+  margin-top: 2px;
 }
 
 /* Collapsible groups on the Memory and Manual pages. */

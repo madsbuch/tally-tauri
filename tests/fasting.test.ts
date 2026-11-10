@@ -62,9 +62,12 @@ describe("fast-breaking entries", () => {
 describe("migration 0030", () => {
   test("keeps past entries reading as they did under the old rules", () => {
     const rust = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
-    const files = [...rust.matchAll(/include_str!\("\.\.\/migrations\/([^"]+)"\)/g)].map((m) => m[1]);
-    const last = files.pop();
-    expect(last).toBe("0030_fast_purpose.sql");
+    const all = [...rust.matchAll(/include_str!\("\.\.\/migrations\/([^"]+)"\)/g)].map((m) => m[1]);
+    // Everything before 0030, then 0030 itself on top of what that left.
+    const at = all.indexOf("0030_fast_purpose.sql");
+    expect(at).toBeGreaterThan(0);
+    const files = all.slice(0, at);
+    const last = all[at];
 
     const mem = new Database(":memory:");
     const read = (f: string | undefined) =>
