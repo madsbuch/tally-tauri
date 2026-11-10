@@ -25,7 +25,9 @@ import {
   todayStr,
 } from "./db";
 import { shiftDay } from "./daystamp";
-import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
+import { garminDetailsForWorkouts, latestGarminLoadBalance, listGarminDaysForRange } from "./garminDb";
+import type { GarminLoadBalance } from "./schemas";
+import type { GarminWorkoutDetail } from "./garminDb";
 import { SETTING_KEYS } from "./types";
 import type {
   FoodEntry,
@@ -82,6 +84,8 @@ import {
   ironFor,
   liverBelowAt,
   liverSeries,
+  focusOf,
+  focusTotals,
   loadOf,
   meanLogged,
   omega3GramsFor,
@@ -92,7 +96,7 @@ import {
   sleepDebt,
   trainingLoad,
 } from "./storeModels";
-import type { Band, DailyIntake, MeterReading, ReserveDef, WorkoutBurn } from "./storeModels";
+import type { Band, DailyIntake, LoadFocus, MeterReading, ReserveDef, WorkoutBurn } from "./storeModels";
 
 /** Days of history the weekly stores are built from (vitamin D needs ~2 months). */
 const STORE_DAYS = 120;
@@ -129,6 +133,8 @@ export interface Intake {
   ketones: MeterReading[];
   /** Garmin's own training read of recent days, newest first. */
   garminDays: GarminTrainingDay[];
+  /** Garmin's own load focus, newest, with the day it's for. */
+  garminBalance: { day: string; balance: GarminLoadBalance } | null;
 }
 
 /** What Garmin itself says about a day's training (direct sync only). */
@@ -181,8 +187,9 @@ function intakeFrom(
   workouts: Workout[] = [],
   sleep: SleepSession[] = [],
   readings: BloodReading[] = [],
-  garminLoads: Map<number, number> = new Map(),
+  garmin: Map<number, { load: number | null; focus: LoadFocus | null }> = new Map(),
   garminDays: GarminTrainingDay[] = [],
+  garminBalance: Intake["garminBalance"] = null,
 ): Intake {
   const byDay = Object.fromEntries(DAILY_KEYS.map((k) => [k, new Map<string, number>()])) as Record<
     DailyKey,
@@ -200,6 +207,7 @@ function intakeFrom(
     sleepByNight: new Map(),
     ketones: [],
     garminDays,
+    garminBalance,
   };
   const take = (iso: string, day: string, title: string, n: Nutrients, creatine: boolean) => {
     out.loggedDays.add(day);
@@ -228,7 +236,8 @@ function intakeFrom(
       durationMin: w.duration_min,
       kcal: w.calories_burned,
       zone2Min: w.zone2_min,
-      garminLoad: garminLoads.get(w.id) ?? null,
+      garminLoad: garmin.get(w.id)?.load ?? null,
+      focus: garmin.get(w.id)?.focus ?? null,
       day: w.day ?? todayStr(new Date(w.performed_at)),
     });
   }
@@ -252,13 +261,19 @@ export async function loadIntake(startDay: string, endDay: string): Promise<Inta
     listSleepForRange(startDay, endDay).catch(() => []),
     listBloodReadingsForRange(shiftDay(endDay, -14), endDay).catch(() => []),
   ]);
-  const [details, days] = await Promise.all([
-    garminDetailsForWorkouts(workouts.map((w) => w.id)).catch(() => new Map()),
+  const [details, days, balance] = await Promise.all([
+    garminDetailsForWorkouts(workouts.map((w) => w.id)).catch(
+      () => new Map<number, GarminWorkoutDetail>(),
+    ),
     listGarminDaysForRange(shiftDay(endDay, -GARMIN_DAYS_BACK), endDay).catch(() => []),
+    latestGarminLoadBalance(shiftDay(endDay, -GARMIN_DAYS_BACK), endDay).catch(() => null),
   ]);
-  const loads = new Map<number, number>();
+  const garmin = new Map<number, { load: number | null; focus: LoadFocus | null }>();
   for (const [id, d] of details) {
-    if (d.trainingLoad != null && d.trainingLoad >= 0) loads.set(id, d.trainingLoad);
+    garmin.set(id, {
+      load: d.trainingLoad != null && d.trainingLoad >= 0 ? d.trainingLoad : null,
+      focus: focusOf(d),
+    });
   }
   const garminDays: GarminTrainingDay[] = days.map((d) => ({
     day: d.day,
@@ -269,7 +284,7 @@ export async function loadIntake(startDay: string, endDay: string): Promise<Inta
     readinessLevel: d.readinessLevel,
     hrvStatus: d.hrvStatus,
   }));
-  return intakeFrom(entries, logs, workouts, sleep, readings, loads, garminDays);
+  return intakeFrom(entries, logs, workouts, sleep, readings, garmin, garminDays, balance);
 }
 
 /** How far back Garmin's own training read is looked for. */
@@ -445,6 +460,20 @@ export interface HourlyLevel {
   to: number;
 }
 
+/** The last four weeks' load by kind (see focusOf in lib/storeModels.ts). */
+export interface TrainingFocus {
+  /** Garmin's own split and personal targets, or the one worked out here. */
+  from: "garmin" | "model";
+  low: number;
+  high: number;
+  anaerobic: number;
+  /** Load that couldn't be placed (workouts without Garmin's numbers). */
+  unplaced: number;
+  targets: Record<LoadFocus, { min: number; max: number } | null>;
+  /** Garmin's verdict, e.g. "AEROBIC_HIGH_SHORTAGE". */
+  feedback: string | null;
+}
+
 export interface BodySnapshot {
   at: number;
   profile: BodyProfile;
@@ -576,6 +605,7 @@ export interface BodySnapshot {
     workouts28: number;
     /** Garmin's newest read of its own, when recent. */
     garmin: GarminTrainingDay | null;
+    focus: TrainingFocus;
   };
   sleep: {
     /** Hours owed. */
@@ -822,6 +852,34 @@ function trainingOf(intake: Intake, day: string, atMs: number): BodySnapshot["tr
     garminCounted: recent.filter((w) => w.garminLoad != null).length,
     workouts28: recent.length,
     garmin,
+    focus: focusFor(intake, recent, day),
+  };
+}
+
+/**
+ * The month's load by kind: Garmin's own when it has sent one lately (it
+ * comes with personal targets), else summed here from the workouts.
+ */
+function focusFor(intake: Intake, recent: WorkoutBurn[], day: string): TrainingFocus {
+  const g = intake.garminBalance;
+  if (g && g.day <= day && g.day >= shiftDay(day, -GARMIN_FRESH_DAYS)) {
+    const b = g.balance;
+    return {
+      from: "garmin",
+      low: b.low,
+      high: b.high,
+      anaerobic: b.anaerobic,
+      unplaced: 0,
+      targets: { low: b.lowTarget, high: b.highTarget, anaerobic: b.anaerobicTarget },
+      feedback: b.feedback,
+    };
+  }
+  const t = focusTotals(recent);
+  return {
+    from: "model",
+    ...t,
+    targets: { low: null, high: null, anaerobic: null },
+    feedback: null,
   };
 }
 

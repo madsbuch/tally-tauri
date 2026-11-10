@@ -320,7 +320,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L) — " +
         "both pinned to a library blood test when there is one — beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
         "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, pinned by ketone meter readings; when the liver " +
-        "drops under 30% with no more carbs), training load (acute and chronic load — each workout counted by Garmin's training load, energy as a fallback — their ratio, and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
+        "drops under 30% with no more carbs), training load (acute and chronic load — each workout counted by Garmin's training load, energy as a fallback — their ratio, the last 4 weeks' load focus — low aerobic / high aerobic / anaerobic, with Garmin's targets when synced — and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
         "Estimates from average kinetics: say so when it matters.",
       parameters: {
         type: "object",
@@ -1320,6 +1320,22 @@ export async function executeAssistantTool(
               hrv_status: b.training.garmin.hrvStatus,
             })
           : undefined,
+        load_focus_last_4_weeks: compact({
+          from: b.training.focus.from === "garmin" ? "Garmin's own split and personal targets" : "sorted here by each workout's Training Effect label / zones",
+          low_aerobic: round(b.training.focus.low, 0),
+          high_aerobic: round(b.training.focus.high, 0),
+          anaerobic: round(b.training.focus.anaerobic, 0),
+          unplaced: round(b.training.focus.unplaced, 0) || undefined,
+          targets:
+            b.training.focus.from === "garmin"
+              ? {
+                  low_aerobic: b.training.focus.targets.low,
+                  high_aerobic: b.training.focus.targets.high,
+                  anaerobic: b.training.focus.targets.anaerobic,
+                }
+              : undefined,
+          garmin_feedback: b.training.focus.feedback,
+        }),
       }),
       sleep: compact({
         debt_h: round(b.sleep.debtH, 1),

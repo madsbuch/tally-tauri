@@ -6,7 +6,13 @@ import { dayOf, stampOf } from "./daystamp";
 import { bestSessionMatch, recordIdNames, sameNight } from "./syncMatch";
 import type { Span } from "./syncMatch";
 import type { GarminActivity, GarminLap } from "./schemas";
-import { parseStoredGarminLaps, parseStoredZoneSecs } from "./schemas";
+import {
+  parseGarminLoadBalance,
+  parseStoredGarminLaps,
+  parseStoredTrainingStatusRaw,
+  parseStoredZoneSecs,
+} from "./schemas";
+import type { GarminLoadBalance } from "./schemas";
 
 // ---------------------------------------------------------------------------
 // Storage for the Garmin Connect sync (lib/garmin.ts), and the two halves of
@@ -514,4 +520,24 @@ export async function listGarminDaysForRange(
     .where(and(gte(garminDays.day, startDay), lte(garminDays.day, endDay)))
     .orderBy(sql`${garminDays.day} DESC`);
   return rows.map(({ raw: _raw, ...rest }) => rest);
+}
+
+/**
+ * Garmin's own load focus for the newest day from `startDay` through `endDay`
+ * that has one (it only comes with the optional sign-in), with that day.
+ */
+export async function latestGarminLoadBalance(
+  startDay: string,
+  endDay: string,
+): Promise<{ day: string; balance: GarminLoadBalance } | null> {
+  const rows = await db
+    .select({ day: garminDays.day, raw: garminDays.raw })
+    .from(garminDays)
+    .where(and(gte(garminDays.day, startDay), lte(garminDays.day, endDay)))
+    .orderBy(sql`${garminDays.day} DESC`);
+  for (const r of rows) {
+    const balance = parseGarminLoadBalance(parseStoredTrainingStatusRaw(r.raw));
+    if (balance) return { day: r.day, balance };
+  }
+  return null;
 }

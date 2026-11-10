@@ -1360,6 +1360,70 @@ export function parseGarminTrainingStatus(raw: unknown) {
 }
 
 /**
+ * Garmin's own load focus, from the same training-status answer: the last
+ * four weeks' load split into low aerobic, high aerobic and anaerobic, each
+ * with the personal target range Garmin sets for it, and its one-line verdict
+ * ("AEROBIC_HIGH_SHORTAGE"). Read back from the stored answer (garmin_days
+ * raw.trainingStatus); forgiving like the rest of Garmin's output — null when
+ * it isn't there.
+ */
+export function parseGarminLoadBalance(raw: unknown) {
+  const Entry = z.looseObject({
+    primaryTrainingDevice: z.boolean().nullish().catch(null),
+    monthlyLoadAerobicLow: gNum,
+    monthlyLoadAerobicHigh: gNum,
+    monthlyLoadAnaerobic: gNum,
+    monthlyLoadAerobicLowTargetMin: gNum,
+    monthlyLoadAerobicLowTargetMax: gNum,
+    monthlyLoadAerobicHighTargetMin: gNum,
+    monthlyLoadAerobicHighTargetMax: gNum,
+    monthlyLoadAnaerobicTargetMin: gNum,
+    monthlyLoadAnaerobicTargetMax: gNum,
+    trainingBalanceFeedbackPhrase: gStr,
+  });
+  const parsed = z
+    .looseObject({
+      mostRecentTrainingLoadBalance: z
+        .looseObject({
+          metricsTrainingLoadBalanceDTOMap: z
+            .record(z.string(), Entry.nullable().catch(null))
+            .nullish()
+            .catch(null),
+        })
+        .nullish()
+        .catch(null),
+    })
+    .nullable()
+    .catch(null)
+    .parse(raw);
+  const entries = Object.values(
+    parsed?.mostRecentTrainingLoadBalance?.metricsTrainingLoadBalanceDTOMap ?? {},
+  ).filter((e) => e != null);
+  const e = entries.find((x) => x?.primaryTrainingDevice) ?? entries[0] ?? null;
+  if (!e || (e.monthlyLoadAerobicLow == null && e.monthlyLoadAerobicHigh == null && e.monthlyLoadAnaerobic == null)) {
+    return null;
+  }
+  const range = (min: number | null, max: number | null) =>
+    min != null && max != null && max >= min ? { min, max } : null;
+  return {
+    low: e.monthlyLoadAerobicLow ?? 0,
+    high: e.monthlyLoadAerobicHigh ?? 0,
+    anaerobic: e.monthlyLoadAnaerobic ?? 0,
+    lowTarget: range(e.monthlyLoadAerobicLowTargetMin, e.monthlyLoadAerobicLowTargetMax),
+    highTarget: range(e.monthlyLoadAerobicHighTargetMin, e.monthlyLoadAerobicHighTargetMax),
+    anaerobicTarget: range(e.monthlyLoadAnaerobicTargetMin, e.monthlyLoadAnaerobicTargetMax),
+    // "AEROBIC_HIGH_SHORTAGE_2" → "AEROBIC_HIGH_SHORTAGE".
+    feedback: e.trainingBalanceFeedbackPhrase?.replace(/_\d+$/, "") ?? null,
+  };
+}
+export type GarminLoadBalance = NonNullable<ReturnType<typeof parseGarminLoadBalance>>;
+
+/** The `trainingStatus` answer inside a stored garmin_days `raw` blob. */
+export function parseStoredTrainingStatusRaw(raw: unknown): unknown {
+  return z.looseObject({ trainingStatus: z.unknown() }).nullable().catch(null).parse(raw)?.trainingStatus ?? null;
+}
+
+/**
  * Weight per day, kg — /weight-service/weight/dateRange (unofficial) and
  * /weight-service/weight/range/{start}/{end} (Personal API) share the shape.
  * Garmin reports grams; a value that already looks like kg is kept.

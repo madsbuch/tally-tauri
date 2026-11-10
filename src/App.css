@@ -2626,3 +2626,80 @@ textarea.manual-editor {
   text-align: left;
   cursor: pointer;
 }
+
+/* Training load focus: low aerobic / high aerobic / anaerobic ------------- */
+
+.focus-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.focus-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.focus-verdict {
+  color: var(--text);
+  text-align: right;
+}
+
+.focus-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+
+.focus-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 34px;
+}
+
+.focus-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.focus-target {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.focus-fill {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 999px;
+}
+
+.focus-low {
+  background: var(--series-2);
+}
+
+.focus-high {
+  background: var(--series-3);
+}
+
+.focus-anaerobic {
+  background: var(--alcohol);
+}
+
+.focus-off {
+  opacity: 0.6;
+}

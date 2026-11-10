@@ -315,6 +315,8 @@ export interface WorkoutBurn {
   zone2Min: number | null;
   /** Garmin's training load for the activity, when the watch recorded it. */
   garminLoad?: number | null;
+  /** Which kind of load it was, when Garmin's numbers say (see focusOf). */
+  focus?: LoadFocus | null;
 }
 
 export interface MeterReading {
@@ -476,6 +478,77 @@ export function trainingLoad(dailyLoad: number[]): TrainingDay[] {
 export function loadOf(w: WorkoutBurn): number {
   if (w.garminLoad != null && isFinite(w.garminLoad)) return Math.max(0, w.garminLoad);
   return Math.max(0, w.kcal) / TRAINING.kcalPerLoad;
+}
+
+/**
+ * Load focus: the kind of training a workout's load was, in Garmin's three
+ * groups — low aerobic (easy, base), high aerobic (tempo to VO2 max) and
+ * anaerobic (sprints, hard intervals). A balanced month has plenty of the
+ * first, a good share of the second and some of the third.
+ */
+export type LoadFocus = "low" | "high" | "anaerobic";
+
+export const LOAD_FOCUS: { key: LoadFocus; label: string }[] = [
+  { key: "low", label: "Low aerobic" },
+  { key: "high", label: "High aerobic" },
+  { key: "anaerobic", label: "Anaerobic" },
+];
+
+/** Garmin's primary-benefit labels, by the group they train. */
+const FOCUS_BY_LABEL: Record<string, LoadFocus> = {
+  RECOVERY: "low",
+  AEROBIC_BASE: "low",
+  TEMPO: "high",
+  LACTATE_THRESHOLD: "high",
+  VO2MAX: "high",
+  ANAEROBIC_CAPACITY: "anaerobic",
+  SPRINT: "anaerobic",
+};
+
+/** Anaerobic Training Effect from which a session counts as anaerobic. */
+const ANAEROBIC_TE = 2;
+
+/**
+ * Which group a workout's load goes in, from what Garmin said about it: its
+ * primary-benefit label first (that's what Garmin itself goes by), then the
+ * anaerobic Training Effect, then time in heart-rate zones (mostly zone 3 and
+ * up is high aerobic), then the aerobic Training Effect. Null when there's
+ * nothing to go on — a workout logged by hand.
+ */
+export function focusOf(g: {
+  teLabel: string | null;
+  aerobicTe: number | null;
+  anaerobicTe: number | null;
+  zoneSecs: number[] | null;
+}): LoadFocus | null {
+  const label = g.teLabel?.toUpperCase().replace(/_\d+$/, "");
+  if (label) {
+    const known = FOCUS_BY_LABEL[label];
+    if (known) return known;
+    if (label.startsWith("ANAEROBIC")) return "anaerobic";
+  }
+  if (g.anaerobicTe != null && g.anaerobicTe >= ANAEROBIC_TE) return "anaerobic";
+  const zones = g.zoneSecs ?? [];
+  const total = zones.reduce((a, b) => a + Math.max(0, b), 0);
+  if (total > 0) {
+    const hard = zones.slice(2).reduce((a, b) => a + Math.max(0, b), 0);
+    return hard / total >= 0.5 ? "high" : "low";
+  }
+  if (g.aerobicTe != null) return g.aerobicTe >= 3 ? "high" : "low";
+  return null;
+}
+
+/** Each group's load over the workouts given, plus what couldn't be placed. */
+export function focusTotals(
+  workouts: WorkoutBurn[],
+): Record<LoadFocus, number> & { unplaced: number } {
+  const out = { low: 0, high: 0, anaerobic: 0, unplaced: 0 };
+  for (const w of workouts) {
+    const l = loadOf(w);
+    if (w.focus) out[w.focus] += l;
+    else out.unplaced += l;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

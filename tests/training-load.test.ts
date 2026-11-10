@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sqlite } from "./testDb";
-import { TRAINING, loadOf } from "../src/lib/storeModels";
+import { TRAINING, focusOf, loadOf } from "../src/lib/storeModels";
+import { parseGarminLoadBalance, parseStoredTrainingStatusRaw } from "../src/lib/schemas";
 
 beforeAll(() => {
   sqlite.exec("DELETE FROM garmin_activities; DELETE FROM garmin_days; DELETE FROM workouts;");
@@ -61,5 +62,63 @@ describe("training load", () => {
     t = body.snapshotOf(intake, profile, new Date("2026-11-17T18:00:00.000Z").getTime()).training;
     expect(t.ratioFrom).toBe("model");
     expect(t.garmin).toBeNull();
+  });
+});
+
+describe("load focus", () => {
+  const g = (o: Partial<Parameters<typeof focusOf>[0]>) => ({
+    teLabel: null,
+    aerobicTe: null,
+    anaerobicTe: null,
+    zoneSecs: null,
+    ...o,
+  });
+
+  test("Garmin's label decides first", () => {
+    expect(focusOf(g({ teLabel: "AEROBIC_BASE", anaerobicTe: 3 }))).toBe("low");
+    expect(focusOf(g({ teLabel: "VO2MAX" }))).toBe("high");
+    expect(focusOf(g({ teLabel: "ANAEROBIC_CAPACITY" }))).toBe("anaerobic");
+  });
+
+  test("then anaerobic effect, zones, aerobic effect", () => {
+    expect(focusOf(g({ anaerobicTe: 2.4, aerobicTe: 3.5 }))).toBe("anaerobic");
+    expect(focusOf(g({ zoneSecs: [600, 1800, 300, 100, 0] }))).toBe("low");
+    expect(focusOf(g({ zoneSecs: [60, 300, 1200, 900, 60] }))).toBe("high");
+    expect(focusOf(g({ aerobicTe: 3.2 }))).toBe("high");
+    expect(focusOf(g({}))).toBeNull();
+  });
+
+  test("Garmin's own split is read from its stored answer", async () => {
+    const stored = {
+      readiness: [],
+      trainingStatus: {
+        mostRecentTrainingLoadBalance: {
+          metricsTrainingLoadBalanceDTOMap: {
+            "1": { primaryTrainingDevice: false, monthlyLoadAerobicLow: 1 },
+            "2": {
+              primaryTrainingDevice: true,
+              monthlyLoadAerobicLow: 610.4,
+              monthlyLoadAerobicHigh: 220,
+              monthlyLoadAnaerobic: 15,
+              monthlyLoadAerobicLowTargetMin: 400,
+              monthlyLoadAerobicLowTargetMax: 800,
+              monthlyLoadAerobicHighTargetMin: 300,
+              monthlyLoadAerobicHighTargetMax: "junk",
+              trainingBalanceFeedbackPhrase: "AEROBIC_HIGH_SHORTAGE_2",
+            },
+          },
+        },
+      },
+    };
+    const b = parseGarminLoadBalance(parseStoredTrainingStatusRaw(stored));
+    expect(b).toMatchObject({
+      low: 610.4,
+      high: 220,
+      anaerobic: 15,
+      lowTarget: { min: 400, max: 800 },
+      highTarget: null,
+      feedback: "AEROBIC_HIGH_SHORTAGE",
+    });
+    expect(parseGarminLoadBalance(parseStoredTrainingStatusRaw({ readiness: [] }))).toBeNull();
   });
 });

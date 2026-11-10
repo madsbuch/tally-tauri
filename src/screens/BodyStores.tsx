@@ -20,6 +20,7 @@ import {
   SLEEP,
   SLEEP_BANDS,
   TRAINING,
+  LOAD_FOCUS,
 } from "../lib/storeModels";
 import { formatAmount } from "../lib/nutrients";
 import { useGo } from "../lib/navigation";
@@ -458,6 +459,81 @@ export function TrainingCard({ snap }: { snap: Snap }) {
           { values: t.fatigueSeries, color: "var(--warn)", label: "acute", dashed: true },
         ]}
       />
+      <LoadFocusBars focus={t.focus} />
+    </div>
+  );
+}
+
+/**
+ * Garmin's load-focus verdict in plain words: "AEROBIC_HIGH_SHORTAGE" →
+ * "Short on high aerobic", "ANAEROBIC_FOCUS" → "Focused on anaerobic".
+ */
+function focusVerdict(phrase: string): string {
+  const kind = phrase.startsWith("AEROBIC_HIGH")
+    ? "high aerobic"
+    : phrase.startsWith("AEROBIC_LOW")
+      ? "low aerobic"
+      : phrase.startsWith("ANAEROBIC")
+        ? "anaerobic"
+        : null;
+  if (kind && phrase.endsWith("SHORTAGE")) return `Short on ${kind}`;
+  if (kind && phrase.endsWith("FOCUS")) return `Focused on ${kind}`;
+  return garminWord(phrase);
+}
+
+/**
+ * The month's load by kind, one bar each. With Garmin's own split the target
+ * range it set for each is shaded behind the bar; without, the bars show
+ * each kind's share.
+ */
+function LoadFocusBars({ focus: f }: { focus: BodySnapshot["training"]["focus"] }) {
+  const total = f.low + f.high + f.anaerobic;
+  if (total <= 0) return null;
+  const scale =
+    Math.max(
+      ...LOAD_FOCUS.map(({ key }) => Math.max(f[key], f.targets[key]?.max ?? 0)),
+    ) * 1.1 || 1;
+  const pct = (v: number) => `${Math.min(100, (v / scale) * 100)}%`;
+  return (
+    <div className="focus-block">
+      <div className="focus-head">
+        <span>Load focus · last 4 weeks{f.from === "garmin" ? " (Garmin)" : ""}</span>
+        {f.feedback && <span className="focus-verdict">{focusVerdict(f.feedback)}</span>}
+      </div>
+      {LOAD_FOCUS.map(({ key, label }) => {
+        const v = f[key];
+        const target = f.targets[key];
+        const under = target != null && v < target.min;
+        const over = target != null && v > target.max;
+        return (
+          <div key={key} className="focus-row">
+            <span className="focus-label">{label}</span>
+            <span className="focus-track">
+              {target && (
+                <span
+                  className="focus-target"
+                  style={{ left: pct(target.min), width: `calc(${pct(target.max)} - ${pct(target.min)})` }}
+                />
+              )}
+              <span
+                className={`focus-fill focus-${key}${under || over ? " focus-off" : ""}`}
+                style={{ width: pct(v) }}
+              />
+            </span>
+            <span className="focus-value">
+              {Math.round(v)}
+              {target ? "" : <span className="faint"> · {Math.round((v / total) * 100)}%</span>}
+            </span>
+          </div>
+        );
+      })}
+      <div className="faint small" style={{ marginTop: 4 }}>
+        {f.targets.low || f.targets.high || f.targets.anaerobic
+          ? "Shaded: the range Garmin aims you at for each."
+          : "Sorted by what Garmin said each workout trained."}
+        {f.unplaced > 0 &&
+          ` ${Math.round(f.unplaced)} load from workouts without Garmin's detail isn't placed.`}
+      </div>
     </div>
   );
 }
