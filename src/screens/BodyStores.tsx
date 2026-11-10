@@ -13,6 +13,7 @@ import {
   FERRITIN,
   FERRITIN_BANDS,
   GLYCOGEN,
+  KETONES,
   LIVER_KETOSIS,
   OMEGA3,
   OMEGA3_BANDS,
@@ -314,39 +315,14 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
   const g = snap.glycogen;
   const now = snap.at;
   const pct = Math.round(LIVER_KETOSIS * 100);
-  const expected = `${g.ketone.toFixed(1)} mmol/L`;
+  // One line on the card; the rest is behind the ⓘ.
   let caption: string;
   if (!g.hasData) caption = "No carbs or workouts logged in the last few days.";
-  else if (g.ketosisAt != null && g.ketosisAt <= now)
-    caption = `Liver under ${pct}% — the body is leaning on fat, and a ketone strip should read around ${expected}.`;
-  else if (g.ketosisAt != null)
-    caption = `With no more carbs, the liver drops under ${pct}% (ketones rising) around ${clockDay(g.ketosisAt, now)}.`;
+  else if (g.ketosisAt != null && g.ketosisAt <= now) caption = `Liver low — running on fat, ketones around ${g.ketone.toFixed(1)}.`;
+  else if (g.ketosisAt != null) caption = `Under ${pct}% around ${clockDay(g.ketosisAt, now)} if you eat no more carbs.`;
   else caption = "Plenty in the liver for the next day.";
 
-  // The newest ketone strip on the chart, and what it did to the estimate.
-  const check = [...g.checks].reverse().find((c) => c.reading.ketone != null);
-  const k = g.lastKetone;
-  let readingNote = "";
-  if (check && check.reading.ketone != null) {
-    const r = check.reading;
-    const read = `${r.ketone!.toFixed(1)} mmol/L at ${clockDay(r.at, now)}`;
-    const was = `the model expected ${check.predictedKetone.toFixed(1)}`;
-    const before = Math.round(check.liverBefore * 100);
-    const after = Math.round(check.liverAfter * 100);
-    readingNote =
-      Math.abs(after - before) < 2
-        ? ` Your ketone reading of ${read} left the liver where it was (${was}).`
-        : ` Your ketone reading of ${read} (${was}) moved the liver from ${before}% to ${after}%.`;
-  } else if (k) {
-    readingNote = ` Last ketone reading: ${k.value.toFixed(1)} mmol/L at ${clockDay(k.at, now)}.`;
-  }
-  const words = g.fit ? drainWords(g.fit.drain) : null;
-  const fitNote = !g.fit
-    ? ""
-    : words
-      ? ` Going by ${g.fit.used} of your readings, your liver empties ${words} the textbook's.`
-      : ` Your last ${g.fit.used} readings fit the textbook's pace.`;
-
+  const hasReadings = g.checks.some((c) => c.reading.ketone != null);
   const ketonePeak = Math.max(
     3,
     ...g.ketoneCurve.map((p) => p.amount),
@@ -358,60 +334,9 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
         title="🍞 Glycogen"
         value={Math.round(g.liver * 100)}
         unit="% liver"
-        info={
-          <>
-            <p>
-              Carbohydrate stored as glycogen: about {GLYCOGEN.liverCapG} g in the
-              liver, which keeps your blood sugar up between meals, and about{" "}
-              {GLYCOGEN.musclePerKg} g per kg of body weight in muscle, which only
-              that muscle can use.
-            </p>
-            <p>
-              Net carbs you log refill it; your brain draws on the liver between
-              meals (an overnight fast leaves it about half full, a day-long one
-              nearly empty), and workouts burn mostly muscle glycogen — more at
-              high intensity than in zone 2. Under {pct}% liver, the body leans on
-              fat and ketones climb: that&apos;s the dotted line on the chart.
-            </p>
-            <p>
-              The thin line is the ketone level that liver predicts, and the
-              rings are what your meter showed. A reading corrects the estimate:
-              raised ketones pull the liver down, low ones lift it. A glucose
-              strip taken alongside says how far to trust it — raised ketones
-              with low glucose is fasting and counts in full; with high glucose
-              it&apos;s more likely a meal, MCT oil or a workout, and counts for
-              less. Glucose alone only matters when it reads low.
-            </p>
-            <p>
-              Your readings also teach it. With {DRAIN_FIT_MIN_READINGS} or more
-              ketone readings in the last two months — on days the diary or a
-              fast accounts for — the model works out how fast your own liver
-              empties, and uses that from then on. Readings during a fast say the
-              most; an ordinary morning now and then keeps the baseline honest.
-            </p>
-            <p>
-              Muscle moves two ways only. A workout takes carbohydrate out of
-              it — about {Math.round(GLYCOGEN.carbShareZone2 * 100)}% of the
-              energy in zone 2, {Math.round(GLYCOGEN.carbShareHard * 100)}% when
-              it&apos;s hard, more for sprints — and carbs beyond what the brain
-              and liver take put it back, faster the emptier it is: about a day
-              of carb-heavy eating after a hard session, two of eating normally.
-              Rest and fasting leave it alone, since muscle can&apos;t hand its
-              glycogen back to the blood. Nothing you can measure at home checks
-              this one, so read it as full, ready, drawn down or low rather than
-              to the percent. A workout on a day with nothing else logged
-              isn&apos;t counted, because the meals that refilled it aren&apos;t
-              there either.
-            </p>
-            <p>🍞 marks carbs. The curve ahead assumes you eat nothing more.</p>
-          </>
-        }
+        info={<GlycogenInfo snap={snap} />}
       />
-      <div className="muted small level-caption">
-        {caption}
-        {readingNote}
-        {fitNote}
-      </div>
+      <div className="muted small level-caption">{caption}</div>
       <LevelCurve
         level={g.curve}
         now={now}
@@ -438,16 +363,16 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
       <div className="level-legend">
         <span>
           <i style={{ ["--key" as string]: "var(--vitd)" }} />
-          liver %
+          liver
         </span>
         <span>
           <i style={{ ["--key" as string]: "var(--series-2)" }} />
-          ketones expected, now {expected}
+          ketones, expected
         </span>
-        {g.checks.some((c) => c.reading.ketone != null) && (
+        {hasReadings && (
           <span>
             <i className="dot" style={{ ["--key" as string]: "var(--series-2)" }} />
-            your readings
+            measured
           </span>
         )}
       </div>
@@ -460,27 +385,128 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
 const HARD_HOUR_KCAL = 600;
 
 /**
- * Muscle glycogen under the liver's chart: how full, in grams too, the last
- * few days of it, and what moved it — the workouts that took from it and the
- * carbs that put it back.
+ * Behind the glycogen card's ⓘ: first what the model says about today, in
+ * its own numbers — what the last reading did, the fitted drain rate, what
+ * went in and out of muscle — then how it works.
  */
-function MuscleSection({ snap }: { snap: Snap }) {
+function GlycogenInfo({ snap }: { snap: Snap }) {
   const g = snap.glycogen;
-  const days = Math.round((snap.at - g.muscleSinceMs) / DAY_MS);
-  const burned = Math.round(g.muscleBurnedG);
-  const refilled = Math.round(g.muscleRefilledG);
+  const now = snap.at;
+  const pct = Math.round(LIVER_KETOSIS * 100);
+
+  // The newest ketone strip on the chart, and what it did to the estimate.
+  const check = [...g.checks].reverse().find((c) => c.reading.ketone != null);
+  const k = g.lastKetone;
+  let reading: string;
+  if (check && check.reading.ketone != null) {
+    const r = check.reading;
+    const before = Math.round(check.liverBefore * 100);
+    const after = Math.round(check.liverAfter * 100);
+    reading =
+      `Your ketone reading of ${r.ketone!.toFixed(1)} mmol/L at ${clockDay(r.at, now)}` +
+      (r.glucose != null ? ` (glucose ${r.glucose.toFixed(1)})` : "") +
+      `: the model expected ${check.predictedKetone.toFixed(1)}, ` +
+      (Math.abs(after - before) < 2
+        ? "so it left the liver where it was."
+        : `so it moved the liver from ${before}% to ${after}%.`);
+  } else if (k) {
+    reading = `Your last ketone reading was ${k.value.toFixed(1)} mmol/L at ${clockDay(k.at, now)}.`;
+  } else {
+    reading = "No ketone reading in the last two days, so this is the model on its own.";
+  }
+  const words = g.fit ? drainWords(g.fit.drain) : null;
+  const fit = !g.fit
+    ? `Not enough ketone readings yet to fit your own liver — it takes ${DRAIN_FIT_MIN_READINGS} in two months — so it empties at the textbook's pace.`
+    : words
+      ? `Going by ${g.fit.used} of your readings, your liver empties ${words} the textbook's.`
+      : `Your last ${g.fit.used} readings fit the textbook's pace.`;
+
+  const days = Math.round((now - g.muscleSinceMs) / DAY_MS);
   const n = g.muscleWorkouts.length;
+  const refilled = Math.round(g.muscleRefilledG);
   const short = Math.max(0, Math.round(g.muscleCapG - g.muscleG));
   const hardHourG = ((HARD_HOUR_KCAL * GLYCOGEN.carbShareHard) / 4) * (1 - GLYCOGEN.workoutFromLiver);
   const afterHard = Math.max(0, Math.round(((g.muscleG - hardHourG) / g.muscleCapG) * 100));
-  const ledger =
-    n === 0 && refilled < 1
-      ? `Nothing moved it in the last ${days} days: no workouts, and it only refills from carbs beyond what the brain and liver take.`
-      : `Last ${days} days: ${n === 0 ? "no workouts" : `${n} workout${n === 1 ? "" : "s"} took about ${burned} g`}, carbs put back about ${refilled} g.`;
-  const ahead =
-    short < 10
-      ? "Full — more carbs go to the liver, then to fat."
-      : `About ${short} g short of full. A hard hour would take about ${Math.round(hardHourG)} g, down to ${afterHard}%.`;
+  return (
+    <>
+      <h3>Right now</h3>
+      <p>
+        <strong>Liver {Math.round(g.liver * 100)}%</strong> — about {Math.round(g.liver * GLYCOGEN.liverCapG)} of{" "}
+        {GLYCOGEN.liverCapG} g. A ketone strip should read around{" "}
+        <strong>{g.ketone.toFixed(1)} mmol/L</strong>.{" "}
+        {g.ketosisAt == null
+          ? `It stays over ${pct}% for the next day.`
+          : g.ketosisAt <= now
+            ? `It's under ${pct}%, so the body is leaning on fat.`
+            : `With no more carbs it drops under ${pct}% around ${clockDay(g.ketosisAt, now)}.`}
+      </p>
+      <p>{reading}</p>
+      <p>{fit}</p>
+      <p>
+        <strong>Muscle {Math.round(g.muscle * 100)}%</strong> — about {Math.round(g.muscleG)} of{" "}
+        {Math.round(g.muscleCapG)} g. Over the last {days} days{" "}
+        {n === 0
+          ? "no workouts took from it"
+          : `${n} workout${n === 1 ? "" : "s"} took about ${Math.round(g.muscleBurnedG)} g`}{" "}
+        and carbs put back about {refilled} g.{" "}
+        {short < 10
+          ? "It's full: more carbs go to the liver, then to fat."
+          : `It's about ${short} g short of full; a hard hour would take about ${Math.round(hardHourG)} g more, down to ${afterHard}%.`}
+      </p>
+
+      <h3>The liver</h3>
+      <p>
+        About {GLYCOGEN.liverCapG} g of carbohydrate, which keeps your blood sugar up between meals. Net carbs you
+        log refill it; your brain draws on it at about {GLYCOGEN.demandGPerH} g an hour, less as it empties — an
+        overnight fast leaves it about half full, a day-long one nearly empty. Under {pct}% the body leans on fat and
+        ketones climb: that&apos;s the dotted line on the chart.
+      </p>
+
+      <h3>Your meter</h3>
+      <p>
+        The thin line is the ketone level the liver predicts — about {KETONES.baseMmol} mmol/L when it&apos;s
+        stocked, climbing through a fast — and the rings are what your meter showed. A reading corrects the
+        estimate: raised ketones pull the liver down, low ones lift it.
+      </p>
+      <p>
+        A glucose strip taken alongside says how far to trust it. Raised ketones with low glucose is fasting and
+        counts in full; with high glucose, or just after a workout, it&apos;s more likely something else and counts
+        for less. Glucose alone only matters when it reads low.
+      </p>
+      <p>
+        Your readings also teach it. With {DRAIN_FIT_MIN_READINGS} or more ketone readings in the last two months —
+        on days the diary or a fast accounts for — the model works out how fast your own liver empties and uses that
+        from then on. Readings during a fast say the most; an ordinary morning now and then keeps the baseline
+        honest.
+      </p>
+
+      <h3>Muscle</h3>
+      <p>
+        About {GLYCOGEN.musclePerKg} g per kg of body weight, which only the muscle itself can use. It moves two
+        ways. A workout takes carbohydrate out of it — about {Math.round(GLYCOGEN.carbShareZone2 * 100)}% of the
+        energy in zone 2, {Math.round(GLYCOGEN.carbShareHard * 100)}% when it&apos;s hard, more for sprints. Carbs
+        beyond what the brain and liver take put it back, faster the emptier it is: about a day of carb-heavy eating
+        after a hard session, two of eating normally. Rest and fasting leave it alone.
+      </p>
+      <p>
+        Nothing you can measure at home checks this one, so read it as full, ready, drawn down or low rather than to
+        the percent. A workout on a day with nothing else logged isn&apos;t counted, because the meals that refilled
+        it aren&apos;t there either.
+      </p>
+
+      <h3>On the chart</h3>
+      <p>
+        🍞 marks carbs, 🏃 workouts. The liver curve ahead assumes you eat nothing more. The muscle line covers the
+        last {days} days.
+      </p>
+    </>
+  );
+}
+
+/** Muscle glycogen under the liver's chart: how full, and the last few days of it. */
+function MuscleSection({ snap }: { snap: Snap }) {
+  const g = snap.glycogen;
+  const days = Math.round((snap.at - g.muscleSinceMs) / DAY_MS);
   const values = g.muscleSeries;
   return (
     <div className="muscle-section" style={{ ["--level" as string]: TONE_COLOR[g.muscleBand.tone] }}>
@@ -489,7 +515,7 @@ function MuscleSection({ snap }: { snap: Snap }) {
         <span className="muscle-band">{g.muscleBand.label}</span>
         <span className="muscle-value">
           {Math.round(g.muscle * 100)}%
-          <span className="muted"> · {Math.round(g.muscleG)} of {Math.round(g.muscleCapG)} g</span>
+          <span className="muted"> · {Math.round(g.muscleG)} g</span>
         </span>
       </div>
       <div className="tank">
@@ -522,9 +548,6 @@ function MuscleSection({ snap }: { snap: Snap }) {
           </div>
         </>
       )}
-      <div className="muted small muscle-note">
-        {ledger} {ahead}
-      </div>
     </div>
   );
 }

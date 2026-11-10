@@ -869,6 +869,19 @@ textarea.state-note {
   color: var(--muted);
 }
 
+.info-body h3 {
+  margin: 18px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.info-body h3:first-child {
+  margin-top: 0;
+}
+
 .info-body p:last-child {
   margin-bottom: 0;
 }
@@ -1085,7 +1098,18 @@ textarea.entry-chat-input {
 
 /* Bottom sheet / modal ---------------------------------------------------- */
 
+/*
+ * While a sheet is up, the page behind it doesn't scroll: a swipe that runs
+ * past the end of a long sheet, or lands on the dimmed part, used to move the
+ * page underneath instead.
+ */
+body:has(.sheet-backdrop) .app-main {
+  overflow: hidden;
+}
+
 .sheet-backdrop {
+  overscroll-behavior: contain;
+  touch-action: none;
   position: fixed;
   inset: 0;
   background: var(--backdrop);
@@ -1103,6 +1127,7 @@ textarea.entry-chat-input {
   width: 100%;
   max-height: 88dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 16px calc(20px + var(--safe-bottom));
   animation: sheet-up 0.2s ease;
 }
@@ -2246,10 +2271,6 @@ button.rule-row {
   transform: translateX(-50%);
   font-size: 11px;
   line-height: 14px;
-}
-
-.muscle-note {
-  margin-top: 6px;
 }
 
 .reserve-rows {
