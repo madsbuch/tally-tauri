@@ -72,6 +72,7 @@ import {
   BETA_ALANINE,
   FERRITIN_BANDS,
   LIVER_KETOSIS,
+  MUSCLE_BANDS,
   OMEGA3_BANDS,
   OMEGA3_TARGET,
   RESERVES,
@@ -93,6 +94,7 @@ import {
   focusTotals,
   loadOf,
   meanLogged,
+  muscleCostG,
   omega3GramsFor,
   omega3Index,
   omega3Steady,
@@ -638,6 +640,18 @@ export interface BodySnapshot {
     /** 0..1 of a full liver / muscle store. */
     liver: number;
     muscle: number;
+    /** What's in the muscle and what a full store holds, g. */
+    muscleG: number;
+    muscleCapG: number;
+    muscleBand: Band;
+    /** Muscle, 0..1, over the days in `muscleSinceMs`..now, every 15 minutes. */
+    muscleSeries: number[];
+    /** What workouts took out of muscle and carbs put back since `muscleSinceMs`, g. */
+    muscleBurnedG: number;
+    muscleRefilledG: number;
+    muscleSinceMs: number;
+    /** Workouts in that stretch, with the grams each took. */
+    muscleWorkouts: { at: number; grams: number }[];
     /** Liver %, curve from `from` to `to` with the carbs eaten in it as doses. */
     curve: HourlyLevel;
     /** When the liver drops under LIVER_KETOSIS with no more carbs; `at` when it is. */
@@ -857,8 +871,14 @@ function betaAlanineOf(intake: Intake, day: string): BodySnapshot["betaAlanine"]
 /** Glycogen's chart: a day back, a day ahead. */
 const GLYCOGEN_BACK_H = 24;
 const GLYCOGEN_AHEAD_H = 24;
-/** History the glycogen simulation warms up on before the chart opens. */
-const GLYCOGEN_WARMUP_H = 72;
+/**
+ * History the glycogen simulation warms up on before the chart opens. Muscle
+ * takes days to refill, so it needs a week for its assumed starting level to
+ * stop mattering.
+ */
+const GLYCOGEN_WARMUP_H = 7 * 24;
+/** Muscle's own history, and the stretch its ins and outs are added up over. */
+const MUSCLE_SHOWN_DAYS = 4;
 
 /** How far back ketone readings are fitted against. */
 const DRAIN_FIT_DAYS = 60;
@@ -911,25 +931,45 @@ function glycogenOf(intake: Intake, profile: BodyProfile, atMs: number): BodySna
   const to = atMs + GLYCOGEN_AHEAD_H * HOUR_MS;
   const warm = from - GLYCOGEN_WARMUP_H * HOUR_MS;
   const carbs = intake.carbs.filter((d) => d.at >= warm && d.at <= atMs);
-  const workouts = intake.workouts.filter((w) => w.at >= warm && w.at <= atMs);
+  // A synced workout on a day with nothing logged (and no fast running) would
+  // drain muscle that the unlogged meals refilled; leave those days out, so
+  // the level holds across them instead.
+  const workouts = intake.workouts.filter(
+    (w) => w.at >= warm && w.at <= atMs && (intake.loggedDays.has(w.day) || intake.fastedDays.has(w.day)),
+  );
   const readings = intake.readings.filter((r) => r.at >= warm && r.at <= atMs);
   const fit = drainFitOf(intake, profile.weightKg, atMs);
-  const { points, checks } = simulateGlycogen({
+  const muscleSince = atMs - MUSCLE_SHOWN_DAYS * DAY_MS;
+  // The chart's window is the last day; muscle's story is the last few.
+  const run = simulateGlycogen({
     carbs,
     workouts,
     readings,
-    fromMs: from,
+    fromMs: muscleSince,
+    ledgerFromMs: muscleSince,
     toMs: to,
     warmupFromMs: warm,
     weightKg: profile.weightKg,
     drain: fit?.drain ?? 1,
   });
+  const points = run.points.filter((p) => p.t >= from);
+  const checks = run.checks.filter((c) => c.reading.at >= from);
   const nowPoint = points.filter((p) => p.t <= atMs).pop();
   const last = readings.filter((r) => r.ketone != null && r.at >= atMs - 48 * HOUR_MS).pop();
   const series = liverSeries(points);
   return {
     liver: nowPoint?.liver ?? 0,
     muscle: nowPoint?.muscle ?? 0,
+    muscleG: (nowPoint?.muscle ?? 0) * run.muscleCapG,
+    muscleCapG: run.muscleCapG,
+    muscleBand: bandOf(MUSCLE_BANDS, nowPoint?.muscle ?? 0),
+    muscleSeries: run.points.filter((p) => p.t <= atMs).map((p) => p.muscle),
+    muscleBurnedG: run.muscleBurnedG,
+    muscleRefilledG: run.muscleRefilledG,
+    muscleSinceMs: muscleSince,
+    muscleWorkouts: workouts
+      .filter((w) => w.at >= muscleSince)
+      .map((w) => ({ at: w.at, grams: muscleCostG(w) })),
     curve: {
       now: (nowPoint?.liver ?? 0) * 100,
       series,

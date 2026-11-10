@@ -3,6 +3,7 @@ import {
   DRAIN_FIT_MIN_READINGS,
   fitDrain,
   liverEvidence,
+  muscleCostG,
   simulateGlycogen,
 } from "../src/lib/storeModels";
 import type { FuelReading, GlycogenPoint } from "../src/lib/storeModels";
@@ -157,5 +158,47 @@ describe("fitDrain", () => {
   test("stays at the textbook when the readings agree with it", () => {
     const { input, readings } = history(1);
     expect(fitDrain(input, readings)).toEqual({ drain: 1, used: readings.length });
+  });
+});
+
+describe("muscle", () => {
+  const base = { readings: [], fromMs: T0, warmupFromMs: T0, weightKg: 75 };
+  const workout = { at: T0 + 2 * H, durationMin: 90, kcal: 1200, zone2Min: 0 };
+
+  test("only a workout takes from it: a fast leaves it alone", () => {
+    const { points, lastMeal } = fast(48);
+    expect(points[points.length - 1]!.muscle).toBeCloseTo(at(points, lastMeal + 8 * H).muscle, 5);
+  });
+
+  test("the ledger adds up what a workout took and carbs put back", () => {
+    const run = simulateGlycogen({ ...base, carbs: meals(2), workouts: [workout], toMs: T0 + 2 * 24 * H });
+    expect(run.muscleBurnedG).toBeCloseTo(muscleCostG(workout), 0);
+    expect(run.muscleRefilledG).toBeGreaterThan(50);
+    const end = run.points[run.points.length - 1]!;
+    expect(end.muscle * run.muscleCapG).toBeCloseTo(0.8 * run.muscleCapG - run.muscleBurnedG + run.muscleRefilledG, 0);
+  });
+
+  test("refills faster the emptier it is", () => {
+    const refilled = (sessions: number) => {
+      const workouts = Array.from({ length: sessions }, (_, i) => ({ ...workout, at: T0 + 2 * H + i * 2 * H }));
+      const start = T0 + 12 * H;
+      // One huge carb meal, so the rate and not the supply is the limit.
+      const run = simulateGlycogen({
+        ...base,
+        carbs: [{ at: start, amount: 600 }],
+        workouts,
+        toMs: start + 6 * H,
+        ledgerFromMs: start,
+      });
+      return run.muscleRefilledG;
+    };
+    expect(refilled(3)).toBeGreaterThan(refilled(1) * 1.2);
+  });
+
+  test("an easy session costs less than a hard one of the same energy", () => {
+    const w = { at: 0, durationMin: 60, kcal: 600, zone2Min: null };
+    expect(muscleCostG({ ...w, focus: "low" })).toBeLessThan(muscleCostG({ ...w, focus: "high" }));
+    expect(muscleCostG({ ...w, focus: "anaerobic" })).toBeGreaterThan(muscleCostG({ ...w, focus: "high" }));
+    expect(muscleCostG({ ...w, focus: null })).toBe(muscleCostG({ ...w, focus: "high" }));
   });
 });

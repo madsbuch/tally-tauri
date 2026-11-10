@@ -285,6 +285,13 @@ export function reserveSeries(def: ReserveDef, days: DailyIntake): number[] {
  * fast leaves it about half full and a day-long one nearly empty. Workouts
  * burn carbohydrate (more at high intensity than in zone 2), mostly out of
  * the muscle. Under ~30% liver the body leans on fat and ketones climb.
+ *
+ * Muscle only moves two ways: a workout takes carbohydrate out of it, and a
+ * carb surplus puts it back — faster the emptier it is (a drained muscle
+ * pulls glucose in on its own for a few hours, and stays more sensitive to
+ * insulin for a day), so a hard session is made good in about a day of
+ * eating plenty of carbs and two of eating normally. Rest and fasting leave it
+ * alone: muscle can't hand its glycogen back to the blood.
  */
 export const GLYCOGEN = {
   liverCapG: 100,
@@ -292,13 +299,17 @@ export const GLYCOGEN = {
   absorbHalfLifeH: 0.75,
   /** What the brain and blood draw, g/h. */
   demandGPerH: 5,
-  /** Fastest muscle can refill, g/h. */
-  muscleMaxGPerH: 10,
+  /** Fastest muscle can refill, g/h: when it's full, and the extra when empty. */
+  muscleMaxGPerH: 8,
+  muscleMaxExtraGPerH: 16,
   /** Share of a surplus the liver takes first. */
   liverShare: 0.35,
   /** Share of workout energy from carbohydrate, by intensity. */
   carbShareHard: 0.65,
   carbShareZone2: 0.3,
+  /** For a whole session Garmin called low aerobic / anaerobic, with no zone minutes. */
+  carbShareLow: 0.35,
+  carbShareAnaerobic: 0.8,
   /** Share of workout carbohydrate that comes out of the blood (liver). */
   workoutFromLiver: 0.2,
   /** Workouts with no duration are taken as this long, min. */
@@ -379,6 +390,30 @@ export interface ReadingCheck {
   liverAfter: number;
 }
 
+/** How a muscle store reads, by how full it is. */
+export const MUSCLE_BANDS: readonly Band[] = [
+  { upTo: 0.3, key: "low", label: "Low — hard efforts will fade early", tone: "bad" },
+  { upTo: 0.5, key: "drawn", label: "Drawn down", tone: "warn" },
+  { upTo: 0.8, key: "ready", label: "Ready for a normal session", tone: "ok" },
+  { upTo: Infinity, key: "full", label: "Topped up", tone: "good" },
+];
+
+/** Share of a workout's energy that comes from carbohydrate. */
+export function carbShareOf(w: WorkoutBurn, min: number): number {
+  const g = GLYCOGEN;
+  if (w.zone2Min == null && w.focus === "low") return g.carbShareLow;
+  if (w.zone2Min == null && w.focus === "anaerobic") return g.carbShareAnaerobic;
+  const z2 = Math.min(min, Math.max(0, w.zone2Min ?? 0));
+  const hard = w.focus === "anaerobic" ? g.carbShareAnaerobic : g.carbShareHard;
+  return (z2 * g.carbShareZone2 + (min - z2) * hard) / min;
+}
+
+/** Grams of carbohydrate a workout takes out of muscle (the rest is the liver's). */
+export function muscleCostG(w: WorkoutBurn): number {
+  const min = w.durationMin && w.durationMin > 0 ? w.durationMin : GLYCOGEN.defaultWorkoutMin;
+  return ((Math.max(0, w.kcal) * carbShareOf(w, min)) / 4) * (1 - GLYCOGEN.workoutFromLiver);
+}
+
 /** Linear interpolation through `pts` (x ascending), flat beyond the ends. */
 function interp(pts: readonly (readonly [number, number])[], x: number): number {
   const first = pts[0]!;
@@ -455,12 +490,19 @@ export interface GlycogenInput {
   drain?: number;
   /** False runs it blind to the readings: what the model alone would say. */
   pin?: boolean;
+  /** From when to add up what went in and out of muscle (default: `fromMs`). */
+  ledgerFromMs?: number;
 }
 
 export interface GlycogenRun {
   points: GlycogenPoint[];
   /** Each reading inside the window, with what the model expected. */
   checks: ReadingCheck[];
+  /** Grams workouts took out of muscle and carbs put back, since `ledgerFromMs`. */
+  muscleBurnedG: number;
+  muscleRefilledG: number;
+  /** A full muscle store, g. */
+  muscleCapG: number;
 }
 
 /**
@@ -487,9 +529,7 @@ export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
   const burns = input.workouts
     .map((w) => {
       const min = w.durationMin && w.durationMin > 0 ? w.durationMin : g.defaultWorkoutMin;
-      const z2 = Math.min(min, Math.max(0, w.zone2Min ?? 0));
-      const share = (z2 * g.carbShareZone2 + (min - z2) * g.carbShareHard) / min;
-      const carbG = (Math.max(0, w.kcal) * share) / 4;
+      const carbG = (Math.max(0, w.kcal) * carbShareOf(w, min)) / 4;
       return { start: w.at, end: w.at + min * 60_000, perStep: (carbG * g.stepMs) / (min * 60_000) };
     })
     .sort((a, b) => a.start - b.start);
@@ -507,6 +547,9 @@ export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
   let lastWorkoutEnd: number | null = null;
   const points: GlycogenPoint[] = [];
   const checks: ReadingCheck[] = [];
+  const ledgerFrom = input.ledgerFromMs ?? fromMs;
+  let muscleBurnedG = 0;
+  let muscleRefilledG = 0;
   for (; t <= toMs; t += g.stepMs) {
     while (di < doses.length && doses[di]!.at <= t) gut += doses[di++]!.amount;
     while (bi < burns.length && burns[bi]!.end <= t) lastWorkoutEnd = Math.max(lastWorkoutEnd ?? 0, burns[bi++]!.end);
@@ -541,8 +584,14 @@ export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
       const toLiver = Math.min(surplus * g.liverShare, liverCap - liver);
       liver += toLiver;
       surplus -= toLiver;
-      const toMuscle = Math.min(surplus, g.muscleMaxGPerH * stepH, muscleCap - muscle);
+      const room = 1 - muscle / muscleCap;
+      const toMuscle = Math.min(
+        surplus,
+        (g.muscleMaxGPerH + g.muscleMaxExtraGPerH * room) * stepH,
+        muscleCap - muscle,
+      );
       muscle += toMuscle;
+      if (t >= ledgerFrom) muscleRefilledG += toMuscle;
       surplus -= toMuscle;
       liver += Math.min(surplus, liverCap - liver);
     } else {
@@ -557,6 +606,7 @@ export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
       const fromMuscle = b.perStep - fromLiver;
       const m = Math.min(muscle, fromMuscle);
       muscle -= m;
+      if (t >= ledgerFrom) muscleBurnedG += m;
       liver = Math.max(0, liver - (fromLiver + (fromMuscle - m)) * Math.sqrt(liver / liverCap));
     }
 
@@ -567,7 +617,7 @@ export function simulateGlycogen(input: GlycogenInput): GlycogenRun {
         : KETONES.baseMmol + (KETONES.maxMmol - KETONES.baseMmol) * (1 - lf / KETONES.onsetLiver);
     ketone += (goal - ketone) * (goal > ketone ? rise : fall);
   }
-  return { points, checks };
+  return { points, checks, muscleBurnedG, muscleRefilledG, muscleCapG: muscleCap };
 }
 
 /** First point at or after `fromMs` where the liver is under `threshold`, or null. */

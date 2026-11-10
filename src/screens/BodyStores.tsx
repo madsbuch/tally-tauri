@@ -37,7 +37,7 @@ import {
   clockDay,
   dayLabel,
 } from "../components/BodyCharts";
-import { SLEEP_SHOWN_NIGHTS } from "../lib/body";
+import { DAY_MS, SLEEP_SHOWN_NIGHTS } from "../lib/body";
 
 type Snap = BodySnapshot;
 
@@ -82,19 +82,6 @@ function LabLink() {
     <button type="button" className="btn btn-ghost store-link" onClick={() => go("/assistant/library")}>
       Add a blood test →
     </button>
-  );
-}
-
-/** A labelled bar without history, for glycogen's muscle store. */
-function MiniTank({ label, fraction, color }: { label: string; fraction: number; color: string }) {
-  return (
-    <div className="mini-tank" style={{ ["--level" as string]: color }}>
-      <span className="mini-tank-label">{label}</span>
-      <div className="tank">
-        <div className="tank-fill" style={{ width: `${Math.min(1, Math.max(0, fraction)) * 100}%` }} />
-      </div>
-      <span className="mini-tank-value">{Math.round(fraction * 100)}%</span>
-    </div>
   );
 }
 
@@ -402,6 +389,20 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
               empties, and uses that from then on. Readings during a fast say the
               most; an ordinary morning now and then keeps the baseline honest.
             </p>
+            <p>
+              Muscle moves two ways only. A workout takes carbohydrate out of
+              it — about {Math.round(GLYCOGEN.carbShareZone2 * 100)}% of the
+              energy in zone 2, {Math.round(GLYCOGEN.carbShareHard * 100)}% when
+              it&apos;s hard, more for sprints — and carbs beyond what the brain
+              and liver take put it back, faster the emptier it is: about a day
+              of carb-heavy eating after a hard session, two of eating normally.
+              Rest and fasting leave it alone, since muscle can&apos;t hand its
+              glycogen back to the blood. Nothing you can measure at home checks
+              this one, so read it as full, ready, drawn down or low rather than
+              to the percent. A workout on a day with nothing else logged
+              isn&apos;t counted, because the meals that refilled it aren&apos;t
+              there either.
+            </p>
             <p>🍞 marks carbs. The curve ahead assumes you eat nothing more.</p>
           </>
         }
@@ -450,7 +451,80 @@ export function GlycogenCard({ snap }: { snap: Snap }) {
           </span>
         )}
       </div>
-      <MiniTank label="Muscle" fraction={g.muscle} color="var(--accent)" />
+      <MuscleSection snap={snap} />
+    </div>
+  );
+}
+
+/** A hard hour, for "what would a session cost": kcal, mostly from carbohydrate. */
+const HARD_HOUR_KCAL = 600;
+
+/**
+ * Muscle glycogen under the liver's chart: how full, in grams too, the last
+ * few days of it, and what moved it — the workouts that took from it and the
+ * carbs that put it back.
+ */
+function MuscleSection({ snap }: { snap: Snap }) {
+  const g = snap.glycogen;
+  const days = Math.round((snap.at - g.muscleSinceMs) / DAY_MS);
+  const burned = Math.round(g.muscleBurnedG);
+  const refilled = Math.round(g.muscleRefilledG);
+  const n = g.muscleWorkouts.length;
+  const short = Math.max(0, Math.round(g.muscleCapG - g.muscleG));
+  const hardHourG = ((HARD_HOUR_KCAL * GLYCOGEN.carbShareHard) / 4) * (1 - GLYCOGEN.workoutFromLiver);
+  const afterHard = Math.max(0, Math.round(((g.muscleG - hardHourG) / g.muscleCapG) * 100));
+  const ledger =
+    n === 0 && refilled < 1
+      ? `Nothing moved it in the last ${days} days: no workouts, and it only refills from carbs beyond what the brain and liver take.`
+      : `Last ${days} days: ${n === 0 ? "no workouts" : `${n} workout${n === 1 ? "" : "s"} took about ${burned} g`}, carbs put back about ${refilled} g.`;
+  const ahead =
+    short < 10
+      ? "Full — more carbs go to the liver, then to fat."
+      : `About ${short} g short of full. A hard hour would take about ${Math.round(hardHourG)} g, down to ${afterHard}%.`;
+  const values = g.muscleSeries;
+  return (
+    <div className="muscle-section" style={{ ["--level" as string]: TONE_COLOR[g.muscleBand.tone] }}>
+      <div className="muscle-head">
+        <span className="muscle-title">Muscle</span>
+        <span className="muscle-band">{g.muscleBand.label}</span>
+        <span className="muscle-value">
+          {Math.round(g.muscle * 100)}%
+          <span className="muted"> · {Math.round(g.muscleG)} of {Math.round(g.muscleCapG)} g</span>
+        </span>
+      </div>
+      <div className="tank">
+        <div className="tank-fill" style={{ width: `${Math.min(1, g.muscle) * 100}%` }} />
+      </div>
+      {values.length > 1 && (
+        <>
+          <svg className="store-spark muscle-spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden>
+            <polyline
+              points={values
+                .map((v, i) => `${((i / (values.length - 1)) * 100).toFixed(1)},${(40 - v * 37).toFixed(1)}`)
+                .join(" ")}
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <div className="muscle-marks">
+            {g.muscleWorkouts.map((w) => (
+              <span
+                key={w.at}
+                style={{ left: `${((w.at - g.muscleSinceMs) / (snap.at - g.muscleSinceMs)) * 100}%` }}
+                title={`${clockDay(w.at, snap.at)}: about ${Math.round(w.grams)} g`}
+              >
+                🏃
+              </span>
+            ))}
+          </div>
+          <div className="level-axis">
+            <span>{days} days ago</span>
+            <span>now</span>
+          </div>
+        </>
+      )}
+      <div className="muted small muscle-note">
+        {ledger} {ahead}
+      </div>
     </div>
   );
 }

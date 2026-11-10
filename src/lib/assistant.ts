@@ -319,7 +319,7 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
         "pinned to the newest blood test in the library when there is one — otherwise it's an average, not their number; " +
         "includes the µg/day that keeps them over 50 / 75 nmol/L through winter), omega-3 index (%, target 8) and ferritin (µg/L) — " +
         "both pinned to a library blood test when there is one — beta-alanine (muscle carnosine loading), vitamin/mineral reserves " +
-        "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, and the blood ketones that liver predicts; their meter readings correct it — a ketone strip " +
+        "(folate, iodine, B12, A, E, K as % of full), glycogen (liver and muscle %, muscle in grams with what workouts took and carbs put back over the last 4 days — muscle is unmeasured, so speak of it as full / ready / drawn down / low — and the blood ketones that liver predicts; their meter readings correct it — a ketone strip " +
         "moves the liver, the glucose strip taken with it says how far to trust it — and past ketone readings fit how fast their own liver empties; when the liver " +
         "drops under 30% with no more carbs), training load (acute and chronic load — each workout counted by Garmin's training load, energy as a fallback — their ratio, the last 4 weeks' load focus — low aerobic / high aerobic / anaerobic, with Garmin's targets when synced — and Garmin's own training status, readiness and HRV status when synced) and sleep debt (hours). " +
         "Estimates from average kinetics: say so when it matters.",
@@ -1295,6 +1295,9 @@ export async function executeAssistantTool(
       glycogen: compact({
         liver_pct: round(b.glycogen.liver * 100, 0),
         muscle_pct: round(b.glycogen.muscle * 100, 0),
+        muscle_g: `${round(b.glycogen.muscleG, 0)} of ${round(b.glycogen.muscleCapG, 0)}`,
+        muscle_reads_as: b.glycogen.muscleBand.label,
+        muscle_last_4_days: `workouts took ${round(b.glycogen.muscleBurnedG, 0)} g (${b.glycogen.muscleWorkouts.length} sessions), carbs put back ${round(b.glycogen.muscleRefilledG, 0)} g`,
         liver_under_30pct_at_if_no_more_carbs:
           b.glycogen.ketosisAt == null ? "not within 24 h" : localStamp(b.glycogen.ketosisAt),
         last_ketone_reading: b.glycogen.lastKetone

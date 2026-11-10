@@ -2188,24 +2188,68 @@ button.rule-row {
   color: var(--accent);
 }
 
-.mini-tank {
-  display: grid;
-  grid-template-columns: 56px 1fr 40px;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.mini-tank .tank {
-  height: 8px;
-}
-
-.mini-tank-value,
 .reserve-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.muscle-section .tank {
+  height: 8px;
+}
+
+.muscle-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.muscle-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.muscle-title {
+  font-weight: 600;
+}
+
+.muscle-band {
+  flex: 1;
+  color: var(--level);
+  font-size: 12px;
+}
+
+.muscle-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muscle-spark {
+  margin-top: 8px;
+}
+
+.muscle-spark polyline {
+  fill: none;
+  stroke: var(--level);
+  stroke-width: 1.5;
+}
+
+.muscle-marks {
+  position: relative;
+  height: 14px;
+}
+
+.muscle-marks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.muscle-note {
+  margin-top: 6px;
 }
 
 .reserve-rows {
