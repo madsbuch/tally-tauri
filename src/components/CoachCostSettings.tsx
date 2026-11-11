@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { aiSpendSince, deleteSetting, getSetting, setSetting, todayStr } from "../lib/db";
-import type { AiSpend } from "../lib/db";
-import { shiftDay } from "../lib/daystamp";
+import { deleteSetting, getSetting, setSetting } from "../lib/db";
 import { supportsTools } from "../lib/openrouter";
 import { parseJson, parseModelList } from "../lib/schemas";
 import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "../lib/types";
 import type { ORModel } from "../lib/types";
 import {
   COACH_REASONING_OPTIONS,
-  formatUsd,
   parseBudget,
   parseCoachReasoning,
 } from "../lib/coachModel";
@@ -16,18 +13,6 @@ import type { CoachReasoning } from "../lib/coachModel";
 import ModelRow, { modelSub } from "./ModelRow";
 
 const MAX_LIST_ROWS = 30;
-
-interface Spend {
-  today: AiSpend;
-  week: AiSpend;
-  month: AiSpend;
-}
-
-/** Share of prompt tokens that came from the cache, as "62%". */
-function cachedShare(s: AiSpend): string | null {
-  if (s.promptTokens === 0) return null;
-  return `${Math.round((100 * s.cachedTokens) / s.promptTokens)}%`;
-}
 
 /**
  * A model picker for one coach setting. "" means "use the fallback", which
@@ -138,8 +123,9 @@ function CoachModelPicker({
 }
 
 /**
- * What the coach costs, and the settings that decide it: which model it
- * chats and checks in on, how hard it thinks, and a daily cap on check-ins.
+ * The settings that decide what the coach costs: which model it chats and
+ * checks in on, how hard it thinks, and a daily cap on check-ins. What it
+ * actually spent is in the cost center (Settings → Cost center).
  */
 export default function CoachCostSettings() {
   const [loaded, setLoaded] = useState(false);
@@ -149,24 +135,18 @@ export default function CoachCostSettings() {
   const [checkinModel, setCheckinModel] = useState("");
   const [reasoning, setReasoning] = useState<CoachReasoning>("");
   const [budget, setBudget] = useState("");
-  const [spend, setSpend] = useState<Spend | null>(null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const today = todayStr();
-      const [cache, vision, coach, checkin, effort, cap, todaySpend, week, month] =
-        await Promise.all([
-          getSetting(SETTING_KEYS.modelsCache),
-          getSetting(SETTING_KEYS.visionModel),
-          getSetting(SETTING_KEYS.coachModel),
-          getSetting(SETTING_KEYS.checkinModel),
-          getSetting(SETTING_KEYS.coachReasoning),
-          getSetting(SETTING_KEYS.checkinDailyBudget),
-          aiSpendSince(today),
-          aiSpendSince(shiftDay(today, -6)),
-          aiSpendSince(shiftDay(today, -29)),
-        ]).catch(() => [null, null, null, null, null, null, null, null, null] as const);
+      const [cache, vision, coach, checkin, effort, cap] = await Promise.all([
+        getSetting(SETTING_KEYS.modelsCache),
+        getSetting(SETTING_KEYS.visionModel),
+        getSetting(SETTING_KEYS.coachModel),
+        getSetting(SETTING_KEYS.checkinModel),
+        getSetting(SETTING_KEYS.coachReasoning),
+        getSetting(SETTING_KEYS.checkinDailyBudget),
+      ]).catch(() => [null, null, null, null, null, null] as const);
       if (!alive) return;
       let list: ORModel[] = [];
       if (cache) {
@@ -189,7 +169,6 @@ export default function CoachCostSettings() {
       setCheckinModel(checkin ?? "");
       setReasoning(parseCoachReasoning(effort));
       setBudget(cap ?? "");
-      if (todaySpend && week && month) setSpend({ today: todaySpend, week, month });
       setLoaded(true);
     })();
     return () => {
@@ -216,41 +195,6 @@ export default function CoachCostSettings() {
 
   return (
     <>
-      <div className="card">
-        <h2 className="card-title">What it costs</h2>
-        {spend && spend.month.requests > 0 ? (
-          <>
-            <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-              <div>
-                <div className="faint small">Today</div>
-                <strong>{formatUsd(spend.today.costUsd)}</strong>
-              </div>
-              <div>
-                <div className="faint small">7 days</div>
-                <strong>{formatUsd(spend.week.costUsd)}</strong>
-              </div>
-              <div>
-                <div className="faint small">30 days</div>
-                <strong>{formatUsd(spend.month.costUsd)}</strong>
-              </div>
-            </div>
-            <p className="muted small" style={{ margin: 0 }}>
-              {spend.month.requests} requests in 30 days
-              {cachedShare(spend.month)
-                ? `, ${cachedShare(spend.month)} of what they sent read from the cache at a discount`
-                : ""}
-              . Chats and check-ins as OpenRouter billed them; photo analysis isn&apos;t
-              counted here.
-            </p>
-          </>
-        ) : (
-          <p className="muted small" style={{ margin: 0 }}>
-            Nothing logged yet. What each chat and check-in costs shows up here from
-            now on.
-          </p>
-        )}
-      </div>
-
       <div className="card">
         <h2 className="card-title">Coach model</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>

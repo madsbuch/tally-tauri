@@ -54,10 +54,3 @@ export function parseBudget(raw: string | null | undefined): number | null {
 export async function checkinDailyBudget(): Promise<number | null> {
   return parseBudget(await setting(SETTING_KEYS.checkinDailyBudget));
 }
-
-/** "$0.42", or "<$0.01" for the small amounts most turns cost. */
-export function formatUsd(usd: number): string {
-  if (usd <= 0) return "$0.00";
-  if (usd < 0.01) return "<$0.01";
-  return `$${usd.toFixed(2)}`;
-}

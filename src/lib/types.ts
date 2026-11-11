@@ -542,8 +542,6 @@ export interface ChatSummary {
   /** ISO 8601 UTC timestamps. */
   created_at: string;
   updated_at: string;
-  /** What the chat has cost so far in USD (see the `ai_usage` ledger); 0 = nothing logged. */
-  cost_usd: number;
 }
 
 /** Result of an AI food-photo analysis. */

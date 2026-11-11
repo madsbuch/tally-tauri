@@ -1173,6 +1173,7 @@ async function runCapture(capture: Capture): Promise<void> {
     // must not fail the capture (retrying would log the items twice).
     const turn = await chatWithTools(apiKey, model, messages, DIARY_TOOLS, {
       allowEmpty: ctx.logged > 0,
+      feature: "diary",
     });
     if (turn.content?.trim()) lastText = turn.content.trim();
     if (turn.tool_calls.length === 0) {

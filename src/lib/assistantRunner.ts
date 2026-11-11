@@ -25,10 +25,9 @@ import {
   createChat,
   deleteChat,
   getChatMessages,
-  recordAiUsage,
   updateChatMessages,
 } from "./db";
-import { newTurnSpend, runAssistantTurn, sanitizeChart } from "./assistant";
+import { runAssistantTurn, sanitizeChart } from "./assistant";
 import { buildCoachContext, buildCoachSystemPrompt, cacheCoachPromptPrefix } from "./coach";
 import { compactTranscript, isCoachContext, lastUserIndexOf } from "./coachTranscript";
 import type { AssistantEvent, ChartSpec } from "./assistant";
@@ -339,7 +338,6 @@ function run(): void {
 
   const startedAt = Date.now();
   autoResumable = false;
-  const spend = newTurnSpend();
   inFlight = (async () => {
     try {
       // Rebuilt every turn, but it only changes when the coach's memory,
@@ -358,7 +356,7 @@ function run(): void {
             items = appendEvent(items, e);
             emit();
           },
-          { onRound: () => void persist(), spend },
+          { onRound: () => void persist(), chatId },
         ),
       );
       status = "idle";
@@ -381,9 +379,6 @@ function run(): void {
       inFlight = null;
       emit();
       await persist();
-      await recordAiUsage({ source: "coach", chatId, ...spend }).catch((e: unknown) => {
-        console.warn("Could not log coach spend", e);
-      });
       // The turn may have written to memory, which the scheduled Android
       // check-in reads from the cached prefix rather than rebuilding.
       void cacheCoachPromptPrefix();

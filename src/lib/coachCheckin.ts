@@ -17,10 +17,9 @@ import {
   createChat,
   getSetting,
   listDueFollowUps,
-  recordAiUsage,
   todayStr,
 } from "./db";
-import { newTurnSpend, runAssistantTurn } from "./assistant";
+import { runAssistantTurn } from "./assistant";
 import { buildCoachContext, buildCoachDigest, buildCoachSystemPrompt } from "./coach";
 import { checkinDailyBudget } from "./coachModel";
 import {
@@ -163,34 +162,24 @@ export async function runCoachCheckin(
       { role: "user", content: INSTRUCTION },
     ];
 
+    // Every request is logged as it's made (lib/openrouter.ts), so a failed
+    // check-in still counts against the day's budget.
     let firstMessage = "";
-    const spend = newTurnSpend();
-    try {
-      await withBackgroundTask("Coach check-in", () =>
-        runAssistantTurn(
-          transcript,
-          (e) => {
-            if (e.type === "message" && !firstMessage) firstMessage = e.text;
-          },
-          { purpose: "checkin", maxRounds: CHECKIN_MAX_ROUNDS, spend },
-        ),
-      );
-    } finally {
-      // Logged before the chat exists: a failed check-in was still billed,
-      // and it has to count against the day's budget all the same.
-      if (!firstMessage) {
-        await recordAiUsage({ source: "checkin", chatId: null, ...spend }).catch(() => {});
-      }
-    }
+    await withBackgroundTask("Coach check-in", () =>
+      runAssistantTurn(
+        transcript,
+        (e) => {
+          if (e.type === "message" && !firstMessage) firstMessage = e.text;
+        },
+        { purpose: "checkin", maxRounds: CHECKIN_MAX_ROUNDS },
+      ),
+    );
     if (!firstMessage) return { sent: false, reason: "failed" };
 
     // Drop the synthetic instruction, leaving [system, context, assistant, …].
     const saved = transcript.filter((m) => m.content !== INSTRUCTION);
     const title = `${def?.title ?? "Check-in"} · ${shortDate(today)}`;
     const chatId = await createChat(title, saved);
-    await recordAiUsage({ source: "checkin", chatId: chatId > 0 ? chatId : null, ...spend }).catch(
-      (e: unknown) => console.warn("Could not log check-in spend", e),
-    );
 
     await recordTriggerRun(winner.key, today, chatId);
     // What keeps it findable when the notification is swiped away unread:

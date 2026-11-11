@@ -77,6 +77,7 @@ import type {
   Workout,
 } from "./types";
 import type { ChatMessage } from "./openrouter";
+import type { UsageRow } from "./aiCost";
 import type { ExperimentArm, ExperimentMeasure, TrialRatings } from "./schemas";
 import { SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
@@ -1043,13 +1044,11 @@ export async function listChats(limit = 50): Promise<ChatSummary[]> {
     .from(chats)
     .orderBy(desc(chats.updatedAt))
     .limit(limit);
-  const costs = await chatCosts(rows.map((r) => r.id)).catch(() => new Map<number, number>());
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
-    cost_usd: costs.get(r.id) ?? 0,
   }));
 }
 
@@ -1066,15 +1065,9 @@ export async function getChatSummary(id: number): Promise<ChatSummary | null> {
     .where(eq(chats.id, id))
     .limit(1);
   const r = rows[0];
-  if (!r) return null;
-  const costs = await chatCosts([r.id]).catch(() => new Map<number, number>());
-  return {
-    id: r.id,
-    title: r.title,
-    created_at: r.createdAt,
-    updated_at: r.updatedAt,
-    cost_usd: costs.get(r.id) ?? 0,
-  };
+  return r
+    ? { id: r.id, title: r.title, created_at: r.createdAt, updated_at: r.updatedAt }
+    : null;
 }
 
 /** Full transcript of a saved chat; null when the chat doesn't exist. */
@@ -1120,10 +1113,9 @@ export async function deleteChat(id: number): Promise<void> {
 // AI spend (the `ai_usage` ledger)
 // ---------------------------------------------------------------------------
 
-export type AiUsageSource = "coach" | "checkin";
-
 export interface AiUsageRecord {
-  source: AiUsageSource;
+  /** The feature that spent it (an AiFeature, see lib/aiCost.ts). */
+  source: string;
   chatId: number | null;
   model: string;
   requests: number;
@@ -1133,7 +1125,7 @@ export interface AiUsageRecord {
   costUsd: number;
 }
 
-/** Log what a coach turn or check-in cost. Skips turns that made no request. */
+/** Log what one or more requests cost. Skips records of no requests. */
 export async function recordAiUsage(r: AiUsageRecord): Promise<void> {
   if (r.requests === 0) return;
   await db.insert(aiUsage).values({
@@ -1160,7 +1152,7 @@ export interface AiSpend {
 /** Spend from `sinceDay` (local, inclusive) on, optionally for one source. */
 export async function aiSpendSince(
   sinceDay: string,
-  source?: AiUsageSource,
+  source?: string,
 ): Promise<AiSpend> {
   const rows = await db
     .select({
@@ -1184,20 +1176,41 @@ export async function aiSpendSince(
   };
 }
 
-/** What each of these chats has cost so far, by chat id (absent = nothing logged). */
-export async function chatCosts(ids: number[]): Promise<Map<number, number>> {
-  if (ids.length === 0) return new Map();
+/**
+ * The ledger from `sinceDay` (local, inclusive) on, summed per day, feature
+ * and model: everything the cost center shows, in one read.
+ */
+export async function listAiUsageSince(sinceDay: string): Promise<UsageRow[]> {
   const rows = await db
     .select({
-      chatId: aiUsage.chatId,
+      day: aiUsage.day,
+      source: aiUsage.source,
+      model: aiUsage.model,
+      requests: sql<number>`sum(${aiUsage.requests})`,
+      promptTokens: sql<number>`sum(${aiUsage.promptTokens})`,
+      cachedTokens: sql<number>`sum(${aiUsage.cachedTokens})`,
+      completionTokens: sql<number>`sum(${aiUsage.completionTokens})`,
       costUsd: sql<number>`sum(${aiUsage.costUsd})`,
     })
     .from(aiUsage)
-    .where(inArray(aiUsage.chatId, ids))
-    .groupBy(aiUsage.chatId);
-  const out = new Map<number, number>();
-  for (const r of rows) if (r.chatId != null) out.set(r.chatId, Number(r.costUsd));
-  return out;
+    .where(gte(aiUsage.day, sinceDay))
+    .groupBy(aiUsage.day, aiUsage.source, aiUsage.model);
+  return rows.map((r) => ({
+    day: r.day,
+    source: r.source,
+    model: r.model,
+    requests: Number(r.requests),
+    promptTokens: Number(r.promptTokens),
+    cachedTokens: Number(r.cachedTokens),
+    completionTokens: Number(r.completionTokens),
+    costUsd: Number(r.costUsd),
+  }));
+}
+
+/** The first day anything was logged, or null when the ledger is empty. */
+export async function firstAiUsageDay(): Promise<string | null> {
+  const rows = await db.select({ day: sql<string | null>`min(${aiUsage.day})` }).from(aiUsage);
+  return rows[0]?.day ?? null;
 }
 
 // ---------------------------------------------------------------------------

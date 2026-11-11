@@ -16,6 +16,8 @@ import {
 } from "./schemas";
 import type { ChatMessage, ChatResponse, ContentPart, ToolCall } from "./schemas";
 import type { z } from "zod";
+import { recordAiUsage } from "./db";
+import type { AiFeature } from "./aiCost";
 
 /** What the vision model reads off a photographed document. */
 export type DocumentAnalysis = z.infer<typeof DocumentAnalysisSchema>;
@@ -153,6 +155,13 @@ function argumentsWithoutEmDashes(json: string): string {
 
 export interface ChatOptions {
   /**
+   * What the request is for, as the cost center groups it. Every request's
+   * cost is logged under it, whoever made it.
+   */
+  feature: AiFeature;
+  /** The coach conversation it was made in, when there is one. */
+  chatId?: number | null;
+  /**
    * Return an empty turn instead of retrying/failing when the model produces
    * an empty completion. Agent loops set this once something has already been
    * delivered/logged: models signal "I'm done" with an empty response, and
@@ -167,6 +176,26 @@ export interface ChatOptions {
 }
 
 /**
+ * Log what a response says it cost, for the cost center. Every response that
+ * carries accounting is logged, including ones retried for being empty or
+ * erroring: those were billed too. Never fails the request.
+ */
+function logUsage(body: Record<string, unknown>, opts: ChatOptions, json: ChatResponse): void {
+  const u = usageOf(json);
+  if (!u) return;
+  void recordAiUsage({
+    source: opts.feature,
+    chatId: opts.chatId ?? null,
+    model: typeof body["model"] === "string" ? body["model"] : "unknown",
+    requests: 1,
+    promptTokens: u.promptTokens,
+    cachedTokens: u.cachedTokens,
+    completionTokens: u.completionTokens,
+    costUsd: u.costUsd,
+  }).catch((e: unknown) => console.warn("Could not log AI spend", e));
+}
+
+/**
  * POST /chat/completions with a per-request timeout and automatic retries
  * (exponential backoff) on network failures, retryable HTTP statuses,
  * per-choice provider errors embedded in HTTP 200 responses, and completely
@@ -175,7 +204,7 @@ export interface ChatOptions {
 async function requestChatTurn(
   apiKey: string,
   body: Record<string, unknown>,
-  opts: ChatOptions = {},
+  opts: ChatOptions,
 ): Promise<AssistantTurn> {
   let lastError: Error = new OpenRouterError("OpenRouter request failed", 0);
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -199,6 +228,7 @@ async function requestChatTurn(
         clearTimeout(timer);
       }
       const json = parseChatResponse(await res.json().catch(() => ({})));
+      logUsage(body, opts, json);
       if (!res.ok || json.error) {
         const msg = json.error?.message ?? `HTTP ${res.status}`;
         const err = new OpenRouterError(`OpenRouter request failed: ${msg}`, res.status);
@@ -248,7 +278,7 @@ export async function chatWithTools(
   model: string,
   messages: ChatMessage[],
   tools: ToolDef[],
-  opts: ChatOptions = {},
+  opts: ChatOptions,
 ): Promise<AssistantTurn> {
   const body: Record<string, unknown> = { model, messages };
   // Some providers reject an empty tools array — omit it instead.
@@ -273,8 +303,9 @@ export async function chat(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
+  feature: AiFeature,
 ): Promise<string> {
-  const { content } = await requestChatTurn(apiKey, { model, messages });
+  const { content } = await requestChatTurn(apiKey, { model, messages }, { feature });
   if (content == null || content.trim() === "") {
     throw new OpenRouterError("Model returned an empty response", 0);
   }
@@ -341,7 +372,7 @@ export async function analyzeFood(opts: AnalyzeFoodOptions): Promise<FoodAnalysi
   const content = await chat(apiKey, model, [
     { role: "system", content: system },
     { role: "user", content: parts },
-  ]);
+  ], "photo");
 
   return FoodAnalysisSchema.parse(extractJsonObject(content));
 }
@@ -400,7 +431,7 @@ export async function analyzePhoto(opts: AnalyzePhotoOptions): Promise<PhotoAnal
   const content = await chat(apiKey, model, [
     { role: "system", content: system },
     { role: "user", content: parts },
-  ]);
+  ], "photo");
 
   return PhotoAnalysisSchema.parse(extractJsonObject(content));
 }
@@ -451,7 +482,7 @@ export async function analyzeWorkout(opts: AnalyzeWorkoutOptions): Promise<Worko
   const content = await chat(apiKey, model, [
     { role: "system", content: system },
     { role: "user", content: parts },
-  ]);
+  ], "photo");
 
   return WorkoutAnalysisSchema.parse(extractJsonObject(content));
 }
@@ -524,7 +555,7 @@ export async function analyzeDocument(
   const content = await chat(apiKey, model, [
     { role: "system", content: system },
     { role: "user", content: parts },
-  ]);
+  ], "document");
 
   return DocumentAnalysisSchema.parse(extractJsonObject(content));
 }
@@ -607,7 +638,7 @@ function askAboutEntry(opts: EntryChatOptions, system: string): Promise<string> 
     { role: "user", content: parts },
     ...opts.history.map((m) => ({ role: m.role, content: m.text })),
     { role: "user", content: opts.message },
-  ]);
+  ], "entry_chat");
 }
 
 /**
@@ -634,7 +665,7 @@ export async function suggestStateIcon(
     const content = await chat(apiKey, model, [
       { role: "system", content: system },
       { role: "user", content: `State: ${label}` },
-    ]);
+    ], "state_icon");
     return StateIconSchema.parse(extractJsonObject(content)).icon;
   } catch {
     return null;
@@ -662,7 +693,7 @@ export async function analyzeSupplement(
   const content = await chat(apiKey, model, [
     { role: "system", content: system },
     { role: "user", content: `Supplement: ${labelText}` },
-  ]);
+  ], "supplement");
 
   return SupplementAnalysisSchema.parse(extractJsonObject(content));
 }

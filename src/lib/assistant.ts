@@ -56,7 +56,7 @@ import {
 } from "./experiments";
 import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
-import type { ChatMessage, ToolDef, Usage } from "./openrouter";
+import type { ChatMessage, ToolDef } from "./openrouter";
 import { AUTO_METRICS, ExperimentDesignSchema, RatingArgsSchema, parseToolArgs } from "./schemas";
 import type { AutoMetric } from "./schemas";
 import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
@@ -1803,41 +1803,8 @@ export interface AssistantTurnOptions {
   purpose?: CoachPurpose;
   /** Most requests this turn may make. Default MAX_ROUNDS. */
   maxRounds?: number;
-  /**
-   * Filled in as the turn runs, so the caller can log what it cost even when
-   * the turn fails partway (every request made was still billed).
-   */
-  spend?: TurnSpend;
-}
-
-/** What a turn has cost so far: summed over every request it made. */
-export interface TurnSpend {
-  model: string;
-  requests: number;
-  promptTokens: number;
-  cachedTokens: number;
-  completionTokens: number;
-  costUsd: number;
-}
-
-export function newTurnSpend(): TurnSpend {
-  return {
-    model: "",
-    requests: 0,
-    promptTokens: 0,
-    cachedTokens: 0,
-    completionTokens: 0,
-    costUsd: 0,
-  };
-}
-
-function addUsage(spend: TurnSpend, u: Usage | null): void {
-  spend.requests++;
-  if (!u) return;
-  spend.promptTokens += u.promptTokens;
-  spend.cachedTokens += u.cachedTokens;
-  spend.completionTokens += u.completionTokens;
-  spend.costUsd += u.costUsd;
+  /** The conversation it runs in, so its cost is logged against it. */
+  chatId?: number | null;
 }
 
 /** Tools that only hand something to the user; everything else is work. */
@@ -1860,8 +1827,6 @@ export async function runAssistantTurn(
     coachModelFor(opts.purpose ?? "chat"),
     coachReasoning(),
   ]);
-  const spend = opts.spend ?? newTurnSpend();
-  spend.model = model;
 
   let delivered = 0;
   const maxRounds = opts.maxRounds ?? MAX_ROUNDS;
@@ -1871,8 +1836,9 @@ export async function runAssistantTurn(
     const turn = await chatWithTools(apiKey, model, messages, ASSISTANT_TOOLS, {
       allowEmpty: delivered > 0,
       reasoning: reasoning || undefined,
+      feature: opts.purpose === "checkin" ? "checkin" : "coach",
+      chatId: opts.chatId ?? null,
     });
-    addUsage(spend, turn.usage);
     const content = turn.content?.trim() || "";
 
     if (turn.tool_calls.length === 0) {

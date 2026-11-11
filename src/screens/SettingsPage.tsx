@@ -33,6 +33,7 @@ import { syncGarminIfStale } from "../lib/garmin";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
 import CoachCostSettings from "../components/CoachCostSettings";
+import CostCenterLink from "../components/CostCenterLink";
 import ModelRow, { modelSub } from "../components/ModelRow";
 import GarminConnectSettings from "../components/GarminConnectSettings";
 import FoodCountrySetting from "../components/FoodCountrySetting";
@@ -292,7 +293,7 @@ export default function SettingsPage() {
     try {
       await chat(savedKey, selectedModel, [
         { role: "user", content: "Reply with exactly: OK" },
-      ]);
+      ], "test");
       setTest({ status: "ok" });
     } catch (e) {
       setTest({ status: "error", message: errorMessage(e) });
@@ -553,6 +554,7 @@ export default function SettingsPage() {
 
       {/* AI analysis ------------------------------------------------------ */}
       <div className="section-title">AI analysis</div>
+      <CostCenterLink />
       <div className="card">
         <h2 className="card-title">OpenRouter API key</h2>
         <p className="muted small" style={{ margin: "0 0 10px" }}>
