@@ -19,7 +19,12 @@
  * A correction moves room between days inside the period, nothing more.
  */
 import { getSetting, listDayGoalAdjustments, todayStr } from "./db";
-import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
+import {
+  DEFAULT_CARDIO_TARGET_MIN,
+  DEFAULT_CARDIO_ZONE2_SHARE_PCT,
+  DEFAULT_PROTEIN_TARGET_G,
+  SETTING_KEYS,
+} from "./types";
 
 /** Largest per-day correction accepted, either way. */
 export const MAX_MANUAL_ADJUSTMENT = 2000;
@@ -83,6 +88,17 @@ export async function getCardioTarget(): Promise<number> {
   const raw = await getSetting(SETTING_KEYS.cardioWeeklyTarget).catch(() => null);
   const n = raw != null ? Number(raw) : NaN;
   return Number.isFinite(n) && n >= 1 && n <= 10080 ? n : DEFAULT_CARDIO_TARGET_MIN;
+}
+
+/**
+ * The Zone 2 share (percent of an activity's HR time) at which a Garmin
+ * activity counts as cardio by itself; null = the rule is off.
+ */
+export async function getCardioZone2Share(): Promise<number | null> {
+  const raw = await getSetting(SETTING_KEYS.cardioZone2Share).catch(() => null);
+  if (raw === "off") return null;
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : DEFAULT_CARDIO_ZONE2_SHARE_PCT;
 }
 
 /** Minutes of the workouts switched on as cardio; one without a duration adds nothing. */

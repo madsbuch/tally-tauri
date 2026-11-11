@@ -337,6 +337,7 @@ function toWorkout(r: WorkoutRow): Workout {
     duration_min: r.durationMin,
     zone2_min: zone2Minutes(r.zone2Min, r.durationMin),
     cardio: r.cardio === 1,
+    cardio_by_hand: r.cardioByHand === 1,
     model_id: r.modelId,
     icon: r.icon,
     source: r.source,
@@ -349,7 +350,7 @@ function toWorkout(r: WorkoutRow): Workout {
 /** Manual/agent entries omit `source`/`external_id` — they default to null. */
 export type NewWorkout = Omit<
   Workout,
-  "id" | "source" | "external_id" | "day" | "tz_offset_min" | "zone2_min" | "cardio"
+  "id" | "source" | "external_id" | "day" | "tz_offset_min" | "zone2_min" | "cardio" | "cardio_by_hand"
 > &
   Partial<Pick<Workout, "source" | "external_id" | "zone2_min" | "cardio">>;
 
@@ -368,6 +369,8 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
       durationMin: w.duration_min,
       zone2Min: zone2Minutes(w.zone2_min, w.duration_min),
       cardio: w.cardio ? 1 : 0,
+      // An entry made switched on (an undo restoring one) keeps it as theirs.
+      cardioByHand: w.cardio ? 1 : 0,
       modelId: w.model_id,
       icon: w.icon,
       source: w.source ?? null,
@@ -383,7 +386,7 @@ export async function addWorkout(w: NewWorkout): Promise<number> {
  * upstream edits (e.g. corrected calories in Garmin) flow through.
  */
 export async function upsertExternalWorkout(
-  w: Omit<Workout, "id" | "day" | "tz_offset_min" | "zone2_min" | "cardio"> & {
+  w: Omit<Workout, "id" | "day" | "tz_offset_min" | "zone2_min" | "cardio" | "cardio_by_hand"> & {
     zone2_min?: number | null;
     external_id: string;
     /** Offset the source recorded it in; falls back to here. */
@@ -457,9 +460,12 @@ export async function updateWorkout(w: Workout): Promise<void> {
     .where(eq(workouts.id, w.id));
 }
 
-/** The per-workout cardio switch. A synced re-import leaves it alone. */
+/**
+ * The per-workout cardio switch. A synced re-import leaves it alone, and once
+ * flipped by hand so does the Zone 2 rule (applyZone2Cardio).
+ */
 export async function setWorkoutCardio(id: number, cardio: boolean): Promise<void> {
-  await db.update(workouts).set({ cardio: cardio ? 1 : 0 }).where(eq(workouts.id, id));
+  await db.update(workouts).set({ cardio: cardio ? 1 : 0, cardioByHand: 1 }).where(eq(workouts.id, id));
 }
 
 /** A deliberate toggle wins over text recognition, including an explicit off (0). */

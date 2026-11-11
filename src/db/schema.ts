@@ -61,8 +61,13 @@ export const workouts = sqliteTable(
     caloriesBurned: real("calories_burned").notNull().default(0),
     durationMin: real("duration_min"),
     zone2Min: real("zone2_min"),
-    /** 1 = counts toward the cardio goal; set by the user, per workout. */
+    /**
+     * 1 = counts toward the cardio goal. Set by the user's switch, or, until
+     * they touch it, by the Garmin sync from the activity's time in Zone 2.
+     */
     cardio: integer("cardio").notNull().default(0),
+    /** 1 = the user flipped the cardio switch; the Zone 2 rule leaves it alone. */
+    cardioByHand: integer("cardio_by_hand").notNull().default(0),
     modelId: text("model_id"),
     /** Icon key picked by the AI when there's no photo (see lib/icons.ts). */
     icon: text("icon"),

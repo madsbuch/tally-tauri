@@ -11,7 +11,11 @@ import {
   syncGarmin,
 } from "../lib/garmin";
 import type { GarminSyncResult } from "../lib/garmin";
-import { garminLinkReport } from "../lib/garminDb";
+import { applyZone2Cardio, garminLinkReport } from "../lib/garminDb";
+import { getCardioZone2Share } from "../lib/goals";
+import { setSetting } from "../lib/db";
+import { notifyDiaryChanged } from "../lib/agent";
+import { SETTING_KEYS } from "../lib/types";
 import type { GarminLinkReport } from "../lib/garminDb";
 import type { GarminStatus } from "../lib/schemas";
 
@@ -42,6 +46,7 @@ function resultLine(r: GarminSyncResult): string {
   if (r.laps > 0) parts.push(`laps for ${r.laps}`);
   if (r.days > 0) parts.push(`${plural(r.days, "day")} of wellness`);
   if (r.nights > 0) parts.push(`${plural(r.nights, "night")} Health Connect didn't have`);
+  if (r.zone2Cardio > 0) parts.push(`${plural(r.zone2Cardio, "workout")} switched as cardio by Zone 2 time`);
   const head = (parts.length ? `Synced: ${parts.join(", ")}.` : "Up to date.") +
     (r.extrasError ? ` Readiness/training status skipped: ${r.extrasError}` : "");
   const tail = r.backfillDone
@@ -71,19 +76,37 @@ export default function GarminConnectSettings() {
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [report, setReport] = useState<GarminLinkReport | null>(null);
+  /** The Zone 2 rule's bar in percent; null = off; undefined = loading. */
+  const [zone2Bar, setZone2Bar] = useState<number | null | undefined>(undefined);
 
   async function refresh() {
-    const [s, at, paused, rep] = await Promise.all([
+    const [s, at, paused, rep, bar] = await Promise.all([
       getGarminStatus(),
       getGarminLastSync(),
       getGarminPausedUntil(),
       garminLinkReport().catch(() => null),
+      getCardioZone2Share(),
     ]);
     setStatus(s);
     setLastSync(at);
     setPausedUntil(paused);
     setReport(rep);
+    setZone2Bar(bar);
   }
+
+  const changeZone2Bar = (value: string) =>
+    void run(async () => {
+      const bar = value === "off" ? null : Number(value);
+      await setSetting(SETTING_KEYS.cardioZone2Share, value);
+      setZone2Bar(bar);
+      const changed = await applyZone2Cardio(bar);
+      if (changed > 0) notifyDiaryChanged();
+      setMessage(
+        changed > 0
+          ? `${plural(changed, "workout")} switched to match.`
+          : "No workouts needed switching.",
+      );
+    });
 
   useEffect(() => {
     void refresh();
@@ -216,13 +239,42 @@ export default function GarminConnectSettings() {
 
           {(status.personal || status.connected) && (
             <p className="faint small" style={{ margin: "10px 0 0" }}>
-              Syncs on its own at most every three hours
+              Syncs on its own at most every three hours, and right away when
+              Health Connect brings in a new workout
               {lastSync ? ` · last sync ${since(lastSync)}` : ""}
               {pausedUntil
                 ? ` · paused until ${new Date(pausedUntil).toLocaleString()} after Garmin rate-limited us`
                 : ""}
               .
             </p>
+          )}
+
+          {(status.personal || status.connected) && zone2Bar !== undefined && (
+            <div className="field" style={{ margin: "12px 0 0" }}>
+              <label className="label" htmlFor="garmin-zone2-bar">
+                Counts as cardio by itself
+              </label>
+              <select
+                id="garmin-zone2-bar"
+                className="input"
+                value={zone2Bar == null ? "off" : String(zone2Bar)}
+                onChange={(e) => changeZone2Bar(e.target.value)}
+                disabled={busy}
+              >
+                <option value="off">Never, only by the switch</option>
+                {[30, 40, 50, 60, 70, 80, 90].map((p) => (
+                  <option key={p} value={String(p)}>
+                    {p}% or more of the workout in Zone 2
+                  </option>
+                ))}
+              </select>
+              <p className="faint small" style={{ margin: "6px 0 0" }}>
+                A workout with Garmin heart-rate zones switches its Cardio on
+                when enough of it was in Zone 2 (and off when it no longer
+                is). A workout whose switch you flipped yourself stays as you
+                left it.
+              </p>
+            </div>
           )}
 
           <details style={{ marginTop: 12 }} open={status.connected || status.mfaPending}>

@@ -158,6 +158,11 @@ export interface HealthConnectSyncResult {
   status: HealthConnectStatus;
   /** Workout sessions written (inserted or refreshed). */
   workouts: number;
+  /**
+   * Of those, sessions the diary had never seen: a workout just finished and
+   * uploaded. Worth asking Garmin about right away (see _app.tsx).
+   */
+  newWorkouts: number;
   /** Sleep sessions written. */
   sleep: number;
   /** Days of wellness metrics written. */
@@ -202,7 +207,7 @@ async function runSync(): Promise<HealthConnectSyncResult> {
   lastSyncStartedAt = Date.now();
   const status = await getHealthConnectStatus();
   if (status.availability !== "available" || !status.permissionsGranted) {
-    return { status, workouts: 0, sleep: 0, days: 0 };
+    return { status, workouts: 0, newWorkouts: 0, sleep: 0, days: 0 };
   }
 
   const now = Date.now();
@@ -255,11 +260,13 @@ async function runSync(): Promise<HealthConnectSyncResult> {
   }
 
   let workoutCount = 0;
+  let newWorkoutCount = 0;
   for (const s of sessions) {
     const durationMin = Math.round((s.endMs - s.startMs) / 60_000);
     // A session the Garmin Connect sync got to first is taken over, not
     // written twice.
-    await adoptGarminWorkout(s.id, s.clientRecordId, { startMs: s.startMs, endMs: s.endMs });
+    const seen = await adoptGarminWorkout(s.id, s.clientRecordId, { startMs: s.startMs, endMs: s.endMs });
+    if (seen === "new") newWorkoutCount++;
     await upsertExternalWorkout({
       performed_at: new Date(s.startMs).toISOString(),
       title: s.title?.trim() || s.exerciseType,
@@ -327,5 +334,5 @@ async function runSync(): Promise<HealthConnectSyncResult> {
   await setSetting(SETTING_KEYS.healthConnectResyncVersion, RESYNC_VERSION);
   // Day metrics count too: the Diary's steps and total burn come from them.
   if (workoutCount > 0 || sleepCount > 0 || dayCount > 0) notifyDiaryChanged();
-  return { status, workouts: workoutCount, sleep: sleepCount, days: dayCount };
+  return { status, workouts: workoutCount, newWorkouts: newWorkoutCount, sleep: sleepCount, days: dayCount };
 }

@@ -8,6 +8,30 @@ export function zone2Minutes(value: number | null | undefined, duration: number 
 
 export const DEFAULT_ZONE2_TARGET = 300;
 
+/**
+ * Fraction (0–1) of an activity's heart-rate time spent in Zone 2, from
+ * Garmin's seconds in zones 1–5. Null when there's no HR time to divide by.
+ * Measured against time with a heart rate, not elapsed time, so a pause or a
+ * dropped strap doesn't count against it.
+ */
+export function zone2Share(zoneSecs: readonly number[] | null | undefined): number | null {
+  if (!zoneSecs || zoneSecs.length < 2) return null;
+  const total = zoneSecs.reduce((a, s) => a + (Number.isFinite(s) && s > 0 ? s : 0), 0);
+  const z2 = zoneSecs[1]!;
+  if (total <= 0 || !Number.isFinite(z2) || z2 < 0) return null;
+  return z2 / total;
+}
+
+/** Whether an activity clears the Zone 2 rule; `sharePct` null = rule off. */
+export function countsAsZone2Cardio(
+  zoneSecs: readonly number[] | null | undefined,
+  sharePct: number | null,
+): boolean {
+  if (sharePct == null) return false;
+  const share = zone2Share(zoneSecs);
+  return share != null && share * 100 >= sharePct;
+}
+
 export function exerciseProgress(workouts: DiaryWorkout[], target: number) {
   const values = workouts.map(diaryZone2Minutes);
   const minutes = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);

@@ -13,6 +13,7 @@ import {
   parseStoredZoneSecs,
 } from "./schemas";
 import type { GarminLoadBalance } from "./schemas";
+import { countsAsZone2Cardio } from "./exerciseGoals";
 
 // ---------------------------------------------------------------------------
 // Storage for the Garmin Connect sync (lib/garmin.ts), and the two halves of
@@ -211,17 +212,20 @@ export async function linkGarminActivity(
  * Health Connect side: before writing session `hcId`, take over the row the
  * Garmin sync created for the same activity, if there is one, so the upsert
  * that follows updates it instead of adding a twin.
+ *
+ * Says whether the session was already in the diary — its own row ("known"),
+ * or one the Garmin sync made ("adopted") — or is new to it ("new").
  */
 export async function adoptGarminWorkout(
   hcId: string,
   clientRecordId: string | null | undefined,
   span: Span,
-): Promise<void> {
+): Promise<"known" | "adopted" | "new"> {
   const [own] = await db
     .select({ id: workouts.id })
     .from(workouts)
     .where(eq(workouts.externalId, hcId));
-  if (own) return;
+  if (own) return "known";
   const rows = await db
     .select({
       id: workouts.id,
@@ -244,8 +248,9 @@ export async function adoptGarminWorkout(
       span,
       rows.map((r) => ({ id: r.id, ...spanOfWorkout(r.performedAt, r.durationMin) })),
     );
-  if (!hit) return;
+  if (!hit) return "new";
   await db.update(workouts).set({ externalId: hcId }).where(eq(workouts.id, hit.id));
+  return "adopted";
 }
 
 /** The same for a night: take over the Garmin-made session it overlaps. */
@@ -270,6 +275,32 @@ export async function adoptGarminSleep(hcId: string, span: Span): Promise<void> 
   );
   if (!hit) return;
   await db.update(sleepSessions).set({ externalId: hcId }).where(eq(sleepSessions.id, hit.id));
+}
+
+/**
+ * The Zone 2 rule: a workout with a Garmin activity attached counts as cardio
+ * when at least `sharePct` percent of its heart-rate time was in Zone 2 (null
+ * = rule off), and stops counting when it no longer does, but only while the
+ * user hasn't flipped its switch themselves. Local and idempotent: run after
+ * every Garmin sync and whenever the threshold changes. Returns how many
+ * workouts changed.
+ */
+export async function applyZone2Cardio(sharePct: number | null): Promise<number> {
+  const rows = await db
+    .select({ id: workouts.id, cardio: workouts.cardio, zoneSecs: garminActivities.zoneSecs })
+    .from(garminActivities)
+    .innerJoin(workouts, eq(workouts.id, garminActivities.workoutId))
+    .where(and(eq(workouts.cardioByHand, 0), isNotNull(garminActivities.zoneSecs)));
+  const on: number[] = [];
+  const off: number[] = [];
+  for (const r of rows) {
+    const want = countsAsZone2Cardio(parseStoredZoneSecs(r.zoneSecs), sharePct);
+    if (want && r.cardio !== 1) on.push(r.id);
+    else if (!want && r.cardio === 1) off.push(r.id);
+  }
+  if (on.length) await db.update(workouts).set({ cardio: 1 }).where(inArray(workouts.id, on));
+  if (off.length) await db.update(workouts).set({ cardio: 0 }).where(inArray(workouts.id, off));
+  return on.length + off.length;
 }
 
 /** Recent activities still without laps, newest first. */

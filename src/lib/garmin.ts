@@ -3,8 +3,10 @@ import { deleteSetting, getSetting, setSetting, todayStr } from "./db";
 import { SETTING_KEYS } from "./types";
 import { notifyDiaryChanged } from "./agent";
 import { shiftDay } from "./daystamp";
+import { getCardioZone2Share } from "./goals";
 import {
   activitiesMissingLaps,
+  applyZone2Cardio,
   earliestGarminActivityAt,
   fillHealthMetricsFromGarmin,
   fillSleepFromGarmin,
@@ -54,6 +56,11 @@ import type { GarminCmdError, GarminSleep, GarminStatus } from "./schemas";
 
 /** Automatic syncs (app start / resume) no closer together than this. */
 const AUTO_SYNC_MIN_MS = 3 * 3_600_000;
+/**
+ * After Health Connect brings in a new workout, sync no closer to the last
+ * sync than this: enough to keep a burst of uploads to one round of requests.
+ */
+const NEW_WORKOUT_SYNC_MIN_MS = 2 * 60_000;
 /** Gap between consecutive requests. */
 const REQUEST_GAP_MS = 400;
 /** After a 429, leave Garmin alone this long. */
@@ -171,6 +178,8 @@ export interface GarminSyncResult {
   days: number;
   /** Nights added from Garmin where no synced night existed. */
   nights: number;
+  /** Workouts the Zone 2 rule switched on or off as cardio. */
+  zone2Cardio: number;
   /** How far back wellness history reaches now, and whether that's all of it. */
   wellnessBackTo: string | null;
   backfillDone: boolean;
@@ -192,17 +201,20 @@ let inFlight: Promise<GarminSyncResult | null> | null = null;
 
 /**
  * Sync now. `manual` (the Settings button) skips the every-few-hours limit,
- * but never a rate-limit pause. Null = skipped (not connected, too soon, or
+ * but never a rate-limit pause; so does `newWorkout` (Health Connect just
+ * brought one in), silently. Null = skipped (not connected, too soon, or
  * paused). Concurrent calls join the running one.
  */
-export function syncGarmin(opts: { manual?: boolean } = {}): Promise<GarminSyncResult | null> {
-  inFlight ??= runSync(opts.manual ?? false).finally(() => {
+export function syncGarmin(
+  opts: { manual?: boolean; newWorkout?: boolean } = {},
+): Promise<GarminSyncResult | null> {
+  inFlight ??= runSync(opts.manual ?? false, opts.newWorkout ?? false).finally(() => {
     inFlight = null;
   });
   return inFlight;
 }
 
-async function runSync(manual: boolean): Promise<GarminSyncResult | null> {
+async function runSync(manual: boolean, newWorkout: boolean): Promise<GarminSyncResult | null> {
   const status = await getGarminStatus();
   if (!status.personal && !status.connected) return null;
   if (await getGarminPausedUntil()) {
@@ -215,12 +227,16 @@ async function runSync(manual: boolean): Promise<GarminSyncResult | null> {
     return null;
   }
   const last = await getGarminLastSync();
-  if (!manual && last && Date.now() - Date.parse(last) < AUTO_SYNC_MIN_MS) return null;
+  // A workout just showed up in Health Connect: Garmin has it too by now
+  // (Garmin Connect writes it there after its own upload), so fetch its
+  // zones, Training Effect and laps while it's the one being looked at.
+  const minGap = manual ? 0 : newWorkout ? NEW_WORKOUT_SYNC_MIN_MS : AUTO_SYNC_MIN_MS;
+  if (last && Date.now() - Date.parse(last) < minGap) return null;
 
   try {
     const result = await syncAll(status);
     await setSetting(SETTING_KEYS.garminLastSyncAt, new Date().toISOString());
-    if (result.linkedExact + result.linkedByTime + result.created + result.days + result.nights > 0) {
+    if (result.linkedExact + result.linkedByTime + result.created + result.days + result.nights + result.zone2Cardio > 0) {
       notifyDiaryChanged();
     }
     return result;
@@ -256,6 +272,7 @@ async function syncAll(status: GarminStatus): Promise<GarminSyncResult> {
     laps: 0,
     days: 0,
     nights: 0,
+    zone2Cardio: 0,
     wellnessBackTo: null,
     backfillDone: false,
     extrasError: null,
@@ -343,6 +360,8 @@ async function syncAll(status: GarminStatus): Promise<GarminSyncResult> {
   // --- Fill Health Connect's gaps from what Garmin has.
   await fillHealthMetricsFromGarmin();
   result.nights = await fillSleepFromGarmin();
+  // --- Workouts mostly in Zone 2 count as cardio, now their zones are in.
+  result.zone2Cardio = await applyZone2Cardio(await getCardioZone2Share());
   return result;
 }
 
@@ -508,9 +527,14 @@ async function legacyDays(from: string, to: string): Promise<GarminDayRow[]> {
   return rows;
 }
 
-/** The same on the way back to the foreground — self-throttled. */
-export function syncGarminIfStale(): Promise<GarminSyncResult | null> {
-  return syncGarmin();
+/**
+ * The same on the way back to the foreground, or after a Health Connect
+ * sync: self-throttled, unless that sync brought in a new workout.
+ */
+export function syncGarminIfStale(
+  hc?: { newWorkouts: number } | null,
+): Promise<GarminSyncResult | null> {
+  return syncGarmin({ newWorkout: (hc?.newWorkouts ?? 0) > 0 });
 }
 
 /** Human-readable error for Settings. */

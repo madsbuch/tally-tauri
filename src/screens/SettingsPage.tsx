@@ -30,6 +30,7 @@ import {
   syncHealthConnect,
 } from "../lib/healthConnect";
 import type { HealthConnectStatus } from "../lib/healthConnect";
+import { syncGarminIfStale } from "../lib/garmin";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
 import GarminConnectSettings from "../components/GarminConnectSettings";
@@ -399,6 +400,10 @@ export default function SettingsPage() {
     setHcMessage(null);
     try {
       const res = await syncHealthConnect();
+      // A new workout: fetch its Garmin detail now, as the app start does.
+      if (res.newWorkouts > 0) {
+        void syncGarminIfStale(res).catch((e) => console.warn("Garmin Connect sync failed", e));
+      }
       setHcStatus(res.status);
       const at = new Date().toISOString();
       setHcLastSync(at);

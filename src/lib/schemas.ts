@@ -341,6 +341,7 @@ const WorkoutSnapshotSchema = z.object({
   zone2_min: z.number().nonnegative().nullable().default(null),
   // Snapshots written before the cardio switch existed have no flag.
   cardio: z.boolean().default(false),
+  cardio_by_hand: z.boolean().default(false),
   model_id: z.string().nullable(),
   icon: z.string().nullable(),
   source: z.string().nullable(),

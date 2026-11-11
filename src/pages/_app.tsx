@@ -30,7 +30,7 @@ import {
 import { STALE_CHAT_MS, chatIdOf, chatPath, tabOf, useGo } from "../lib/navigation";
 import type { TabRoot } from "../lib/navigation";
 import { syncHealthConnect, syncHealthConnectIfStale } from "../lib/healthConnect";
-import { syncGarmin, syncGarminIfStale } from "../lib/garmin";
+import { syncGarminIfStale } from "../lib/garmin";
 import { scanAchievements } from "../lib/achievements";
 import AchievementToast from "../components/AchievementToast";
 
@@ -141,12 +141,16 @@ export default function App() {
             console.warn("Supplement conversion failed", e),
           ),
           // Garmin Connect after Health Connect — it attaches to the rows
-          // Health Connect wrote, so it should see them first — but not
-          // waited for: a first sync's backfill takes a minute.
+          // Health Connect wrote, so it should see them first, and a new
+          // workout there sends it straight away — but not waited for: a
+          // first sync's backfill takes a minute.
           syncHealthConnect()
-            .catch((e) => console.warn("Health Connect sync failed", e))
-            .then(() => {
-              void syncGarmin().catch((e) => console.warn("Garmin Connect sync failed", e));
+            .catch((e) => {
+              console.warn("Health Connect sync failed", e);
+              return null;
+            })
+            .then((hc) => {
+              void syncGarminIfStale(hc).catch((e) => console.warn("Garmin Connect sync failed", e));
             }),
         ]),
       )
@@ -176,8 +180,11 @@ export default function App() {
     const offHealth = onAppResume(
       () =>
         void syncHealthConnectIfStale()
-          .catch((e) => console.warn("Health Connect sync failed", e))
-          .then(() => syncGarminIfStale())
+          .catch((e) => {
+            console.warn("Health Connect sync failed", e);
+            return null;
+          })
+          .then((hc) => syncGarminIfStale(hc))
           .catch((e) => console.warn("Garmin Connect sync failed", e)),
     );
     return () => {
