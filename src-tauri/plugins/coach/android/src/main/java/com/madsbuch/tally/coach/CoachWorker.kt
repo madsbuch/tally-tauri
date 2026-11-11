@@ -215,11 +215,24 @@ internal object CoachWorker {
                 history.none { it.second == c.trigger.key && it.first >= since }
             } ?: return Result(false, null, null)
 
+            // The daily spending cap the app's Settings set (blank = none).
+            val budget = CoachDb.setting(db, "coach_checkin_budget_usd")
+                ?.trim()?.replace(',', '.')?.toDoubleOrNull()
+            if (budget != null && budget > 0 && CoachDb.checkinSpend(db, day) >= budget) {
+                return Result(false, null, null)
+            }
+
             val system = buildPrompt(db, digest, winner, candidates)
-            val message = complete(apiKey, model(db), system) ?: return Result(false, null, null)
+            val modelId = model(db)
+            val reply = complete(apiKey, modelId, system) ?: return Result(false, null, null)
+            val message = reply.text
 
             val title = "${winner.trigger.title} · $day"
             val chatId = CoachDb.insertChat(db, title, system, message)
+            CoachDb.insertUsage(
+                db, day, chatId, modelId,
+                reply.promptTokens, reply.cachedTokens, reply.completionTokens, reply.costUsd,
+            )
             if (chatId > 0) {
                 CoachDb.insertRun(db, winner.trigger.key, day, chatId)
                 // The notification carries the chat's id, so a tap opens it;
@@ -240,10 +253,23 @@ internal object CoachWorker {
         }
     }
 
+    /** Same fallback as coachModelFor in src/lib/coachModel.ts: check-in → coach → vision. */
     private fun model(db: android.database.sqlite.SQLiteDatabase): String {
-        val m = CoachDb.setting(db, "vision_model")
-        return if (m.isNullOrBlank()) DEFAULT_MODEL else m
+        for (key in listOf("coach_checkin_model", "coach_model", "vision_model")) {
+            val m = CoachDb.setting(db, key)
+            if (!m.isNullOrBlank()) return m.trim()
+        }
+        return DEFAULT_MODEL
     }
+
+    /** The check-in text, and what OpenRouter says the request cost. */
+    private data class Reply(
+        val text: String,
+        val promptTokens: Long,
+        val cachedTokens: Long,
+        val completionTokens: Long,
+        val costUsd: Double,
+    )
 
     private fun buildPrompt(
         db: android.database.sqlite.SQLiteDatabase,
@@ -290,7 +316,7 @@ internal object CoachWorker {
     }
 
     /** One chat completion. Returns null on any failure — silence beats noise. */
-    private fun complete(apiKey: String, model: String, system: String): String? {
+    private fun complete(apiKey: String, model: String, system: String): Reply? {
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
@@ -320,12 +346,20 @@ internal object CoachWorker {
             val text = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use {
                 it.readText()
             }
-            val choices = JSONObject(text).optJSONArray("choices") ?: return null
+            val json = JSONObject(text)
+            val choices = json.optJSONArray("choices") ?: return null
             val content = choices.optJSONObject(0)?.optJSONObject("message")?.optString("content")
-            // No em dashes in the app, whatever the model likes (see withoutEmDashes
-            // in src/lib/openrouter.ts).
-            return if (content.isNullOrBlank()) null
-            else content.trim().replace(Regex("[ \\t]*\u2014[ \\t]*"), ", ")
+            if (content.isNullOrBlank()) return null
+            val usage = json.optJSONObject("usage")
+            return Reply(
+                // No em dashes in the app, whatever the model likes (see withoutEmDashes
+                // in src/lib/openrouter.ts).
+                text = content.trim().replace(Regex("[ \\t]*\u2014[ \\t]*"), ", "),
+                promptTokens = usage?.optLong("prompt_tokens") ?: 0L,
+                cachedTokens = usage?.optJSONObject("prompt_tokens_details")?.optLong("cached_tokens") ?: 0L,
+                completionTokens = usage?.optLong("completion_tokens") ?: 0L,
+                costUsd = usage?.optDouble("cost", 0.0) ?: 0.0,
+            )
         } catch (e: Exception) {
             android.util.Log.w("Tally", "Coach check-in request failed", e)
             return null

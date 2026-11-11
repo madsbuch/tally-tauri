@@ -11,7 +11,6 @@ import {
   chat,
   fetchModels,
   isVisionModel,
-  promptPricePerMillion,
   supportsTools,
 } from "../lib/openrouter";
 import {
@@ -33,6 +32,8 @@ import type { HealthConnectStatus } from "../lib/healthConnect";
 import { syncGarminIfStale } from "../lib/garmin";
 import { exportDatabase } from "../lib/exportDb";
 import CoachSettings from "../components/CoachSettings";
+import CoachCostSettings from "../components/CoachCostSettings";
+import ModelRow, { modelSub } from "../components/ModelRow";
 import GarminConnectSettings from "../components/GarminConnectSettings";
 import FoodCountrySetting from "../components/FoodCountrySetting";
 import ThemeSetting from "../components/ThemeSetting";
@@ -137,57 +138,6 @@ interface HcData {
   workouts: Workout[];
   sleep: SleepSession[];
   metrics: HealthMetric[];
-}
-
-function priceLabel(m: ORModel): string | null {
-  const p = promptPricePerMillion(m);
-  if (p == null) return null;
-  if (p === 0) return "free";
-  return `$${p < 0.01 ? p.toFixed(3) : p.toFixed(2)}/M tokens`;
-}
-
-function modelSub(m: ORModel): string {
-  const parts: string[] = [m.id];
-  const price = priceLabel(m);
-  if (price) parts.push(price);
-  if (m.context_length) parts.push(`${Math.round(m.context_length / 1000)}k context`);
-  return parts.join(" · ");
-}
-
-/** A tappable model row with a checkmark when selected. */
-function ModelRow({
-  model,
-  selected,
-  onSelect,
-}: {
-  model: ORModel;
-  selected: boolean;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <button
-      className="list-row"
-      onClick={() => onSelect(model.id)}
-      style={{
-        font: "inherit",
-        color: "inherit",
-        textAlign: "left",
-        width: "100%",
-        cursor: "pointer",
-        ...(selected ? { borderColor: "var(--accent)" } : {}),
-      }}
-    >
-      <div className="row-main">
-        <div className="row-title">{model.name}</div>
-        <div className="row-sub">{modelSub(model)}</div>
-      </div>
-      {selected && (
-        <div className="row-end" style={{ color: "var(--accent)", fontWeight: 700 }}>
-          ✓
-        </div>
-      )}
-    </button>
-  );
 }
 
 export default function SettingsPage() {
@@ -967,6 +917,7 @@ export default function SettingsPage() {
 
       {/* Coach -------------------------------------------------------------- */}
       <CoachSettings />
+      <CoachCostSettings />
 
       {/* Goals ------------------------------------------------------------- */}
       <div className="section-title">Goals</div>

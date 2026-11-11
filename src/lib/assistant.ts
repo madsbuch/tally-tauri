@@ -56,7 +56,7 @@ import {
 } from "./experiments";
 import { chatWithTools } from "./openrouter";
 import { notifyDiaryChanged } from "./agent";
-import type { ChatMessage, ToolDef } from "./openrouter";
+import type { ChatMessage, ToolDef, Usage } from "./openrouter";
 import { AUTO_METRICS, ExperimentDesignSchema, RatingArgsSchema, parseToolArgs } from "./schemas";
 import type { AutoMetric } from "./schemas";
 import { garminDetailsForWorkouts, listGarminDaysForRange } from "./garminDb";
@@ -83,7 +83,9 @@ import {
   parseCalorieGrouping,
   readCalories,
 } from "./calories";
-import { DEFAULT_VISION_MODEL, SETTING_KEYS } from "./types";
+import { SETTING_KEYS } from "./types";
+import { coachModelFor, coachReasoning } from "./coachModel";
+import type { CoachPurpose } from "./coachModel";
 import type { Nutrients } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -210,9 +212,18 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "describe_database",
+      description:
+        "The database's tables and columns, with what they mean. Call it once before your first run_sql in a conversation; it stays in the conversation after that.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_sql",
       description:
-        "Run a single read-only SELECT against the local SQLite database for anything the other tools can't answer (aggregates, joins, trends). The schema is in the system prompt. Timestamps are ISO-8601 UTC strings.",
+        "Run a single read-only SELECT against the local SQLite database for anything the other tools can't answer (aggregates, joins, trends). Call describe_database first if its tables aren't already in this conversation. Aggregate in SQL rather than pulling raw rows. Timestamps are ISO-8601 UTC strings.",
       parameters: {
         type: "object",
         properties: {
@@ -841,8 +852,11 @@ function compact<T extends Record<string, unknown>>(obj: T): Record<string, unkn
   return out;
 }
 
-const MAX_ITEMS = 200;
-const MAX_SQL_ROWS = 200;
+// Every row returned is read again on each later step of the turn, so the
+// caps are kept to what an answer can use; past them the note steers the
+// model to narrow the range or aggregate.
+const MAX_ITEMS = 100;
+const MAX_SQL_ROWS = 100;
 
 function capList<T>(items: T[]): { items: T[]; note?: string } {
   if (items.length <= MAX_ITEMS) return { items };
@@ -915,7 +929,9 @@ async function runSql(raw: string): Promise<string> {
   return JSON.stringify({
     rows: shown,
     row_count: rows.length,
-    ...(rows.length > MAX_SQL_ROWS ? { note: `Showing first ${MAX_SQL_ROWS} rows.` } : {}),
+    ...(rows.length > MAX_SQL_ROWS
+      ? { note: `Showing first ${MAX_SQL_ROWS} rows. Aggregate or narrow the query to see everything.` }
+      : {}),
   });
 }
 
@@ -937,6 +953,8 @@ export async function executeAssistantTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  if (name === "describe_database") return DB_SCHEMA_DOC;
+
   if (name === "query_calories") {
     const { start, end } = dayArgs(args);
     return JSON.stringify(
@@ -1781,7 +1799,49 @@ export interface AssistantTurnOptions {
    * instead of throwing it away.
    */
   onRound?: () => void;
+  /** Which model setting to run on (see lib/coachModel.ts). Default "chat". */
+  purpose?: CoachPurpose;
+  /** Most requests this turn may make. Default MAX_ROUNDS. */
+  maxRounds?: number;
+  /**
+   * Filled in as the turn runs, so the caller can log what it cost even when
+   * the turn fails partway (every request made was still billed).
+   */
+  spend?: TurnSpend;
 }
+
+/** What a turn has cost so far: summed over every request it made. */
+export interface TurnSpend {
+  model: string;
+  requests: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  costUsd: number;
+}
+
+export function newTurnSpend(): TurnSpend {
+  return {
+    model: "",
+    requests: 0,
+    promptTokens: 0,
+    cachedTokens: 0,
+    completionTokens: 0,
+    costUsd: 0,
+  };
+}
+
+function addUsage(spend: TurnSpend, u: Usage | null): void {
+  spend.requests++;
+  if (!u) return;
+  spend.promptTokens += u.promptTokens;
+  spend.cachedTokens += u.cachedTokens;
+  spend.completionTokens += u.completionTokens;
+  spend.costUsd += u.costUsd;
+}
+
+/** Tools that only hand something to the user; everything else is work. */
+const DELIVERY_TOOLS = new Set(["send_message", "send_chart"]);
 
 /**
  * Run one user turn: appends to `messages` IN PLACE (assistant/tool messages
@@ -1796,15 +1856,23 @@ export async function runAssistantTurn(
 ): Promise<void> {
   const apiKey = await getSetting(SETTING_KEYS.openrouterApiKey);
   if (!apiKey) throw new Error("Add your OpenRouter API key in Settings first.");
-  const model = (await getSetting(SETTING_KEYS.visionModel)) || DEFAULT_VISION_MODEL;
+  const [model, reasoning] = await Promise.all([
+    coachModelFor(opts.purpose ?? "chat"),
+    coachReasoning(),
+  ]);
+  const spend = opts.spend ?? newTurnSpend();
+  spend.model = model;
 
   let delivered = 0;
-  for (let round = 0; round < MAX_ROUNDS; round++) {
+  const maxRounds = opts.maxRounds ?? MAX_ROUNDS;
+  for (let round = 0; round < maxRounds; round++) {
     // After a delivery an empty completion just means "I'm done" — models
     // routinely end the turn that way after their final send_message call.
     const turn = await chatWithTools(apiKey, model, messages, ASSISTANT_TOOLS, {
       allowEmpty: delivered > 0,
+      reasoning: reasoning || undefined,
     });
+    addUsage(spend, turn.usage);
     const content = turn.content?.trim() || "";
 
     if (turn.tool_calls.length === 0) {
@@ -1856,6 +1924,12 @@ export async function runAssistantTurn(
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
     opts.onRound?.();
+    // A step that did nothing but deliver is the end of the answer. Asking
+    // again would resend the whole conversation just to hear "done", which
+    // is what most turns spent their last request on.
+    if (delivered > 0 && turn.tool_calls.every((c) => DELIVERY_TOOLS.has(c.function.name))) {
+      return;
+    }
   }
   if (delivered === 0) {
     throw new Error("The assistant got stuck calling tools. Try rephrasing.");

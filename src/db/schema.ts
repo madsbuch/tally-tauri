@@ -466,6 +466,33 @@ export const coachRuns = sqliteTable(
   (t) => [index("idx_coach_runs_day").on(t.day)],
 );
 
+/**
+ * What the AI cost: one row per coach turn or check-in, with what OpenRouter
+ * reported for every request in it. The ledger behind the spend shown in
+ * Settings and on each chat, and behind the check-in's daily budget.
+ */
+export const aiUsage = sqliteTable(
+  "ai_usage",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    createdAt: text("created_at").notNull(),
+    /** Local day "YYYY-MM-DD" it was spent on. */
+    day: text("day").notNull(),
+    /** "coach" (a conversation turn) | "checkin" (the coach opening one). */
+    source: text("source").notNull(),
+    /** The chat it was spent in; null when none was saved. */
+    chatId: integer("chat_id"),
+    model: text("model").notNull(),
+    requests: integer("requests").notNull(),
+    promptTokens: integer("prompt_tokens").notNull(),
+    /** Prompt tokens served from the provider's cache (billed far lower). */
+    cachedTokens: integer("cached_tokens").notNull(),
+    completionTokens: integer("completion_tokens").notNull(),
+    costUsd: real("cost_usd").notNull(),
+  },
+  (t) => [index("idx_ai_usage_day").on(t.day), index("idx_ai_usage_chat").on(t.chatId)],
+);
+
 /** Unlocked gamification achievements — a row's presence means unlocked. */
 export const achievements = sqliteTable("achievements", {
   key: text("key").primaryKey(),

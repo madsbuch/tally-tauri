@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   achievements,
+  aiUsage,
   bloodReadings,
   captures,
   chats,
@@ -1042,11 +1043,13 @@ export async function listChats(limit = 50): Promise<ChatSummary[]> {
     .from(chats)
     .orderBy(desc(chats.updatedAt))
     .limit(limit);
+  const costs = await chatCosts(rows.map((r) => r.id)).catch(() => new Map<number, number>());
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
+    cost_usd: costs.get(r.id) ?? 0,
   }));
 }
 
@@ -1063,9 +1066,15 @@ export async function getChatSummary(id: number): Promise<ChatSummary | null> {
     .where(eq(chats.id, id))
     .limit(1);
   const r = rows[0];
-  return r
-    ? { id: r.id, title: r.title, created_at: r.createdAt, updated_at: r.updatedAt }
-    : null;
+  if (!r) return null;
+  const costs = await chatCosts([r.id]).catch(() => new Map<number, number>());
+  return {
+    id: r.id,
+    title: r.title,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+    cost_usd: costs.get(r.id) ?? 0,
+  };
 }
 
 /** Full transcript of a saved chat; null when the chat doesn't exist. */
@@ -1105,6 +1114,90 @@ export async function updateChatMessages(
 
 export async function deleteChat(id: number): Promise<void> {
   await db.delete(chats).where(eq(chats.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// AI spend (the `ai_usage` ledger)
+// ---------------------------------------------------------------------------
+
+export type AiUsageSource = "coach" | "checkin";
+
+export interface AiUsageRecord {
+  source: AiUsageSource;
+  chatId: number | null;
+  model: string;
+  requests: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  costUsd: number;
+}
+
+/** Log what a coach turn or check-in cost. Skips turns that made no request. */
+export async function recordAiUsage(r: AiUsageRecord): Promise<void> {
+  if (r.requests === 0) return;
+  await db.insert(aiUsage).values({
+    createdAt: new Date().toISOString(),
+    day: todayStr(),
+    source: r.source,
+    chatId: r.chatId,
+    model: r.model,
+    requests: r.requests,
+    promptTokens: r.promptTokens,
+    cachedTokens: r.cachedTokens,
+    completionTokens: r.completionTokens,
+    costUsd: r.costUsd,
+  });
+}
+
+export interface AiSpend {
+  costUsd: number;
+  requests: number;
+  promptTokens: number;
+  cachedTokens: number;
+}
+
+/** Spend from `sinceDay` (local, inclusive) on, optionally for one source. */
+export async function aiSpendSince(
+  sinceDay: string,
+  source?: AiUsageSource,
+): Promise<AiSpend> {
+  const rows = await db
+    .select({
+      costUsd: sql<number>`coalesce(sum(${aiUsage.costUsd}), 0)`,
+      requests: sql<number>`coalesce(sum(${aiUsage.requests}), 0)`,
+      promptTokens: sql<number>`coalesce(sum(${aiUsage.promptTokens}), 0)`,
+      cachedTokens: sql<number>`coalesce(sum(${aiUsage.cachedTokens}), 0)`,
+    })
+    .from(aiUsage)
+    .where(
+      source
+        ? and(gte(aiUsage.day, sinceDay), eq(aiUsage.source, source))
+        : gte(aiUsage.day, sinceDay),
+    );
+  const r = rows[0];
+  return {
+    costUsd: Number(r?.costUsd ?? 0),
+    requests: Number(r?.requests ?? 0),
+    promptTokens: Number(r?.promptTokens ?? 0),
+    cachedTokens: Number(r?.cachedTokens ?? 0),
+  };
+}
+
+/** What each of these chats has cost so far, by chat id (absent = nothing logged). */
+export async function chatCosts(ids: number[]): Promise<Map<number, number>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({
+      chatId: aiUsage.chatId,
+      costUsd: sql<number>`sum(${aiUsage.costUsd})`,
+    })
+    .from(aiUsage)
+    .where(inArray(aiUsage.chatId, ids))
+    .groupBy(aiUsage.chatId);
+  const out = new Map<number, number>();
+  for (const r of rows) if (r.chatId != null) out.set(r.chatId, Number(r.costUsd));
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import {
   parseJson,
   parseModelsResponse,
 } from "./schemas";
-import type { ChatMessage, ContentPart, ToolCall } from "./schemas";
+import type { ChatMessage, ChatResponse, ContentPart, ToolCall } from "./schemas";
 import type { z } from "zod";
 
 /** What the vision model reads off a photographed document. */
@@ -80,9 +80,31 @@ export interface ToolDef {
   };
 }
 
+/** What one request cost, as OpenRouter reported it. */
+export interface Usage {
+  promptTokens: number;
+  /** Prompt tokens read from the provider's cache, billed at a fraction. */
+  cachedTokens: number;
+  completionTokens: number;
+  costUsd: number;
+}
+
 export interface AssistantTurn {
   content: string | null;
   tool_calls: ToolCall[];
+  /** Null when the response carried no accounting. */
+  usage: Usage | null;
+}
+
+function usageOf(json: ChatResponse): Usage | null {
+  const u = json.usage;
+  if (!u) return null;
+  return {
+    promptTokens: u.prompt_tokens ?? 0,
+    cachedTokens: u.prompt_tokens_details?.cached_tokens ?? 0,
+    completionTokens: u.completion_tokens ?? 0,
+    costUsd: u.cost ?? 0,
+  };
 }
 
 // HTTP statuses worth retrying: timeout, too-early, rate limit, server/gateway.
@@ -137,6 +159,11 @@ export interface ChatOptions {
    * treating that as an error surfaces a bogus failure after a good answer.
    */
   allowEmpty?: boolean;
+  /**
+   * Reasoning effort for thinking models ("none" turns it off). Omitted, the
+   * model thinks as much as it likes, and thinking is billed as output.
+   */
+  reasoning?: "low" | "none" | undefined;
 }
 
 /**
@@ -190,7 +217,7 @@ async function requestChatTurn(
       const content = contentToText(choice.message?.content);
       const tool_calls = choice.message?.tool_calls ?? [];
       if ((content == null || content.trim() === "") && tool_calls.length === 0) {
-        if (opts.allowEmpty) return { content: null, tool_calls: [] };
+        if (opts.allowEmpty) return { content: null, tool_calls: [], usage: usageOf(json) };
         lastError = new OpenRouterError("Model returned an empty response", res.status);
         continue;
       }
@@ -200,6 +227,7 @@ async function requestChatTurn(
           ...c,
           function: { ...c.function, arguments: argumentsWithoutEmDashes(c.function.arguments) },
         })),
+        usage: usageOf(json),
       };
     } catch (e) {
       // Non-retryable errors are OpenRouterErrors thrown above; anything else
@@ -222,12 +250,17 @@ export async function chatWithTools(
   tools: ToolDef[],
   opts: ChatOptions = {},
 ): Promise<AssistantTurn> {
+  const body: Record<string, unknown> = { model, messages };
   // Some providers reject an empty tools array — omit it instead.
-  return requestChatTurn(
-    apiKey,
-    tools.length > 0 ? { model, messages, tools } : { model, messages },
-    opts,
-  );
+  if (tools.length > 0) body["tools"] = tools;
+  // Claude models only cache when asked. A top-level breakpoint makes
+  // OpenRouter mark the last cacheable block and move it forward as the
+  // conversation grows, so every round re-reads the tools, the system prompt
+  // and the history so far from the cache. Gemini, OpenAI and DeepSeek cache
+  // a repeated prefix by themselves.
+  if (model.startsWith("anthropic/")) body["cache_control"] = { type: "ephemeral" };
+  if (opts.reasoning) body["reasoning"] = { effort: opts.reasoning };
+  return requestChatTurn(apiKey, body, opts);
 }
 
 /** True when the model advertises OpenAI-style tool calling. */

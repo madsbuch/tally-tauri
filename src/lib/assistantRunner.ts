@@ -25,10 +25,12 @@ import {
   createChat,
   deleteChat,
   getChatMessages,
+  recordAiUsage,
   updateChatMessages,
 } from "./db";
-import { runAssistantTurn, sanitizeChart } from "./assistant";
-import { buildCoachSystemPrompt, cacheCoachPromptPrefix } from "./coach";
+import { newTurnSpend, runAssistantTurn, sanitizeChart } from "./assistant";
+import { buildCoachContext, buildCoachSystemPrompt, cacheCoachPromptPrefix } from "./coach";
+import { compactTranscript, isCoachContext, lastUserIndexOf } from "./coachTranscript";
 import type { AssistantEvent, ChartSpec } from "./assistant";
 import type { ChatMessage } from "./openrouter";
 import { parseToolArgs } from "./schemas";
@@ -59,6 +61,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_supplements: "supplements",
   query_fasts: "fasts",
   run_sql: "database",
+  describe_database: "database",
   read_experiment: "experiment",
   design_experiment: "experiment",
   record_trial: "experiment",
@@ -111,7 +114,7 @@ export function transcriptToUi(messages: ChatMessage[]): UiItem[] {
   let deliveredSinceUser = false;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
-    if (!m) continue;
+    if (!m || isCoachContext(m)) continue;
     if (m.role === "user" && typeof m.content === "string") {
       items.push({ kind: "user", text: m.content });
       deliveredSinceUser = false;
@@ -228,7 +231,12 @@ const listeners = new Set<() => void>();
  * exists for — `rewindToLastUserTurn` strips them back off.
  */
 function hasUserTurn(): boolean {
-  return transcript.some((m) => m.role === "user");
+  return transcript.some((m) => m.role === "user" && !isCoachContext(m));
+}
+
+/** Index of the last message they wrote; -1 when there is none. */
+function lastUserIndex(): number {
+  return lastUserIndexOf(transcript);
 }
 
 /**
@@ -237,9 +245,9 @@ function hasUserTurn(): boolean {
  */
 function endsOnUnansweredTurn(): boolean {
   for (let i = transcript.length - 1; i >= 0; i--) {
-    const role = transcript[i]?.role;
-    if (role === "user") return true;
-    if (role === "assistant") return false;
+    const m = transcript[i];
+    if (m?.role === "user" && !isCoachContext(m)) return true;
+    if (m?.role === "assistant") return false;
   }
   return false;
 }
@@ -300,7 +308,7 @@ async function persist(): Promise<void> {
       persistAgain = false;
       if (chatId == null) {
         const firstUser = transcript.find(
-          (m) => m.role === "user" && typeof m.content === "string",
+          (m) => m.role === "user" && typeof m.content === "string" && !isCoachContext(m),
         );
         const title = chatTitle(
           typeof firstUser?.content === "string" ? firstUser.content : "Chat",
@@ -331,11 +339,15 @@ function run(): void {
 
   const startedAt = Date.now();
   autoResumable = false;
+  const spend = newTurnSpend();
   inFlight = (async () => {
     try {
-      // Rebuilt every turn: it carries the clock, the coach's memory, and a
-      // fresh digest of the diary, all of which move between turns.
+      // Rebuilt every turn, but it only changes when the coach's memory,
+      // manuals or stance did: the clock and the digest go in the context
+      // note, so the conversation behind the system prompt stays cached.
       await refreshSystemPrompt();
+      compactEarlierTurns();
+      await refreshContext();
       // Held open so switching away mid-answer no longer drops the request.
       await withBackgroundTask("Answering your question", () =>
         runAssistantTurn(
@@ -346,7 +358,7 @@ function run(): void {
             items = appendEvent(items, e);
             emit();
           },
-          { onRound: () => void persist() },
+          { onRound: () => void persist(), spend },
         ),
       );
       status = "idle";
@@ -369,6 +381,9 @@ function run(): void {
       inFlight = null;
       emit();
       await persist();
+      await recordAiUsage({ source: "coach", chatId, ...spend }).catch((e: unknown) => {
+        console.warn("Could not log coach spend", e);
+      });
       // The turn may have written to memory, which the scheduled Android
       // check-in reads from the cached prefix rather than rebuilding.
       void cacheCoachPromptPrefix();
@@ -383,13 +398,28 @@ function run(): void {
  * twice in the thread.
  */
 function rewindToLastUserTurn(): void {
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    if (transcript[i]?.role === "user") {
-      transcript = transcript.slice(0, i + 1);
-      items = transcriptToUi(transcript);
-      return;
-    }
-  }
+  const i = lastUserIndex();
+  if (i < 0) return;
+  transcript = transcript.slice(0, i + 1);
+  items = transcriptToUi(transcript);
+}
+
+/**
+ * Put a fresh context note (clock, digest, active manual) right before the
+ * message being answered, replacing the one a retried turn already has.
+ */
+async function refreshContext(): Promise<void> {
+  const i = lastUserIndex();
+  if (i < 0) return;
+  const note = await buildCoachContext();
+  const before = transcript[i - 1];
+  if (before && isCoachContext(before)) transcript[i - 1] = note;
+  else transcript.splice(i, 0, note);
+}
+
+/** Shorten what earlier turns already used (see lib/coachTranscript.ts). */
+function compactEarlierTurns(): void {
+  transcript = compactTranscript(transcript);
 }
 
 /**

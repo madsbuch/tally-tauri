@@ -128,6 +128,7 @@ const CHECKIN_REASONS: Record<string, string> = {
   "no-key": "Add your OpenRouter API key first.",
   busy: "A check-in is already running.",
   failed: "The check-in failed. Check your connection and key.",
+  "spend-cap": "Check-ins have used today's spending cap.",
 };
 
 export default function CoachSettings() {

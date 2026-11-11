@@ -542,6 +542,8 @@ export interface ChatSummary {
   /** ISO 8601 UTC timestamps. */
   created_at: string;
   updated_at: string;
+  /** What the chat has cost so far in USD (see the `ai_usage` ledger); 0 = nothing logged. */
+  cost_usd: number;
 }
 
 /** Result of an AI food-photo analysis. */
@@ -571,6 +573,14 @@ export type { DocumentValue } from "./schemas";
 export const SETTING_KEYS = {
   openrouterApiKey: "openrouter_api_key",
   visionModel: "vision_model",
+  /** Model the coach chats with; absent/empty = the vision model (see lib/coachModel.ts). */
+  coachModel: "coach_model",
+  /** Model the coach's check-ins run on; absent/empty = the coach model. */
+  checkinModel: "coach_checkin_model",
+  /** How hard a thinking model may think for the coach: empty (its default), "low" or "none". */
+  coachReasoning: "coach_reasoning",
+  /** Most the check-ins may spend per local day, USD; absent/empty = no cap. */
+  checkinDailyBudget: "coach_checkin_budget_usd",
   modelsCache: "models_cache",
   modelsCacheAt: "models_cache_at",
   fastDefaultHours: "fast_default_hours",

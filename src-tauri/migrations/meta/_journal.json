@@ -232,6 +232,13 @@
       "when": 1794391604809,
       "tag": "0032_workout_cardio_by_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1794397623879,
+      "tag": "0033_ai_usage",
+      "breakpoints": true
     }
   ]
 }

@@ -82,9 +82,25 @@ const ChatChoiceSchema = z.object({
   error: ChatErrorSchema.optional().catch(undefined),
 });
 
+/**
+ * What a request cost. OpenRouter includes this in every response; `cost` is
+ * what was charged in USD. Every field is optional and forgiving: missing
+ * accounting must never fail an answer that otherwise arrived fine.
+ */
+const ChatUsageSchema = z.object({
+  prompt_tokens: z.number().optional().catch(undefined),
+  completion_tokens: z.number().optional().catch(undefined),
+  cost: z.number().optional().catch(undefined),
+  prompt_tokens_details: z
+    .object({ cached_tokens: z.number().optional().catch(undefined) })
+    .optional()
+    .catch(undefined),
+});
+
 export const ChatResponseSchema = z.object({
   choices: z.array(ChatChoiceSchema).optional().catch(undefined),
   error: ChatErrorSchema.optional().catch(undefined),
+  usage: ChatUsageSchema.optional().catch(undefined),
 });
 export type ChatResponse = z.infer<typeof ChatResponseSchema>;
 

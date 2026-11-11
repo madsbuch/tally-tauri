@@ -11,9 +11,18 @@
  * itself onto that thread would be baffling.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { clearFollowUps, createChat, getSetting, listDueFollowUps, todayStr } from "./db";
-import { runAssistantTurn } from "./assistant";
-import { buildCoachDigest, buildCoachSystemPrompt } from "./coach";
+import {
+  aiSpendSince,
+  clearFollowUps,
+  createChat,
+  getSetting,
+  listDueFollowUps,
+  recordAiUsage,
+  todayStr,
+} from "./db";
+import { newTurnSpend, runAssistantTurn } from "./assistant";
+import { buildCoachContext, buildCoachDigest, buildCoachSystemPrompt } from "./coach";
+import { checkinDailyBudget } from "./coachModel";
 import {
   TRIGGERS_BY_KEY,
   evaluateTriggers,
@@ -44,7 +53,7 @@ const INSTRUCTION =
 
 export interface CheckinResult {
   sent: boolean;
-  reason: Evaluation["reason"] | "no-key" | "busy" | "failed";
+  reason: Evaluation["reason"] | "no-key" | "busy" | "failed" | "spend-cap";
   chatId?: number;
 }
 
@@ -52,6 +61,11 @@ let inFlight = false;
 /** Epoch ms of the last evaluation, to avoid re-deciding on every resume. */
 let lastEvaluatedAt = 0;
 const MIN_EVALUATION_GAP_MS = 10 * 60_000;
+/**
+ * A check-in is one message, not an investigation: fewer steps than a chat
+ * turn gets, since nobody asked for it and every step resends the prompt.
+ */
+const CHECKIN_MAX_ROUNDS = 6;
 
 function shortDate(day: string): string {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
@@ -106,6 +120,12 @@ export async function runCoachCheckin(
 
     lastEvaluatedAt = now;
     const today = todayStr();
+    // The daily cap. Asking for one from Settings is spending on purpose, so
+    // that goes through regardless.
+    const budget = opts.force ? null : await checkinDailyBudget();
+    if (budget != null && (await aiSpendSince(today, "checkin")).costUsd >= budget) {
+      return { sent: false, reason: "spend-cap" };
+    }
     const [digest, yesterday, triggers, history, due] = await Promise.all([
       buildCoachDigest(today),
       buildCoachDigest(shiftDay(today, -1)),
@@ -133,26 +153,44 @@ export async function runCoachCheckin(
 
     const winner = evaluation.winner;
     const def = TRIGGERS_BY_KEY.get(winner.key);
+    const [system, context] = await Promise.all([
+      buildCoachSystemPrompt(),
+      buildCoachContext({ occasion: occasionFor(evaluation) }),
+    ]);
     const transcript: ChatMessage[] = [
-      {
-        role: "system",
-        content: await buildCoachSystemPrompt({ occasion: occasionFor(evaluation) }),
-      },
+      { role: "system", content: system },
+      context,
       { role: "user", content: INSTRUCTION },
     ];
 
     let firstMessage = "";
-    await withBackgroundTask("Coach check-in", () =>
-      runAssistantTurn(transcript, (e) => {
-        if (e.type === "message" && !firstMessage) firstMessage = e.text;
-      }),
-    );
+    const spend = newTurnSpend();
+    try {
+      await withBackgroundTask("Coach check-in", () =>
+        runAssistantTurn(
+          transcript,
+          (e) => {
+            if (e.type === "message" && !firstMessage) firstMessage = e.text;
+          },
+          { purpose: "checkin", maxRounds: CHECKIN_MAX_ROUNDS, spend },
+        ),
+      );
+    } finally {
+      // Logged before the chat exists: a failed check-in was still billed,
+      // and it has to count against the day's budget all the same.
+      if (!firstMessage) {
+        await recordAiUsage({ source: "checkin", chatId: null, ...spend }).catch(() => {});
+      }
+    }
     if (!firstMessage) return { sent: false, reason: "failed" };
 
-    // Drop the synthetic instruction, leaving [system, assistant, …].
+    // Drop the synthetic instruction, leaving [system, context, assistant, …].
     const saved = transcript.filter((m) => m.content !== INSTRUCTION);
     const title = `${def?.title ?? "Check-in"} · ${shortDate(today)}`;
     const chatId = await createChat(title, saved);
+    await recordAiUsage({ source: "checkin", chatId: chatId > 0 ? chatId : null, ...spend }).catch(
+      (e: unknown) => console.warn("Could not log check-in spend", e),
+    );
 
     await recordTriggerRun(winner.key, today, chatId);
     // What keeps it findable when the notification is swiped away unread:

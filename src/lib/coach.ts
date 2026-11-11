@@ -39,12 +39,14 @@ import {
   todayStr,
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
+import type { ChatMessage } from "./schemas";
+import { COACH_CONTEXT_MARK } from "./coachTranscript";
+export { COACH_CONTEXT_MARK, isCoachContext } from "./coachTranscript";
 import { gki } from "./readings";
 import { formatStat, orderStats } from "./performance";
 import { dayOf, offsetLabel, offsetMinOf, timeOf } from "./daystamp";
 import { cardioMinutes, getCardioTarget, getDayGoal, getProteinTarget } from "./goals";
 import { getStreakInfo } from "./streak";
-import { DB_SCHEMA_DOC } from "./assistant";
 import { DEFAULT_CARDIO_TARGET_MIN, DEFAULT_PROTEIN_TARGET_G, SETTING_KEYS } from "./types";
 import type { CoachMemory, Experiment, ExperimentTrial, LibraryDocument, Manual } from "./types";
 import { armCounts, armName, armOf, isReadyToConclude, isUnrated, nextArm, ratingMeasures } from "./experiments";
@@ -702,31 +704,45 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "",
     "## Delivering",
     "COMMUNICATION: the user ONLY sees what you deliver through send_message and send_chart. Plain assistant text is a private scratchpad, use it to think, then deliver. Every turn MUST end with at least one send_message.",
+    "Do your lookups first and deliver last: the turn ends at the first step where you call nothing but send_message and send_chart, so put every message and chart of the answer in that one final step.",
     "Never use em dashes in anything you write: messages, chart titles, memory, manuals. Use a comma, a colon or a new sentence.",
     "Use send_chart whenever numbers form a trend or comparison. Charts are rendered natively, never draw one with text, blocks, or ASCII. One unit per chart; send two charts for two units.",
     "Ground everything in the data. Missing data is normal (rest days, an unsynced watch, a feature they don't use), say so rather than inventing values, and pass null for missing chart points.",
     "Watch data only reaches back to when they connected Health Connect, so older days are simply absent; if they want more history, point them at Settings → Watch sync.",
     'Day parameters are LOCAL days ("YYYY-MM-DD"). Resolve relative phrases yourself.',
-    "The structured query_* tools cover most questions; run_sql handles aggregates, joins and longer trends.",
+    "The structured query_* tools cover most questions; run_sql handles aggregates, joins and longer trends (call describe_database first for the tables). Results from earlier turns get shortened once they've been answered, so query again rather than relying on old rows.",
     "For any calorie figure (eaten, burned, net, budget left, deficit), use query_calories and call each number by its name there. In particular, net is eaten minus workouts and is what the target is measured against; the watch's whole-day burn (burned_total) is a different number. Don't mix the two up.",
     "search_packaged_food looks up branded products in the public Open Food Facts database, use it for product facts or healthier-alternative comparisons. The logged diary entries remain the source of truth for what was actually eaten.",
+    "Entries carry the day and timezone they were logged in, so a day's numbers stay put when they travel. Group by the `day` column rather than by a timestamp.",
+    `Before each of their messages you get a note marked ${COACH_CONTEXT_MARK} with the time and where they stand. It comes from the app, not from them, and only the newest one is current.`,
     "",
-    DB_SCHEMA_DOC,
     "Say one useful thing rather than five true ones. If there's nothing worth raising, don't manufacture a concern.",
     "Message style: concise markdown in a narrow mobile chat bubble. Lead with the point, bold the key figures, always include units, skip headers. Put numbers a chart already shows in the chart, not the text.",
   ].join("\n");
 }
 
 /**
- * The full system prompt: the prefix, plus the parts that move — the clock,
- * the diary digest, and the occasion when the coach opened the conversation
- * itself.
+ * The system prompt: only what holds for the whole conversation.
+ *
+ * Providers cache a request's longest repeated prefix, and the system prompt
+ * comes before the whole history. When it carried the clock it changed every
+ * minute, and every message then paid full price to resend the conversation
+ * behind it. The parts that move go in `buildCoachContext` instead.
  */
-export async function buildCoachSystemPrompt(
+export async function buildCoachSystemPrompt(): Promise<string> {
+  return buildCoachPromptPrefix();
+}
+
+/**
+ * The parts that move: the clock, the diary digest, the fasting manual while
+ * a fast runs, and the occasion when the coach opened the conversation
+ * itself. Sent as a note ahead of each user message, so the history before it
+ * stays exactly as the provider cached it.
+ */
+export async function buildCoachContext(
   opts: CoachPromptOptions = {},
-): Promise<string> {
-  const [prefix, digest, fastingManual] = await Promise.all([
-    buildCoachPromptPrefix(),
+): Promise<ChatMessage> {
+  const [digest, fastingManual] = await Promise.all([
     buildCoachDigest(),
     activeManualFor("fasting"),
   ]);
@@ -736,11 +752,9 @@ export async function buildCoachSystemPrompt(
     now.getMinutes(),
   ).padStart(2, "0")}`;
 
-  return [
-    prefix,
-    "",
+  const content = [
+    `${COACH_CONTEXT_MARK} Written by the app, not by them.`,
     `Current local date & time: ${weekday} ${local} (${offsetLabel(offsetMinOf(now))}).`,
-    "Entries carry the day and timezone they were logged in, so a day's numbers stay put when they travel. Group by the `day` column rather than by a timestamp.",
     "",
     "## Where they stand right now",
     renderCoachDigest(digest),
@@ -748,6 +762,7 @@ export async function buildCoachSystemPrompt(
     ...(fastingManual ? ["", ...renderActiveManual(fastingManual, "They're fasting right now")] : []),
     ...(opts.occasion ? ["", "## This check-in", opts.occasion] : []),
   ].join("\n");
+  return { role: "user", content };
 }
 
 /** The manual for a situation, but only while the app sees it happening. */

@@ -533,6 +533,52 @@ internal object CoachDb {
         stmt.use { it.executeInsert() }
     }
 
+    /**
+     * What check-ins have spent on `day` (USD), from the ledger the app keeps
+     * (`ai_usage`, see src/db/schema.ts). 0 when the table isn't there yet.
+     */
+    fun checkinSpend(db: SQLiteDatabase, day: String): Double {
+        return try {
+            db.rawQuery(
+                "SELECT coalesce(sum(cost_usd), 0) FROM ai_usage WHERE day = ? AND source = 'checkin'",
+                arrayOf(day),
+            ).use { c -> if (c.moveToFirst()) c.getDouble(0) else 0.0 }
+        } catch (_: Exception) {
+            0.0
+        }
+    }
+
+    /** Log a check-in's cost in the app's ledger. Best effort: never fails the run. */
+    fun insertUsage(
+        db: SQLiteDatabase,
+        day: String,
+        chatId: Long?,
+        model: String,
+        promptTokens: Long,
+        cachedTokens: Long,
+        completionTokens: Long,
+        costUsd: Double,
+    ) {
+        try {
+            val stmt = db.compileStatement(
+                "INSERT INTO ai_usage (created_at, day, source, chat_id, model, requests, " +
+                    "prompt_tokens, cached_tokens, completion_tokens, cost_usd) " +
+                    "VALUES (?, ?, 'checkin', ?, ?, 1, ?, ?, ?, ?)",
+            )
+            stmt.bindString(1, nowIso())
+            stmt.bindString(2, day)
+            if (chatId != null && chatId > 0) stmt.bindLong(3, chatId) else stmt.bindNull(3)
+            stmt.bindString(4, model)
+            stmt.bindLong(5, promptTokens)
+            stmt.bindLong(6, cachedTokens)
+            stmt.bindLong(7, completionTokens)
+            stmt.bindDouble(8, costUsd)
+            stmt.use { it.executeInsert() }
+        } catch (e: Exception) {
+            android.util.Log.w("Tally", "Could not log check-in spend", e)
+        }
+    }
+
     /** Everything the trigger evaluation and the prompt need from the diary. */
     data class Digest(
         val day: String,

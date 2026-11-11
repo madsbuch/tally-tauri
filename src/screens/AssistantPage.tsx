@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { deleteChat, getChatMessages, getSetting, listChats } from "../lib/db";
+import { formatUsd } from "../lib/coachModel";
 import { SETTING_KEYS } from "../lib/types";
 import type { ChatSummary } from "../lib/types";
 import {
@@ -331,7 +332,10 @@ export default function AssistantPage() {
                       <div className="row-title" style={{ whiteSpace: "normal" }}>
                         {c.title}
                       </div>
-                      <div className="row-sub">{relativeTime(c.updated_at)}</div>
+                      <div className="row-sub">
+                        {relativeTime(c.updated_at)}
+                        {c.cost_usd > 0 ? ` · ${formatUsd(c.cost_usd)}` : ""}
+                      </div>
                     </button>
                     <button
                       className="btn btn-ghost btn-sm row-end"
