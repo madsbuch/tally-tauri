@@ -35,7 +35,10 @@ import {
   getTrial,
   listTrials,
   listAllFasts,
+  addStateLog,
+  listStateCategories,
 } from "./db";
+import { tagsFromList } from "./states";
 import { createManual, isManualTrigger, removeManual, saveManual } from "./manuals";
 import { AUTO_METRIC_INFO } from "./experimentMetrics";
 import {
@@ -257,6 +260,47 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     },
   },
   FOOD_FACTS_TOOL,
+  {
+    type: "function",
+    function: {
+      name: "log_observation",
+      description:
+        "Put an OBSERVATION in their diary: something they tell you they noticed about themselves at " +
+        "a moment, a feeling (\"I've been anxious all afternoon\"), a bodily observation (bloated, " +
+        "gas, a bowel movement, a headache), an urge, or a thought that came up. They often tell you " +
+        "how they're doing in conversation; when what they describe is a moment that belongs in the " +
+        "diary, log it without asking and say in one short line what you logged, so they can object. " +
+        "Not for long-running background (\"I've been stressed for months\": that's `remember`), not " +
+        "for something already in today's observations in your context, and never for what YOU infer " +
+        "they might feel. One call per moment: several things noticed together are one observation " +
+        "with several tags.",
+      parameters: {
+        type: "object",
+        properties: {
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Tags from THEIR list (\"Their observation tags\" in your context), spelled exactly as " +
+              "listed, every one that fits. Never invent one; pass [] when none fits and let the note say it.",
+          },
+          note: {
+            type: "string",
+            description:
+              "What they said about it, in THEIR words and language: what it was, how bad, what was " +
+              "going on, the thought itself. Don't tidy, soften or interpret it. Required when no tag fits.",
+          },
+          at: {
+            type: "string",
+            description:
+              'When they noticed it, local: "HH:MM" for today or "YYYY-MM-DD HH:MM". Omit for right now.',
+          },
+        },
+        required: ["tags"],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -1183,6 +1227,35 @@ export async function executeAssistantTool(
 
   if (name === "search_packaged_food") {
     return executeFoodFactsSearch(args);
+  }
+
+  if (name === "log_observation") {
+    const raw = Array.isArray(args["tags"])
+      ? args["tags"].filter((t): t is string => typeof t === "string")
+      : [];
+    const list = await listStateCategories();
+    const tags = tagsFromList(raw, list);
+    const note = typeof args["note"] === "string" ? args["note"].trim() : "";
+    if (tags.length === 0 && !note) {
+      throw new Error(
+        `None of those tags is on their list (${list.map((c) => c.label).join(", ") || "it's empty"}). ` +
+          "Use one from it, or pass a note saying what it was.",
+      );
+    }
+    const rawAt = typeof args["at"] === "string" ? args["at"] : "";
+    const atMs = rawAt ? parseLocalMoment(rawAt) : Date.now();
+    if (atMs == null) throw new Error('at must be "HH:MM" or "YYYY-MM-DD HH:MM"');
+    // A moment they're telling you about has happened; it isn't in the future.
+    const loggedAt = new Date(Math.min(atMs, Date.now())).toISOString();
+    const id = await addStateLog({ tags, note: note || null, loggedAt });
+    notifyDiaryChanged();
+    const dropped = raw.filter((r) => !tags.some((t) => t.label.toLowerCase() === r.trim().toLowerCase()));
+    return JSON.stringify(
+      compact({
+        logged_observation: { id, tags: tags.map((t) => `${t.icon ?? ""} ${t.label}`.trim()), note: note || undefined, at: localStamp(Date.parse(loggedAt)) },
+        not_on_their_list: dropped.length > 0 ? dropped : undefined,
+      }),
+    );
   }
 
   if (name === "annotate_entry") {

@@ -37,6 +37,7 @@ import {
   listWorkoutsForRange,
   setSetting,
   todayStr,
+  listStateCategories,
 } from "./db";
 import { CoachStanceSchema, parseJson } from "./schemas";
 import type { ChatMessage } from "./schemas";
@@ -689,6 +690,7 @@ export async function buildCoachPromptPrefix(): Promise<string> {
     "A reminder fires once and is then cleared. When you follow one up, close it out: `forget` it if it's settled, `update_memory` with a new follow_up_in_days if it still needs watching.",
     "The Body tab models what's in them from the diary: caffeine and alcohol by the hour; glycogen by the day; creatine, beta-alanine, vitamin D, omega-3, ferritin and vitamin reserves by the week; plus training load and sleep debt. `query_body_levels` reads it at any moment; `query_levels_at_sleep` lines up caffeine and alcohol at bedtime with each night's sleep, use it when sleep comes up, and to tell them when their last coffee should be.",
     "They can keep meals for reuse, saved meals, with exact numbers (often a shop's official values), which the diary logs as-is whenever they eat them again. `list_saved_meals` shows what's saved; `save_meal` keeps a diary entry when they ask; `edit_saved_meal` renames or deletes one on request.",
+    "They often tell you how they're doing. When they describe a moment they noticed something about themselves (a feeling, something the body did, an urge, a thought that came up), put it in their diary with `log_observation`, tagged from their list and in their own words, and mention it in a short line. Their diary is where they look back, so a moment told only to you is lost to them. Skip what's already in today's observations.",
     "Context about ONE entry goes on that entry with `annotate_entry`, a high glucose reading taken right after a coffee, a slow run the day after a bad night, so it is there the next time anyone looks at that entry. A pattern that keeps showing up across entries goes in memory with `remember`. Check an entry's existing notes before adding one, and never annotate just to restate its numbers.",
     "",
     "## Their manuals",
@@ -745,9 +747,10 @@ export async function buildCoachSystemPrompt(): Promise<string> {
 export async function buildCoachContext(
   opts: CoachPromptOptions = {},
 ): Promise<ChatMessage> {
-  const [digest, fastingManual] = await Promise.all([
+  const [digest, fastingManual, tags] = await Promise.all([
     buildCoachDigest(),
     activeManualFor("fasting"),
+    listStateCategories().catch(() => []),
   ]);
   const now = new Date();
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
@@ -762,6 +765,13 @@ export async function buildCoachContext(
     "## Where they stand right now",
     renderCoachDigest(digest),
     "These numbers are already yours, don't spend a tool call re-fetching them. Use the query tools for anything deeper: specific days, longer trends, individual meals.",
+    ...(tags.length > 0
+      ? [
+          "",
+          "Their observation tags (for log_observation): " +
+            tags.map((c) => `${c.icon} "${c.label}"`).join(", "),
+        ]
+      : []),
     ...(fastingManual ? ["", ...renderActiveManual(fastingManual, "They're fasting right now")] : []),
     ...(opts.occasion ? ["", "## This check-in", opts.occasion] : []),
   ].join("\n");
