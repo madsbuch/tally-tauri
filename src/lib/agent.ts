@@ -53,7 +53,7 @@ import {
 } from "./openFoodFacts";
 import { NUTRIENT_DEFS, sanitizeNutrients, scaleNutrients } from "./nutrients";
 import { iconKeys, isIconKey } from "./icons";
-import { stateKey } from "./states";
+import { tagsFromList } from "./states";
 import {
   MGDL_PER_MMOL,
   READING_DEFS,
@@ -244,25 +244,28 @@ const DIARY_TOOLS: ToolDef[] = [
         "or urge, or a thought or belief that came up (\"caught myself thinking I have to " +
         "earn a rest\"). Nothing was eaten or done here, so nothing is estimated: this is " +
         "the note itself, kept with a time so it can be read next to the day's food and " +
-        "sleep later. Use one call per distinct observation (tired AND bloated is two calls).",
+        "sleep later. One call per moment: several things noticed together (bloated AND gassy " +
+        "after lunch) are one observation with several tags.",
       parameters: {
         type: "object",
         properties: {
-          label: {
-            type: "string",
+          tags: {
+            type: "array",
+            items: { type: "string" },
             description:
-              "What it is. When it fits one of the observations they keep (listed in your " +
-              "instructions), use that label exactly; otherwise 1-3 words as they'd say it.",
+              "Tags from THEIR list of observations (in your instructions), spelled exactly as " +
+              "listed, every one that fits. Never invent a tag; when none fits, pass [] and let " +
+              "the note say what it was.",
           },
           note: {
             type: "string",
             description:
-              "Anything else they said about it, how bad, how long, what it followed, the " +
-              "thought itself when it was one. Their words, not yours.",
+              "What they said about it: what it was, how bad, how long, what it followed, the " +
+              "thought itself when it was one. Their words, not yours. Required when no tag fits.",
           },
           time: { type: "string", description: TIME_DESC },
         },
-        required: ["label", "time"],
+        required: ["tags", "time"],
         additionalProperties: false,
       },
     },
@@ -568,7 +571,7 @@ function renderDiaryContext(ctx: DiaryContext, day: string, isToday: boolean): s
 
   if (ctx.observations.length > 0) {
     lines.push(
-      "Observations they keep (labels for log_state): " +
+      "Their observation tags (for log_state): " +
         ctx.observations.map((c) => `"${c.label}"`).join(", "),
     );
   }
@@ -629,7 +632,7 @@ function buildSystemPrompt(
     "- The listing above is what is ALREADY recorded. It is context, never a reason to skip logging: this capture is something new unless the note says otherwise.",
     "- When the note points back at one of those entries, \"one more cheese cube\", \"another coffee\", \"same as this morning\", \"the usual\", call repeat_meal with that entry's id instead of estimating again. Two of the same thing should count the same both times.",
     "- When what they ate is one of their saved meals listed above (by name, brand or what the photo shows) → log_saved_meal with its #id, before considering log_meal or search_packaged_food. A saved meal holds numbers they checked; never re-estimate it.",
-    "- Decide what the capture shows: food/drink → log_meal; supplements count as food (see below) → log_meal; exercise → log_workout; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; something they NOTICED in body or mind (a feeling, a symptom, a bodily observation, a craving, a thought or belief that came up: \"bloated\", \"low all afternoon\", \"headache\", \"loose stool\", \"thinking I'm lazy if I rest\") → log_state, using one of their observation labels above when one fits.",
+    "- Decide what the capture shows: food/drink → log_meal; supplements count as food (see below) → log_meal; exercise → log_workout; a blood meter screen (glucose or ketones) → log_reading; fitness stats from a watch/training app (FTP, VO2 max, HRV, lactate threshold, training readiness, race predictions) → log_performance; something they NOTICED in body or mind (a feeling, a symptom, a bodily observation, a craving, a thought or belief that came up: \"bloated\", \"low all afternoon\", \"headache\", \"loose stool\", \"thinking I'm lazy if I rest\") → log_state, tagged with every tag from their list above that fits.",
     "- When an observation is a thought or belief, put the thought in the note in THEIR words, in their language. Never translate, tidy, soften or rephrase it, and don't argue with it or reassure them about it in your confirmation, only say what was recorded.",
     `- Branded/packaged products (wrappers, bottles, cans, labels, barcodes): look them up with search_packaged_food first, by the barcode digits when the photo shows them legibly, else by the name as printed on the package. ${foodCountry == null ? "" : `Searches cover products sold in ${foodCountry} first, then worldwide; prefer a match sold in their country. `}When a result is what was eaten, call log_meal with \`label\` (its barcode plus grams, servings or packages) and let Tally do the label arithmetic; put in \`nutrients\` only what the label lacks (usually the micronutrients). Never search for home-cooked or generic foods; if the search fails or nothing matches, estimate everything yourself and log without \`label\`.`,
     "- Supplements are food: \"800mg fish oil\", \"2 tsp psyllium husk\", \"magnesium\" → log_meal with icon \"supplement\", titled by what it is and how much (\"Fish oil 800 mg\"), and `nutrients` for the AMOUNT TAKEN, e.g. the omega-3 in 800 mg of fish oil (and its EPA + DHA as epa_dha_g), the fiber in the husk, the magnesium in the dose, beta-alanine in a pre-workout as beta_alanine_g. A supplement photo or label shows the dose; with no amount given, assume one typical serving and say so in the description. \"The usual\"/\"same as yesterday\" → repeat_meal like any food.",
@@ -953,23 +956,24 @@ async function executeTool(
   }
 
   if (name === "log_state") {
-    const label = str(args["label"]);
-    if (!label) return "Error: label is required.";
-    // The emoji belongs to the category when they keep one for this; a state
-    // the agent hears about that isn't on their list is logged all the same,
-    // just without one. Their list stays theirs to add to.
-    const known = (await listStateCategories()).find(
-      (c) => stateKey(c.label) === stateKey(label),
-    );
-    await addStateLog({
-      label: known?.label ?? label,
-      icon: known?.icon ?? null,
-      note: str(args["note"]) || null,
-      loggedAt: time,
-    });
+    const raw = Array.isArray(args["tags"])
+      ? args["tags"].filter((t): t is string => typeof t === "string")
+      : [];
+    // Only tags on their list get through, in the list's spelling and icon;
+    // their list stays theirs to add to.
+    const tags = tagsFromList(raw, await listStateCategories());
+    const note = str(args["note"]) || null;
+    if (tags.length === 0 && !note) {
+      return "Error: no tag from their list fits, so pass the note saying what it was.";
+    }
+    await addStateLog({ tags, note, loggedAt: time });
     ctx.logged++;
     notifyDiaryChanged();
-    return `Logged "${label}" at ${time}.`;
+    const dropped = raw.length - tags.length;
+    return (
+      `Logged an observation${tags.length ? ` tagged ${tags.map((t) => t.label).join(", ")}` : " (untagged)"} at ${time}.` +
+      (dropped > 0 ? ` ${dropped} tag(s) weren't on their list and were left off.` : "")
+    );
   }
 
   return `Error: unknown tool "${name}".`;

@@ -20,6 +20,7 @@ import {
   timeOf as localHhMm,
 } from "../lib/daystamp";
 import {
+  GlyphStack,
   GlyphThumb,
   IconPicker,
   PhotoImg,
@@ -77,7 +78,7 @@ import { startAssistantChat } from "../lib/assistantRunner";
 import { getStreakInfo } from "../lib/streak";
 import type { StreakInfo } from "../lib/streak";
 import { entryGlyph } from "../lib/icons";
-import { stateGlyph } from "../lib/states";
+import { stateGlyphs, stateTitle } from "../lib/states";
 import {
   READING_DEFS,
   formatReading,
@@ -1829,12 +1830,18 @@ export default function DiaryPage() {
                         if (ev.key === "Enter") openItem(item);
                       }}
                     >
-                      <GlyphThumb glyph={stateGlyph(st.icon)} />
+                      <GlyphStack glyphs={stateGlyphs(st)} />
                       <div className="row-main">
-                        <div className="row-title">{st.label}</div>
+                        <div className="row-title">{stateTitle(st)}</div>
                         <div className="row-sub">
                           {timeOf(st.logged_at, st.tz_offset_min)}
-                          {st.note ? ` · ${shorten(st.note)}` : ""}
+                          {/* Untagged, the note is already the title. */}
+                          {st.note && st.tags.length > 0 ? ` · ${shorten(st.note)}` : ""}
+                          {st.tagging === "pending"
+                            ? " · tagging…"
+                            : st.tagging === "failed"
+                              ? " · couldn't tag, tap to tag"
+                              : ""}
                         </div>
                       </div>
                       <div className="row-end">›</div>

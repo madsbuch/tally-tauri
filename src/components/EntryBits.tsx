@@ -44,6 +44,22 @@ export function PhotoImg({
 }
 
 /** Emoji glyph in a photo-thumb-sized rounded square. */
+/**
+ * Several glyphs in one thumb — an observation with more than one tag. Up to
+ * four fit at a readable size; one more says "and others" well enough.
+ */
+export function GlyphStack({ glyphs }: { glyphs: string[] }) {
+  if (glyphs.length <= 1) return <GlyphThumb glyph={glyphs[0] ?? ""} />;
+  const shown = glyphs.slice(0, 4);
+  return (
+    <div className="photo-thumb glyph-stack" data-count={shown.length}>
+      {shown.map((g, i) => (
+        <span key={i}>{g}</span>
+      ))}
+    </div>
+  );
+}
+
 export function GlyphThumb({ glyph }: { glyph: string }) {
   return (
     <div

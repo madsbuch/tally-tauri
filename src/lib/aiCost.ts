@@ -16,6 +16,7 @@ export const AI_FEATURES = [
   "document",
   "supplement",
   "state_icon",
+  "observation_tags",
   "photo",
   "test",
 ] as const;
@@ -32,7 +33,8 @@ const FEATURE_INFO: Record<AiFeature, { label: string; detail: string }> = {
   entry_chat: { label: "Entry conversations", detail: "Questions and corrections on one entry" },
   document: { label: "Documents", detail: "Reading lab results and reports" },
   supplement: { label: "Supplements", detail: "Nutrients from a supplement label" },
-  state_icon: { label: "State icons", detail: "Picking an emoji for a new state" },
+  state_icon: { label: "Observation icons", detail: "Picking an emoji for a new tag" },
+  observation_tags: { label: "Observation tags", detail: "Tagging an observation from what you wrote" },
   photo: { label: "Photo analysis", detail: "One-shot photo reading" },
   test: { label: "Connection tests", detail: "Testing the API key in Settings" },
 };

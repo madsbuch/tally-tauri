@@ -44,7 +44,7 @@ import {
   updateSupplementLog,
   updateWorkout,
 } from "../lib/db";
-import { notifyDiaryChanged } from "../lib/agent";
+import { notifyDiaryChanged, onDiaryChanged } from "../lib/agent";
 import { NUTRIENT_DEFS } from "../lib/nutrients";
 import type { NutrientKey } from "../lib/types";
 import type {
@@ -78,7 +78,8 @@ import {
   workoutGlyph,
 } from "../components/EntryBits";
 import { entryGlyph } from "../lib/icons";
-import { stateGlyph } from "../lib/states";
+import { stateGlyphs, stateTitle } from "../lib/states";
+import { ObservationTagsSheet } from "../components/StateSheet";
 import {
   READING_DEFS,
   formatReading,
@@ -270,6 +271,8 @@ export default function EntryPage() {
   const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [retagging, setRetagging] = useState(false);
+  useSheetHistory(retagging, () => setRetagging(false));
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -332,6 +335,13 @@ export default function EntryPage() {
     void load();
   }, [load]);
 
+  // An observation the model is still tagging: show the tags when they land.
+  const awaitingTags = felt?.tagging === "pending";
+  useEffect(() => {
+    if (!awaitingTags) return;
+    return onDiaryChanged(() => void load());
+  }, [awaitingTags, load]);
+
   async function afterChange() {
     notifyDiaryChanged();
     await load();
@@ -342,7 +352,7 @@ export default function EntryPage() {
       meal?.title ??
       workout?.title ??
       dose?.name ??
-      felt?.label ??
+      (felt ? stateTitle(felt) : null) ??
       (reading ? `${READING_DEFS[reading.kind].label} ${formatReading(reading.kind, reading.value, unit)}` : null) ??
       perf?.title ??
       "this entry";
@@ -442,7 +452,7 @@ export default function EntryPage() {
     meal?.title ??
     workout?.title ??
     dose?.name ??
-    felt?.label ??
+    (felt ? stateTitle(felt) : null) ??
     (reading ? READING_DEFS[reading.kind].label : null) ??
     perf?.title ??
     (night ? (fmtDuration(night.duration_min) ?? "Sleep") : "");
@@ -453,7 +463,7 @@ export default function EntryPage() {
       : night
         ? "😴"
         : felt
-          ? stateGlyph(felt.icon)
+          ? stateGlyphs(felt).join("")
           : reading
             ? READING_DEFS[reading.kind].glyph
             : perf
@@ -479,7 +489,10 @@ export default function EntryPage() {
       {night ? (
         <div className="entry-title">Slept {title}</div>
       ) : meal || workout || felt || perf ? (
-        <button className="entry-title" onClick={() => setEditing({ field: "title" })}>
+        <button
+          className="entry-title"
+          onClick={() => (felt ? setRetagging(true) : setEditing({ field: "title" }))}
+        >
           {title}
           <span className="entry-title-edit">✎</span>
         </button>
@@ -718,6 +731,25 @@ export default function EntryPage() {
         </div>
       )}
 
+      {felt && felt.tagging && (
+        <p className="faint small" style={{ textAlign: "center", marginTop: 4 }}>
+          {felt.tagging === "pending"
+            ? "Picking tags from your note…"
+            : "Couldn't pick tags from your note. Tap the title to tag it."}
+        </p>
+      )}
+
+      {retagging && felt && (
+        <ObservationTagsSheet
+          log={felt}
+          onClose={() => setRetagging(false)}
+          onSaved={() => {
+            setRetagging(false);
+            void afterChange();
+          }}
+        />
+      )}
+
       {editing && (
         <FieldEditor
           editing={editing}
@@ -951,7 +983,7 @@ function FieldEditor({
   const [text, setText] = useState(
     () =>
       (editing.field === "title"
-        ? (meal?.title ?? workout?.title ?? felt?.label ?? perf?.title ?? "")
+        ? (meal?.title ?? workout?.title ?? perf?.title ?? "")
         : editing.field === "description"
           ? (meal?.description ??
             workout?.description ??
@@ -1074,12 +1106,10 @@ function FieldEditor({
       await updateSupplementLog(dose.id, amount, at, dose.tz_offset_min);
     } else if (felt) {
       const patch: StateLog = { ...felt };
-      if (editing.field === "title") {
-        const t = text.trim();
-        if (!t) throw new Error("Say what it was.");
-        patch.label = t;
-      } else if (editing.field === "description") {
+      if (editing.field === "description") {
         patch.note = text.trim() || null;
+        // The note is all an untagged observation has to go by.
+        if (!patch.note && patch.tags.length === 0) throw new Error("Say what it was, or tag it.");
       } else if (editing.field === "when") {
         patch.logged_at = at;
       }
@@ -1132,9 +1162,7 @@ function FieldEditor({
               : editing.field === "stat"
                 ? editing.stat.label
               : editing.field === "title"
-                ? felt
-                  ? "What you noticed"
-                  : "Title"
+                ? "Title"
                 : editing.field === "icon"
                   ? "Icon"
                   : felt || reading || perf

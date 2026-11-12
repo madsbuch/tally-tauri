@@ -532,27 +532,28 @@ export const entryMessages = sqliteTable(
 );
 
 /**
- * How you felt, with a time on it: "bloated", "depressive thoughts", "wired".
+ * An observation, with a time on it: something they noticed about themselves.
+ * Bloated after lunch, depressive thoughts in the afternoon, a thought that
+ * came up. Started as "how you felt", which is why it's still called a state.
  *
  * The rest of the diary records what went in and what was burned. This records
  * what it was like — the half of a day people are usually tracking the other
- * half *for*. Kept as one row per state rather than a mood score, because
- * "bloated at 13:40" can be lined up against what was eaten at 12:15 and a
- * number out of ten can't.
- *
- * `label` and `icon` are copied from the category it was logged under, not a
- * reference to it: the row is a record of a day and must survive that
- * category being renamed or removed.
+ * half *for*. One row per moment, described by its tags (below) and a note,
+ * because "bloated at 13:40" can be lined up against what was eaten at 12:15
+ * and a number out of ten can't.
  */
 export const stateLogs = sqliteTable(
   "state_logs",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     loggedAt: text("logged_at").notNull(),
-    label: text("label").notNull(),
-    icon: text("icon"),
-    /** Whatever else they wanted to say about it. */
+    /** What they wrote about it; for an untagged one, the whole observation. */
     note: text("note"),
+    /**
+     * "pending" while the model is picking tags from the note, "failed" when
+     * it couldn't; null once settled (tagged by hand, by the model, or not).
+     */
+    tagging: text("tagging"),
     /** Local day it happened on, stamped where it happened (lib/daystamp.ts). */
     day: text("day").notNull(),
     /** Minutes east of UTC at that moment, so the time reads as it was lived. */
@@ -564,9 +565,31 @@ export const stateLogs = sqliteTable(
   ],
 );
 
+/**
+ * The tags on an observation, in the order they were given.
+ *
+ * `label` and `icon` are copied from the category on their list, not a
+ * reference to it: the row is a record of a day and must survive that
+ * category being renamed or removed.
+ */
+export const stateLogTags = sqliteTable(
+  "state_log_tags",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    logId: integer("log_id")
+      .notNull()
+      .references(() => stateLogs.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    icon: text("icon"),
+  },
+  (t) => [
+    index("idx_state_log_tags_log").on(t.logId),
+    index("idx_state_log_tags_label").on(t.label),
+  ],
+);
 
 /**
- * The states you can log, as a list you own.
+ * The tags you can put on an observation, as a list you own.
  *
  * Not a fixed vocabulary shipped with the app: what is worth noticing is
  * personal, and a list of fifteen guesses is mostly clutter around the three

@@ -289,9 +289,11 @@ export async function buildRecap(range: RecapRange): Promise<Recap> {
 
   const stateCounts = new Map<string, { label: string; icon: string | null; count: number }>();
   for (const l of stateLogs) {
-    const seen = stateCounts.get(l.label);
-    if (seen) seen.count++;
-    else stateCounts.set(l.label, { label: l.label, icon: l.icon, count: 1 });
+    for (const tag of l.tags) {
+      const seen = stateCounts.get(tag.label);
+      if (seen) seen.count++;
+      else stateCounts.set(tag.label, { label: tag.label, icon: tag.icon, count: 1 });
+    }
   }
   const states = [...stateCounts.values()].sort((a, b) => b.count - a.count).slice(0, 5);
 

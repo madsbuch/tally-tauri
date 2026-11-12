@@ -399,6 +399,21 @@ export const StateIconSchema = z.object({
     }),
 });
 
+/**
+ * Tags a model picked for an observation. Forgiving: a bare string, a list
+ * with junk in it or no list at all degrades to fewer tags, never an error.
+ * Whether a tag is on their list is checked afterwards (lib/states.ts).
+ */
+export const ObservationTagsSchema = z.object({
+  tags: z
+    .unknown()
+    .optional()
+    .transform((v): string[] => {
+      const list = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
+      return list.filter((x): x is string => typeof x === "string" && x.trim() !== "");
+    }),
+});
+
 export const SupplementAnalysisSchema = z.object({
   nutrients: NutrientsField,
   notes: z.unknown().optional().transform((v) => (typeof v === "string" ? v : "")),

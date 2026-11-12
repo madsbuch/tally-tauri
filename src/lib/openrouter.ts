@@ -5,6 +5,7 @@ import {
   DocumentAnalysisSchema,
   FoodAnalysisSchema,
   MealChatSchema,
+  ObservationTagsSchema,
   WorkoutChatSchema,
   PhotoAnalysisSchema,
   StateIconSchema,
@@ -670,6 +671,36 @@ export async function suggestStateIcon(
   } catch {
     return null;
   }
+}
+
+/**
+ * Which of their tags an observation they wrote down is about.
+ *
+ * Only ever picks from the list it is given (and the caller checks that
+ * again): a tag invented here would grow their list behind their back.
+ * Throws when the model can't be reached, so the caller can tell "nothing
+ * fit" (an empty list) from "couldn't ask".
+ */
+export async function suggestObservationTags(
+  apiKey: string,
+  model: string,
+  note: string,
+  tags: readonly string[],
+): Promise<string[]> {
+  const system = [
+    "You tag an entry in someone's health diary: something they noticed about themselves (a feeling, a symptom, a bodily observation, an urge, a thought).",
+    "Pick the tags from THEIR LIST that the entry is about. Usually one, sometimes several. Only use tags exactly as written in the list; never invent one.",
+    "When nothing on the list fits, return an empty list. A tag that only half fits is worse than none.",
+    'Respond with a SINGLE JSON object and nothing else: {"tags": ["<tag>", ...]}',
+  ].join("\n");
+  const content = await chat(apiKey, model, [
+    { role: "system", content: system },
+    {
+      role: "user",
+      content: `Their list: ${tags.map((t) => JSON.stringify(t)).join(", ")}\n\nEntry: ${note}`,
+    },
+  ], "observation_tags");
+  return ObservationTagsSchema.parse(extractJsonObject(content)).tags;
 }
 
 /**

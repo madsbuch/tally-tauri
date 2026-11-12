@@ -262,17 +262,19 @@ export async function buildCoachDigest(day = todayStr()): Promise<CoachDigest> {
   const todayStates = stateLogs
     .filter((st) => st.day === day)
     .map((st) => ({
-      label: st.label,
+      label: st.tags.length > 0 ? st.tags.map((t) => t.label).join(", ") : "untagged",
       time: timeOf(st.logged_at, st.tz_offset_min),
       note: st.note,
     }))
     .reverse();
   const stateCounts = new Map<string, { label: string; count: number }>();
   for (const st of stateLogs) {
-    const k = st.label.trim().toLowerCase();
-    const seen = stateCounts.get(k);
-    if (seen) seen.count++;
-    else stateCounts.set(k, { label: st.label, count: 1 });
+    for (const tag of st.tags) {
+      const k = tag.label.trim().toLowerCase();
+      const seen = stateCounts.get(k);
+      if (seen) seen.count++;
+      else stateCounts.set(k, { label: tag.label, count: 1 });
+    }
   }
   const weekStates = [...stateCounts.values()].sort((a, b) => b.count - a.count);
 
@@ -430,7 +432,7 @@ export function renderCoachDigest(d: CoachDigest): string {
   }
   if (d.states.week.length > 0) {
     lines.push(
-      "States logged in the last 7 days: " +
+      "Observation tags in the last 7 days: " +
         d.states.week.map((st) => `${st.label} ×${st.count}`).join(", ") +
         ".",
     );

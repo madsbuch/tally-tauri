@@ -20,6 +20,8 @@
  * lookup table, the emoji for a new one is asked of the model.
  */
 
+import type { StateCategory, StateLog, StateTag, TaggingStatus } from "./types";
+
 /** A state logged before its category existed, or whose icon didn't resolve. */
 export const STATE_FALLBACK_GLYPH = "💭";
 
@@ -31,4 +33,39 @@ export function stateGlyph(icon: string | null | undefined): string {
 /** Categories match on their words, not their case or their spacing. */
 export function stateKey(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function isTaggingStatus(v: unknown): v is TaggingStatus {
+  return v === "pending" || v === "failed";
+}
+
+/**
+ * Tags named by a model (or typed loosely) matched onto their list. Only what
+ * is on the list comes back, with the list's spelling and icon: a tag the
+ * model made up would be the start of near-duplicates nobody asked for.
+ */
+export function tagsFromList(labels: readonly string[], list: readonly StateCategory[]): StateTag[] {
+  const byKey = new Map(list.map((c) => [stateKey(c.label), c]));
+  const out: StateTag[] = [];
+  const seen = new Set<string>();
+  for (const l of labels) {
+    const c = byKey.get(stateKey(l));
+    if (!c || seen.has(c.label)) continue;
+    seen.add(c.label);
+    out.push({ label: c.label, icon: c.icon });
+  }
+  return out;
+}
+
+/** The icons an observation shows: one per tag, or 💭 with none. */
+export function stateGlyphs(log: Pick<StateLog, "tags">): string[] {
+  return log.tags.length > 0 ? log.tags.map((t) => stateGlyph(t.icon)) : [STATE_FALLBACK_GLYPH];
+}
+
+/** What an observation is called: its tags, else its note, else just that. */
+export function stateTitle(log: Pick<StateLog, "tags" | "note">): string {
+  if (log.tags.length > 0) return log.tags.map((t) => t.label).join(" · ");
+  const note = log.note?.trim().replace(/\s+/g, " ");
+  if (!note) return "Observation";
+  return note.length > 60 ? `${note.slice(0, 60).trimEnd()}…` : note;
 }

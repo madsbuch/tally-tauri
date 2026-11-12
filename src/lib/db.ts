@@ -30,6 +30,7 @@ import {
   settings,
   sleepSessions,
   stateCategories,
+  stateLogTags,
   stateLogs,
   supplementLogs,
   supplements,
@@ -66,6 +67,8 @@ import type {
   SleepSession,
   StateCategory,
   StateLog,
+  StateTag,
+  TaggingStatus,
   Supplement,
   SupplementLogWithSupplement,
   Workout,
@@ -77,7 +80,7 @@ import { SETTING_KEYS } from "./types";
 import { sanitizeNutrients } from "./nutrients";
 import { dayOf, stampOf } from "./daystamp";
 import { zone2Minutes } from "./exerciseGoals";
-import { stateKey } from "./states";
+import { isTaggingStatus, stateKey, stateTitle } from "./states";
 import { isGlucoseUnit, isReadingKind } from "./readings";
 import type { GlucoseUnit } from "./readings";
 import { deletePhoto } from "./photos";
@@ -2420,8 +2423,8 @@ export async function describeNotedEntry(
     return row ? `${row.k} ${Math.round(row.v * 10) / 10} mmol/L` : null;
   }
   if (kind === "state") {
-    const r = await db.select({ t: stateLogs.label }).from(stateLogs).where(eq(stateLogs.id, id)).limit(1);
-    return r[0]?.t ?? null;
+    const log = await getStateLog(id);
+    return log ? stateTitle(log) : null;
   }
   if (kind === "performance") {
     const r = await db.select({ t: performanceLogs.title }).from(performanceLogs).where(eq(performanceLogs.id, id)).limit(1);
@@ -2490,25 +2493,66 @@ export async function setGlucoseUnit(unit: GlucoseUnit): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// States — how they felt, with a time on it
+// Observations (states) — what they noticed, with a time on it
 // ---------------------------------------------------------------------------
 
 type StateRow = typeof stateLogs.$inferSelect;
 
-const toStateLog = (r: StateRow): StateLog => ({
-  id: r.id,
-  logged_at: r.loggedAt,
-  label: r.label,
-  icon: r.icon,
-  note: r.note,
-  day: r.day,
-  tz_offset_min: r.tzOffsetMin,
-});
+/** Rows with their tags, in the order the tags were given. */
+async function withTags(rows: StateRow[]): Promise<StateLog[]> {
+  const ids = rows.map((r) => r.id);
+  const tagRows =
+    ids.length === 0
+      ? []
+      : await db
+          .select()
+          .from(stateLogTags)
+          .where(inArray(stateLogTags.logId, ids))
+          .orderBy(stateLogTags.id);
+  const byLog = new Map<number, StateTag[]>();
+  for (const t of tagRows) {
+    const list = byLog.get(t.logId) ?? [];
+    list.push({ label: t.label, icon: t.icon });
+    byLog.set(t.logId, list);
+  }
+  return rows.map((r) => {
+    const tagging = r.tagging;
+    if (tagging !== null && !isTaggingStatus(tagging)) {
+      throw new Error(`Observation #${r.id} has tagging "${tagging}"`);
+    }
+    return {
+      id: r.id,
+      logged_at: r.loggedAt,
+      tags: byLog.get(r.id) ?? [],
+      note: r.note,
+      tagging,
+      day: r.day,
+      tz_offset_min: r.tzOffsetMin,
+    };
+  });
+}
+
+async function writeTags(logId: number, tags: StateTag[]): Promise<void> {
+  await db.delete(stateLogTags).where(eq(stateLogTags.logId, logId));
+  // The same tag twice on one observation says nothing the first didn't.
+  const seen = new Set<string>();
+  const unique = tags.filter((t) => {
+    const k = stateKey(t.label);
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (unique.length === 0) return;
+  await db
+    .insert(stateLogTags)
+    .values(unique.map((t) => ({ logId, label: t.label.trim(), icon: t.icon ?? null })));
+}
 
 export async function addStateLog(log: {
-  label: string;
-  icon?: string | null;
+  tags: StateTag[];
   note?: string | null;
+  /** "pending" when the model should tag it from the note. */
+  tagging?: TaggingStatus | null;
   /** ISO instant; defaults to now. */
   loggedAt?: string;
 }): Promise<number> {
@@ -2518,29 +2562,29 @@ export async function addStateLog(log: {
     .insert(stateLogs)
     .values({
       loggedAt,
-      label: log.label,
-      icon: log.icon ?? null,
       note: log.note?.trim() || null,
+      tagging: log.tagging ?? null,
       day: stamp.day,
       tzOffsetMin: stamp.tz_offset_min,
     })
     .returning({ id: stateLogs.id });
-  return rows[0]?.id ?? 0;
+  const id = rows[0]?.id ?? 0;
+  await writeTags(id, log.tags);
+  return id;
 }
 
 export async function getStateLog(id: number): Promise<StateLog | null> {
   const rows = await db.select().from(stateLogs).where(eq(stateLogs.id, id)).limit(1);
-  const row = rows[0];
-  return row ? toStateLog(row) : null;
+  const [log] = await withTags(rows);
+  return log ?? null;
 }
 
+/** Time and note; tags go through `setStateLogTags`. */
 export async function updateStateLog(log: StateLog): Promise<void> {
   await db
     .update(stateLogs)
     .set({
       loggedAt: log.logged_at,
-      label: log.label,
-      icon: log.icon,
       note: log.note,
       // Re-stamped from the (possibly edited) time in the offset it already
       // carries, so retiming a state logged abroad keeps it where it was.
@@ -2550,7 +2594,18 @@ export async function updateStateLog(log: StateLog): Promise<void> {
     .where(eq(stateLogs.id, log.id));
 }
 
+/** Replace an observation's tags, and settle (or set) where tagging stands. */
+export async function setStateLogTags(
+  id: number,
+  tags: StateTag[],
+  tagging: TaggingStatus | null = null,
+): Promise<void> {
+  await writeTags(id, tags);
+  await db.update(stateLogs).set({ tagging }).where(eq(stateLogs.id, id));
+}
+
 export async function deleteStateLog(id: number): Promise<void> {
+  await db.delete(stateLogTags).where(eq(stateLogTags.logId, id));
   await db.delete(stateLogs).where(eq(stateLogs.id, id));
 }
 
@@ -2558,7 +2613,7 @@ export async function listStateLogsForDay(day: string): Promise<StateLog[]> {
   return listStateLogsForRange(day, day);
 }
 
-/** States logged on local days `startDay`..`endDay`, newest first. */
+/** Observations logged on local days `startDay`..`endDay`, newest first. */
 export async function listStateLogsForRange(
   startDay: string,
   endDay: string,
@@ -2568,7 +2623,17 @@ export async function listStateLogsForRange(
     .from(stateLogs)
     .where(and(gte(stateLogs.day, startDay), lte(stateLogs.day, endDay)))
     .orderBy(desc(stateLogs.loggedAt));
-  return rows.map(toStateLog);
+  return withTags(rows);
+}
+
+/** Observations still waiting for the model to tag them, oldest first. */
+export async function listStateLogsAwaitingTags(): Promise<StateLog[]> {
+  const rows = await db
+    .select()
+    .from(stateLogs)
+    .where(eq(stateLogs.tagging, "pending"))
+    .orderBy(stateLogs.id);
+  return withTags(rows);
 }
 
 /**

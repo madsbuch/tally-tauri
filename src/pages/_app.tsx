@@ -11,6 +11,7 @@ import {
 import { installAppLifecycle, onAppResume } from "../lib/appLifecycle";
 import { clearStaleBackgroundTask } from "../lib/background";
 import { installDocumentLifecycle, resumePendingDocuments } from "../lib/documents";
+import { installTaggingLifecycle, resumePendingTags } from "../lib/observationTags";
 import { convertSupplementLogs } from "../lib/supplementConversion";
 import { runCoachCheckin } from "../lib/coachCheckin";
 import { syncCoachSchedule } from "../lib/coachTriggers";
@@ -135,6 +136,7 @@ export default function App() {
           resyncFastNotification(),
           resumePendingCaptures(),
           resumePendingDocuments(),
+          resumePendingTags(),
           // Old supplement logs become diary entries (supplements are food).
           // Retries on every start until each one could be converted.
           convertSupplementLogs().catch((e) =>
@@ -172,6 +174,7 @@ export default function App() {
     const offCaptures = installCaptureLifecycle();
     const offAssistant = installAssistantLifecycle();
     const offDocuments = installDocumentLifecycle();
+    const offTagging = installTaggingLifecycle();
     const offCoach = onAppResume(() => void runCoachCheckin());
     // A running fast crosses its 16/24/48h marks while the app sits in the
     // background, with no diary change to notice it — check on the way back.
@@ -192,6 +195,7 @@ export default function App() {
       offScan();
       offCoach();
       offDocuments();
+      offTagging();
       offAssistant();
       offCaptures();
       offLifecycle();

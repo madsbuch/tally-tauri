@@ -212,20 +212,30 @@ export interface StateCategory {
 }
 
 /**
- * A state that was logged: how they felt, when.
- *
- * `label` and `icon` are copied from the category it was logged under (see
+ * A tag on an observation. Copied from the category on their list (see
  * lib/states.ts) rather than pointing at it: a row is a record of a day, so
- * renaming or removing a category later must not rewrite what was felt then.
- * The note is whatever else they wanted to say about it.
+ * renaming or removing a category later must not rewrite what was noticed.
+ */
+export interface StateTag {
+  label: string;
+  icon: string | null;
+}
+
+/** Where the model is with tagging an observation from its note. */
+export type TaggingStatus = "pending" | "failed";
+
+/**
+ * An observation that was logged: what they noticed, when. Described by its
+ * tags and the note; either can be missing, not both.
  */
 export interface StateLog {
   id: number;
   /** ISO 8601 UTC timestamp. */
   logged_at: string;
-  label: string;
-  icon: string | null;
+  tags: StateTag[];
   note: string | null;
+  /** Non-null while the model still has to (or failed to) tag it. */
+  tagging: TaggingStatus | null;
   /** Local day it happened on, stamped where it happened. */
   day: string;
   /** Minutes east of UTC at that moment. */

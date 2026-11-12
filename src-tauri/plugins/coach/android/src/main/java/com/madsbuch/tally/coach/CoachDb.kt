@@ -342,40 +342,53 @@ internal object CoachDb {
             }
         }
 
-        // How they said they felt. Today's in order with whatever they wrote,
-        // and the week as a tally — grouped case-insensitively, since a chip
-        // writes "Bloated" and the capture agent may write "bloated".
+        // What they noticed. Today's in order with whatever they wrote, and
+        // the week as a tally per tag — grouped case-insensitively, since a
+        // chip writes "Bloated" and the capture agent may write "bloated".
         val todayStates = ArrayList<String>()
         val stateCounts = LinkedHashMap<String, Pair<String, Int>>()
-        // A check-in can fire after an app update but before the app has been
-        // opened, against a database whose newest migration hasn't run yet.
-        // Missing the states beats missing the check-in.
-        try {
-            db.rawQuery(
-                "SELECT day, logged_at, tz_offset_min, label, note FROM state_logs " +
-                    "WHERE day BETWEEN ? AND ? ORDER BY logged_at",
-                arrayOf(weekStart, day),
-            ).use { c ->
-                while (c.moveToNext()) {
-                    val stamped = c.getString(0)
-                    val label = c.getString(3) ?: ""
-                    if (label.isEmpty()) continue
-                    val key = label.trim().lowercase(Locale.US)
-                    val seen = stateCounts[key]
-                    stateCounts[key] =
-                        if (seen == null) Pair(label, 1) else Pair(seen.first, seen.second + 1)
-                    if (stamped == day) {
-                        val at = parseIso(c.getString(1))
-                        val time = if (at == null) "" else hhmm(at + c.getLong(2) * 60_000L)
+        // An observation carries any number of tags (state_log_tags); before
+        // that migration it had one label. A check-in can fire after an app
+        // update but before the app has been opened, so both shapes are read,
+        // and missing the observations beats missing the check-in.
+        val sep = "\u001f"
+        val queries = listOf(
+            "SELECT s.day, s.logged_at, s.tz_offset_min, " +
+                "(SELECT group_concat(t.label, char(31)) FROM state_log_tags t WHERE t.log_id = s.id), " +
+                "s.note FROM state_logs s WHERE s.day BETWEEN ? AND ? ORDER BY s.logged_at",
+            "SELECT day, logged_at, tz_offset_min, label, note FROM state_logs " +
+                "WHERE day BETWEEN ? AND ? ORDER BY logged_at",
+        )
+        for (sql in queries) {
+            try {
+                db.rawQuery(sql, arrayOf(weekStart, day)).use { c ->
+                    while (c.moveToNext()) {
+                        val stamped = c.getString(0)
+                        val tags = (c.getString(3) ?: "").split(sep).map { it.trim() }.filter { it.isNotEmpty() }
                         val note = c.getString(4)
-                        todayStates.add(
-                            "$label $time" + (if (note.isNullOrBlank()) "" else ", $note"),
-                        )
+                        if (tags.isEmpty() && note.isNullOrBlank()) continue
+                        for (tag in tags) {
+                            val key = tag.lowercase(Locale.US)
+                            val seen = stateCounts[key]
+                            stateCounts[key] =
+                                if (seen == null) Pair(tag, 1) else Pair(seen.first, seen.second + 1)
+                        }
+                        if (stamped == day) {
+                            val at = parseIso(c.getString(1))
+                            val time = if (at == null) "" else hhmm(at + c.getLong(2) * 60_000L)
+                            val what = if (tags.isEmpty()) "untagged" else tags.joinToString(", ")
+                            todayStates.add(
+                                "$what $time" + (if (note.isNullOrBlank()) "" else ", $note"),
+                            )
+                        }
                     }
                 }
+                break
+            } catch (_: Exception) {
+                // Not this shape of state_logs (or no table yet); try the next.
+                todayStates.clear()
+                stateCounts.clear()
             }
-        } catch (_: Exception) {
-            // No state_logs table yet.
         }
         val weekStates = stateCounts.values
             .sortedByDescending { it.second }
@@ -660,11 +673,11 @@ internal object CoachDb {
                 lines.add("Most recent document in their library, $latestDocument.")
             }
             if (todayStates.isNotEmpty()) {
-                lines.add("Felt today: " + todayStates.joinToString("; ") + ".")
+                lines.add("Observations today: " + todayStates.joinToString("; ") + ".")
             }
             if (weekStates.isNotEmpty()) {
                 lines.add(
-                    "States logged in the last 7 days: " + weekStates.joinToString(", ") + ".",
+                    "Observation tags in the last 7 days: " + weekStates.joinToString(", ") + ".",
                 )
             }
             if (todayReadings.isNotEmpty()) {
