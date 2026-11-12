@@ -1,9 +1,11 @@
 /**
- * Logging how you feel.
+ * Logging an observation: a feeling, something the body did, a thought that
+ * came up. It started as "how do you feel?" and turned out to be the place
+ * for anything noticed about yourself, so it is named for that now.
  *
  * The thing this has to get right is the moment it's used in. Nobody opens
  * their phone to describe being bloated, or to write a paragraph about a
- * depressive afternoon — so the sheet is one tap deep: the states you watch
+ * depressive afternoon — so the sheet is one tap deep: the things you watch
  * are chips, tapping one selects it, Log saves. The note and the time are
  * there when the moment deserves them and skipped when it doesn't.
  *
@@ -14,7 +16,7 @@
  * the list is a different job from using it, so it happens in a sheet of its
  * own — which the back button can leave, like every other sheet in the app.
  *
- * One state per trip, too. Logging several at once looked like a saving until
+ * One observation per trip, too. Logging several at once looked like a saving until
  * you notice what the note is for: being anxious and being low at the same
  * hour usually have different reasons, and copying one sentence onto both
  * records something nobody said.
@@ -48,7 +50,7 @@ async function iconFor(label: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * The states you watch, as a list you can add to and take from.
+ * The observations you watch, as a list you can add to and take from.
  *
  * A sheet rather than a mode: adding a category is a small errand you go off
  * on and come back from, and Cancel, Done and the back button all end it.
@@ -100,12 +102,12 @@ function ManageStatesSheet({
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
-        <h2 className="sheet-title">States you watch</h2>
+        <h2 className="sheet-title">What you watch</h2>
 
         <div className="state-new-row">
           <input
             className="input"
-            placeholder="Name one: ears ringing, restless legs…"
+            placeholder="Name one: ears ringing, restless legs, a thought…"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => {
@@ -236,7 +238,7 @@ export default function StateSheet({
         <div className="sheet-handle" />
         <div className="state-head">
           <h2 className="sheet-title" style={{ margin: 0 }}>
-            How do you feel?
+            What do you notice?
           </h2>
           <button className="btn btn-ghost btn-sm" onClick={() => setManaging(true)}>
             Manage
@@ -245,7 +247,7 @@ export default function StateSheet({
 
         {categories.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            No states on your list yet. Add one under Manage.
+            Nothing on your list yet. Add one under Manage.
           </p>
         ) : (
           <div className="state-chips">
@@ -272,14 +274,14 @@ export default function StateSheet({
           <textarea
             className="input state-note"
             rows={2}
-            placeholder="What was going on, how bad it was, what you'd eaten…"
+            placeholder="What was going on, how bad it was, the thought itself…"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
         </div>
 
         <div className="field">
-          <label className="label">Felt at</label>
+          <label className="label">Noticed at</label>
           <input
             className="input"
             type="time"

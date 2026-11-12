@@ -1,5 +1,10 @@
 /**
- * How you feel, as something you can log.
+ * Observations: what you notice about yourself, as something you can log.
+ *
+ * Feelings, mostly, at first, but it became the place for anything noticed:
+ * what the body did, an urge, a thought or a rule-shaped belief coming up.
+ * The screen says "observation"; the code and tables still say "state", which
+ * is the same thing under its first name.
  *
  * The diary was built around what goes in and what gets burned, which is the
  * measurable half of a day. The other half — bloated after lunch, depressive
@@ -7,7 +12,7 @@
  * usually being kept *for*. Logged with a time on it, it can sit next to the
  * meals and the sleep and be asked the obvious question: does this follow that?
  *
- * The states themselves are a list the user owns (the `state_categories`
+ * The observations themselves are a list the user owns (the `state_categories`
  * table), not a vocabulary shipped with the app. What is worth noticing is
  * personal, and a screen of plausible guesses is mostly clutter around the two
  * or three things someone actually watches. So it starts at three and grows

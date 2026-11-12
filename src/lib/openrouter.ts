@@ -656,10 +656,10 @@ export async function suggestStateIcon(
   label: string,
 ): Promise<string | null> {
   const system = [
-    "You pick ONE emoji to stand for a physical or mental state someone tracks in their health diary.",
+    "You pick ONE emoji to stand for something someone notices about themselves and tracks in their health diary: a feeling, a mood, a symptom, a bodily observation, an urge or a kind of thought.",
     'Respond with a SINGLE JSON object and nothing else: {"icon": "<one emoji>"}',
     "Pick the most recognisable match at thumbnail size. No text, no explanation, no more than one emoji.",
-    "Faces are fine for moods; prefer a body part or an object for a symptom. Never a flag or a skin-toned hand.",
+    "Faces are fine for moods; prefer a body part or an object for a symptom or bodily observation, and a symbol (💭, 🧭) for a kind of thought. Never a flag or a skin-toned hand.",
   ].join("\n");
   try {
     const content = await chat(apiKey, model, [

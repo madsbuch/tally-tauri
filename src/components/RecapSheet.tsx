@@ -329,7 +329,7 @@ export default function RecapSheet({
                 <Highlight
                   emoji={recap.states[0]?.icon ?? "💭"}
                   title={recap.states.map((x) => `${x.label} ×${x.count}`).join(", ")}
-                  sub="How you felt"
+                  sub="What you noticed"
                 />
               )}
               {recap.badges.length > 0 && (

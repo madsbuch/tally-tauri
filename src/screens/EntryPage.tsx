@@ -1133,7 +1133,7 @@ function FieldEditor({
                 ? editing.stat.label
               : editing.field === "title"
                 ? felt
-                  ? "What you felt"
+                  ? "What you noticed"
                   : "Title"
                 : editing.field === "icon"
                   ? "Icon"

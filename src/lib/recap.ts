@@ -408,7 +408,7 @@ export function recapCoachPrompt(r: Recap): string {
     lines.push(`- Weight ${s.weightDeltaKg >= 0 ? "+" : ""}${s.weightDeltaKg.toFixed(1)} kg.`);
   }
   if (r.states.length > 0) {
-    lines.push(`- How I felt: ${r.states.map((x) => `${x.label} ×${x.count}`).join(", ")}.`);
+    lines.push(`- What I noticed: ${r.states.map((x) => `${x.label} ×${x.count}`).join(", ")}.`);
   }
   lines.push(
     "",

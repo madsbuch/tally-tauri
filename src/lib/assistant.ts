@@ -8,12 +8,9 @@ import { diaryZone2Minutes } from "./exerciseGoals";
 import {
   addCoachMemory,
   addEntryNote,
-  addLifeRule,
   describeNotedEntry,
   isNotedEntryKind,
   listEntryNotesFor,
-  findLifeRuleByText,
-  updateLifeRule,
   deleteCoachMemory,
   getDb,
   getSetting,
@@ -260,29 +257,6 @@ export const ASSISTANT_TOOLS: ToolDef[] = [
     },
   },
   FOOD_FACTS_TOOL,
-  {
-    type: "function",
-    function: {
-      name: "add_rule",
-      description:
-        "Add a rule for living (\"leveregel\") to their list, a standing belief like \"I must always do things perfectly\". ONLY once they have agreed to the exact wording: if you helped put it into words, read the sentence back and wait for a yes before calling this. It is saved verbatim as theirs, so never paraphrase what they agreed to.",
-      parameters: {
-        type: "object",
-        properties: {
-          text: {
-            type: "string",
-            description: "The rule, word for word as they agreed to it, in their language.",
-          },
-          alternative: {
-            type: "string",
-            description: "The rule they want to practise instead, if they named one. Omit otherwise.",
-          },
-        },
-        required: ["text"],
-        additionalProperties: false,
-      },
-    },
-  },
   {
     type: "function",
     function: {
@@ -1211,26 +1185,6 @@ export async function executeAssistantTool(
     return executeFoodFactsSearch(args);
   }
 
-  if (name === "add_rule") {
-    const text = typeof args["text"] === "string" ? args["text"].trim() : "";
-    if (!text) throw new Error("text is required");
-    const alternative =
-      typeof args["alternative"] === "string" && args["alternative"].trim()
-        ? args["alternative"].trim()
-        : null;
-    const known = await findLifeRuleByText(text);
-    if (known) {
-      // Agreed to in this conversation, so it is theirs whatever it was before.
-      await updateLifeRule(known.id, {
-        status: "kept",
-        ...(alternative ? { alternative } : {}),
-      });
-      return JSON.stringify({ already_on_list: known.id, text: known.text });
-    }
-    const rule = await addLifeRule({ text, alternative, status: "kept" });
-    return JSON.stringify({ added_rule: rule.id, text: rule.text });
-  }
-
   if (name === "annotate_entry") {
     const kind = args["kind"];
     if (!isNotedEntryKind(kind)) {
@@ -1757,7 +1711,7 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - supplement_logs(id, supplement_id, taken_at, day, tz_offset_min, amount /* dose multiplier */), older supplement intake only. Supplements are now logged as food: food_entries rows with icon = 'supplement' (title like "Fish oil 800 mg", nutrients for the amount taken). Query both when asked about supplements
 - fasts(id, started_at, goal_hours, purpose /* their words: what it's for and what they allow themselves; NULL = plain fast */, ended_at /* NULL = active */, start_day, end_day /* NULL while active */, tz_offset_min)
 - day_goal_adjustments(day /* local "YYYY-MM-DD" */, delta_kcal /* signed correction the user made to that day's calorie target */, note, updated_at)
-- state_logs(id, logged_at, day, tz_offset_min, label /* how they felt: "Bloated", "Depressive thoughts", or their own words */, icon, note /* what else they said about it */), logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel
+- state_logs(id, logged_at, day, tz_offset_min, label /* an observation they made, from a list they keep: a feeling ("Anxious", "Shame"), a bodily observation ("Bloated", "Headache", bowel movements, gas), an urge ("Cravings"), a thought ("Depressive thoughts"), or their own words; "Rule for living" rows are older notes of a rule coming up */, icon, note /* what else they said about it, often the thought itself in their words */), their OBSERVATIONS, logged by hand, never estimated; this is the half of a day the numbers don't hold, so use it when they ask why they feel how they feel, what their body is doing, or about recurring thoughts. Thoughts and beliefs here are personal work: never bring them up unprompted or argue with one
 - blood_readings(id, measured_at, day, tz_offset_min, kind /* "glucose" | "ketone" */, value /* mmol/L for BOTH kinds; glucose × 18.016 = mg/dL */, note), finger-prick readings off their meter, read from a photo of its screen. Glucose ÷ ketones taken together (within ~30 min) is the glucose–ketone index (GKI)
 - garmin_activities(activity_id, workout_id /* → workouts.id; NULL once they deleted it */, dismissed, linked_by /* "exact" | "time" | "created" */, started_at, duration_sec, type_key, name, distance_m, avg_hr, max_hr, calories, aerobic_te, anaerobic_te /* Training Effect 0–5 */, te_label, training_load, avg_power, max_power, norm_power, avg_cadence, elevation_gain_m, avg_speed_mps, vo2_max, zone_secs /* JSON [z1..z5] seconds */, laps /* JSON array, recent activities only */, summary /* JSON: Garmin's full activity summary */), direct Garmin Connect sync; join on workout_id for the extras Health Connect doesn't carry
 - garmin_days(day, steps, calories_total, calories_active, resting_hr, min_hr, max_hr, stress_avg, stress_max, body_battery_high, body_battery_low, body_battery_charged, body_battery_drained, body_battery_wake, respiration_avg, spo2_avg, spo2_low, floors_up, intensity_min_moderate, intensity_min_vigorous, readiness_score, readiness_level, training_status, acute_load, chronic_load, hrv_last_night, hrv_weekly_avg, hrv_status, vo2_max, weight_kg, sleep_score, sleep_stress, sleep_respiration, sleep_body_battery, sleep_started_at, sleep_ended_at, raw /* JSON: the endpoints' answers */), Garmin's own daily numbers; prefer query_garmin_wellness
@@ -1765,8 +1719,6 @@ export const DB_SCHEMA_DOC = `Tables (SQLite; all timestamps ISO-8601 UTC string
 - performance_stats(id, log_id /* → performance_logs.id */, metric /* "ftp", "vo2max", "vo2max_cycling", "ftp_wkg", "hrv", "hrv_7d", "resting_hr", "max_hr", "lactate_threshold_hr", "lactate_threshold_pace", "lactate_threshold_power", "training_readiness", "endurance_score", "hill_score", "acute_load", "recovery_time", "body_battery", "stress", "fitness_age", "race_5k", "race_10k", "race_half", "race_marathon", or "custom_<slug>" */, label, value /* in unit; paces are SECONDS per km and race predictions SECONDS */, unit), join on log_id for the day; this is where FTP and lactate threshold live (Health Connect doesn't carry them)
 - incomplete_days(day /* local "YYYY-MM-DD" */, updated_at), days they marked with the Diary's "Incomplete tracking" switch
 - entry_notes(id, entry_kind /* "meal" | "workout" | "reading" | "state" | "performance" | "sleep" */, entry_id /* id in food_entries / workouts / blood_readings / state_logs / performance_logs / sleep_sessions */, text, created_at), notes YOU attached with annotate_entry: context that explains an entry. Join them in whenever you look at readings, states or performance logs
-- life_rules(id, text /* a rule for living in their exact words: "I must always do things perfectly" */, alternative /* the rule they practise instead, or NULL */, status /* "kept" | "suggested" (the diary heard it, they haven't confirmed) | "archived" */, created_at, day, tz_offset_min)
-- life_rule_logs(id, rule_id, rule_text /* wording at the time */, logged_at, day, tz_offset_min, situation /* what set it off, their words */, belief /* 0-100: how true it felt then; NULL = not rated */, acted_on /* "yes" | "partly" | "no" | NULL */), the times a rule came up. This is personal work: use it when they ask about their rules, and never bring rules up unprompted or argue with one
 - saved_meals(id, name, description, nutrients /* JSON totals for one portion */, icon, source_entry_id /* food_entries.id it was saved from */, created_at, updated_at), meals kept for reuse with exact numbers; prefer list_saved_meals
 - documents(id, document_date /* local day the document refers to */, title, kind, summary, extracted /* JSON array of {name,value,unit,reference,flag} */, status), prefer query_documents over SQL here
 - manuals(id, title, situation, applies_when, body /* markdown */, edited_by, created_at, updated_at), prefer read_manual / write_manual

@@ -151,7 +151,8 @@ export interface CoachDigest {
   streak: { current: number; best: number; todayLogged: boolean };
   fast: { hoursElapsed: number; goalHours: number; purpose: string | null } | null;
   /**
-   * How they said they felt — the half of a day the numbers don't hold.
+   * What they noticed (feelings, the body, thoughts) — the half of a day the
+   * numbers don't hold.
    * Today's with the time and whatever they wrote, and the week as a tally,
    * which is what turns one bad afternoon into something worth mentioning.
    */
@@ -420,7 +421,7 @@ export function renderCoachDigest(d: CoachDigest): string {
   }
   if (d.states.today.length > 0) {
     lines.push(
-      "Felt today: " +
+      "Observations today: " +
         d.states.today
           .map((st) => `${st.label} ${st.time}` + (st.note ? `, ${st.note}` : ""))
           .join("; ") +
