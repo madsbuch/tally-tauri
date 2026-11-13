@@ -71,13 +71,19 @@ export async function savePhoto(base64: string): Promise<string> {
 }
 
 /**
- * Persist a file unchanged (a library document's original PDF) beside the
- * photos; returns the filename it's stored under, e.g. "1730987654321.pdf".
+ * Keep a library document's original file (the PDF its pages were rendered
+ * from) in the `document_files` table. Not a photo, but stored the same way:
+ * through Rust, so the bytes bind as a BLOB.
  */
-export async function saveOriginalPdf(file: Blob): Promise<string> {
-  const base64 = await blobToBase64(file);
+export async function saveDocumentFile(documentId: number, file: File): Promise<void> {
+  const dataBase64 = await blobToBase64(file);
   await getDb();
-  return invoke<string>("save_photo", { dataBase64: base64, ext: "pdf" });
+  await invoke("save_document_file", {
+    documentId,
+    filename: file.name || "document.pdf",
+    mediaType: file.type || "application/pdf",
+    dataBase64,
+  });
 }
 
 /** A blob's bytes as base64, without building the string a byte at a time. */

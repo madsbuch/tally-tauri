@@ -295,17 +295,30 @@ export const documents = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
-    /**
-     * The file exactly as it was added, as a filename in the `photos` table
-     * (e.g. "1730987654321.pdf"). Only PDFs have one: the page images are a
-     * capped, lossy rendering of it, and keeping the original means pages past
-     * the cap — or a sharper rendering — can be had later without asking for
-     * the file again. Null for photographs and for PDFs filed before this.
-     */
-    sourcePath: text("source_path"),
   },
   (t) => [index("idx_documents_document_date").on(t.documentDate)],
 );
+
+/**
+ * A library document's original file, exactly as it was added — today only
+ * PDFs. The page images in `photos` are a capped, lossy rendering of it;
+ * keeping the original means more pages, or a sharper rendering, can be had
+ * later without asking for the file again. Photographs have no row: their
+ * page image is all there ever was.
+ *
+ * Kept out of `documents` so listing the library never drags megabytes of
+ * PDF along, and written through Rust so the bytes bind as a real BLOB.
+ */
+export const documentFiles = sqliteTable("document_files", {
+  documentId: integer("document_id")
+    .primaryKey()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  /** The name it had when picked, e.g. "dexa-2026-11.pdf". */
+  filename: text("filename").notNull(),
+  /** e.g. "application/pdf". */
+  mediaType: text("media_type").notNull(),
+  data: blob("data", { mode: "buffer" }).notNull(),
+});
 
 /**
  * What the coach knows about you, kept beside the chats rather than inside

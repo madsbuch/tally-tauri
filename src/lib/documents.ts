@@ -22,7 +22,7 @@ import {
   updateDocument,
 } from "./db";
 import { analyzeDocument } from "./openrouter";
-import { readPhotoDataUrl, saveOriginalPdf, savePhoto } from "./photos";
+import { readPhotoDataUrl, saveDocumentFile, savePhoto } from "./photos";
 import { withBackgroundTask } from "./background";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { cacheCoachPromptPrefix } from "./coach";
@@ -125,10 +125,10 @@ export interface AddDocumentOptions {
   /** Optional context the user typed — often the only clue to what it is. */
   note?: string | undefined;
   /**
-   * The PDF the pages were rendered from, kept as-is so a longer document
-   * isn't limited to the pages rendered today (see `source_path`).
+   * The PDF the pages were rendered from, kept as-is (in `document_files`)
+   * so a longer document isn't limited to the pages rendered today.
    */
-  originalPdf?: Blob | undefined;
+  originalPdf?: File | undefined;
 }
 
 /**
@@ -139,14 +139,23 @@ export async function addLibraryDocument(opts: AddDocumentOptions): Promise<numb
   if (opts.pagesBase64.length === 0) throw new Error("Nothing to file");
   const pagePaths: string[] = [];
   for (const page of opts.pagesBase64) pagePaths.push(await savePhoto(page));
-  const sourcePath = opts.originalPdf ? await saveOriginalPdf(opts.originalPdf) : null;
   const id = await addDocument({
     // Replaced by the model's title once it's been read.
     title: opts.note?.trim() || "Untitled document",
     note: opts.note?.trim() || null,
     page_paths: pagePaths,
-    source_path: sourcePath,
   });
+  if (opts.originalPdf) {
+    try {
+      await saveDocumentFile(id, opts.originalPdf);
+    } catch (e) {
+      // Filing it without the original would quietly lose the pages past
+      // the cap; better to fail the add and let it be tried again.
+      await deleteDocument(id);
+      for (const page of pagePaths) await deletePhotoIfUnused(page);
+      throw e;
+    }
+  }
   notifyLibraryChanged();
   void processDocument(id);
   return id;
@@ -159,11 +168,13 @@ export async function retryDocument(id: number): Promise<void> {
   void processDocument(id);
 }
 
-/** Remove a document, every page of it, and its original file. */
+/**
+ * Remove a document and every page of it. Its original file, if any, goes
+ * with the row (`document_files` cascades on delete).
+ */
 export async function removeDocument(doc: LibraryDocument): Promise<void> {
   await deleteDocument(doc.id);
   for (const page of documentPages(doc)) await deletePhotoIfUnused(page);
-  await deletePhotoIfUnused(doc.source_path);
   notifyLibraryChanged();
   void cacheCoachPromptPrefix();
 }

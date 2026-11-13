@@ -2,6 +2,7 @@ use base64::Engine;
 use tauri::Manager;
 use tauri_plugin_sql::{DbInstances, DbPool, Migration, MigrationKind};
 
+mod document_files;
 mod garmin;
 mod photos;
 
@@ -233,8 +234,8 @@ fn migrations() -> Vec<Migration> {
         },
         Migration {
             version: 37,
-            description: "document_source",
-            sql: include_str!("../migrations/0036_document_source.sql"),
+            description: "document_files",
+            sql: include_str!("../migrations/0036_document_files.sql"),
             kind: MigrationKind::Up,
         },
     ]
@@ -265,20 +266,9 @@ fn legacy_photos_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
         .join("photos"))
 }
 
-/// Stores a base64-encoded file and returns the filename it's keyed by. `ext`
-/// is "jpg" (the default: every photo and page image) or "pdf" (a library
-/// document's original file).
+/// Stores a base64-encoded JPEG and returns the filename it's keyed by.
 #[tauri::command]
-async fn save_photo(
-    app: tauri::AppHandle,
-    data_base64: String,
-    ext: Option<String>,
-) -> Result<String, String> {
-    let ext = match ext.as_deref() {
-        None | Some("jpg") => "jpg",
-        Some("pdf") => "pdf",
-        Some(other) => return Err(format!("unsupported file type: {other}")),
-    };
+async fn save_photo(app: tauri::AppHandle, data_base64: String) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -286,7 +276,7 @@ async fn save_photo(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis();
-    photos::save(&db_pool(&app).await?, &bytes, millis, ext).await
+    photos::save(&db_pool(&app).await?, &bytes, millis).await
 }
 
 /// Reads a stored photo back as base64. (The WebView can't fetch it any other
@@ -300,6 +290,29 @@ async fn read_photo(app: tauri::AppHandle, filename: String) -> Result<String, S
 #[tauri::command]
 async fn delete_photo(app: tauri::AppHandle, filename: String) -> Result<(), String> {
     photos::delete(&db_pool(&app).await?, &filename).await
+}
+
+/// Stores a library document's original file (base64), e.g. the PDF its page
+/// images were rendered from (see `document_files`).
+#[tauri::command]
+async fn save_document_file(
+    app: tauri::AppHandle,
+    document_id: i64,
+    filename: String,
+    media_type: String,
+    data_base64: String,
+) -> Result<(), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|e| e.to_string())?;
+    document_files::save(&db_pool(&app).await?, document_id, &filename, &media_type, &bytes).await
+}
+
+/// Reads a library document's original file back as base64.
+#[tauri::command]
+async fn read_document_file(app: tauri::AppHandle, document_id: i64) -> Result<String, String> {
+    let data = document_files::read(&db_pool(&app).await?, document_id).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(data))
 }
 
 /// Moves photos left as loose files from before they lived in the database
@@ -354,6 +367,8 @@ pub fn run() {
             read_photo,
             delete_photo,
             import_photo_files,
+            save_document_file,
+            read_document_file,
             prepare_db_export,
             garmin::garmin_status,
             garmin::garmin_set_key,

@@ -9,19 +9,13 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
-/// Stores bytes and returns the filename they're keyed by: a millisecond
-/// timestamp plus `ext` ("jpg" for images, "pdf" for a document's original
-/// file). Pages of one PDF can arrive within the same millisecond, so it steps
-/// forward until a name is free.
-pub async fn save(
-    pool: &SqlitePool,
-    bytes: &[u8],
-    now_millis: u128,
-    ext: &str,
-) -> Result<String, String> {
+/// Stores JPEG bytes and returns the filename they're keyed by: a millisecond
+/// timestamp. Pages of one PDF can arrive within the same millisecond, so it
+/// steps forward until a name is free.
+pub async fn save(pool: &SqlitePool, bytes: &[u8], now_millis: u128) -> Result<String, String> {
     let mut millis = now_millis;
     loop {
-        let name = format!("{millis}.{ext}");
+        let name = format!("{millis}.jpg");
         let inserted = sqlx::query("INSERT OR IGNORE INTO photos (filename, data) VALUES (?, ?)")
             .bind(&name)
             .bind(bytes)
@@ -110,7 +104,7 @@ pub async fn import_files(pool: &SqlitePool, dir: &Path) -> Result<u32, String> 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use futures_core::future::BoxFuture;
     use sqlx::error::BoxDynError;
@@ -138,10 +132,10 @@ mod tests {
     }
 
     /// A fresh scratch directory per test, removed on drop.
-    struct Scratch(PathBuf);
+    pub(crate) struct Scratch(pub(crate) PathBuf);
 
     impl Scratch {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             static N: AtomicU32 = AtomicU32::new(0);
             let dir = std::env::temp_dir().join(format!(
                 "tally-photos-test-{}-{}",
@@ -161,7 +155,7 @@ mod tests {
     }
 
     /// A file-backed database with every app migration applied.
-    async fn migrated_db(scratch: &Scratch) -> SqlitePool {
+    pub(crate) async fn migrated_db(scratch: &Scratch) -> SqlitePool {
         let options = SqliteConnectOptions::new()
             .filename(scratch.0.join("tally.db"))
             .create_if_missing(true);
@@ -237,7 +231,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(kept, "v");
-        save(&pool, b"after upgrade", 1, "jpg").await.unwrap();
+        save(&pool, b"after upgrade", 1).await.unwrap();
     }
 
     #[tokio::test]
@@ -340,7 +334,7 @@ mod tests {
         let pool = migrated_db(&scratch).await;
         let bytes = fake_jpeg(40, 300_000);
 
-        let name = save(&pool, &bytes, 1_730_987_654_321, "jpg").await.unwrap();
+        let name = save(&pool, &bytes, 1_730_987_654_321).await.unwrap();
         assert_eq!(name, "1730987654321.jpg");
         assert_eq!(read(&pool, &name).await.unwrap(), bytes);
 
@@ -358,7 +352,7 @@ mod tests {
 
         let mut names = Vec::new();
         for page in &pages {
-            names.push(save(&pool, page, 5_000, "jpg").await.unwrap());
+            names.push(save(&pool, page, 5_000).await.unwrap());
         }
 
         assert_eq!(names, ["5000.jpg", "5001.jpg", "5002.jpg", "5003.jpg"]);
@@ -368,28 +362,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_original_pdf_is_stored_under_its_own_extension() {
-        let scratch = Scratch::new();
-        let pool = migrated_db(&scratch).await;
-        let page = fake_jpeg(70, 100);
-        let mut pdf = b"%PDF-1.7\n".to_vec();
-        pdf.extend(fake_jpeg(71, 2_000_000));
-
-        let page_name = save(&pool, &page, 9_000, "jpg").await.unwrap();
-        let pdf_name = save(&pool, &pdf, 9_000, "pdf").await.unwrap();
-
-        // Same millisecond, different extension: no collision, nothing stepped.
-        assert_eq!(page_name, "9000.jpg");
-        assert_eq!(pdf_name, "9000.pdf");
-        assert_eq!(read(&pool, &pdf_name).await.unwrap(), pdf);
-    }
-
-    #[tokio::test]
     async fn photos_survive_vacuum_into_export() {
         let scratch = Scratch::new();
         let pool = migrated_db(&scratch).await;
         let bytes = fake_jpeg(60, 4000);
-        let name = save(&pool, &bytes, 7, "jpg").await.unwrap();
+        let name = save(&pool, &bytes, 7).await.unwrap();
 
         let export = scratch.0.join("export.db");
         sqlx::query(&format!("VACUUM INTO '{}'", export.display()))
