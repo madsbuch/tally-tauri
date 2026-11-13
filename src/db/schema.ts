@@ -295,6 +295,14 @@ export const documents = sqliteTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    /**
+     * The file exactly as it was added, as a filename in the `photos` table
+     * (e.g. "1730987654321.pdf"). Only PDFs have one: the page images are a
+     * capped, lossy rendering of it, and keeping the original means pages past
+     * the cap — or a sharper rendering — can be had later without asking for
+     * the file again. Null for photographs and for PDFs filed before this.
+     */
+    sourcePath: text("source_path"),
   },
   (t) => [index("idx_documents_document_date").on(t.documentDate)],
 );

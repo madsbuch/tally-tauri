@@ -71,6 +71,29 @@ export async function savePhoto(base64: string): Promise<string> {
 }
 
 /**
+ * Persist a file unchanged (a library document's original PDF) beside the
+ * photos; returns the filename it's stored under, e.g. "1730987654321.pdf".
+ */
+export async function saveOriginalPdf(file: Blob): Promise<string> {
+  const base64 = await blobToBase64(file);
+  await getDb();
+  return invoke<string>("save_photo", { dataBase64: base64, ext: "pdf" });
+}
+
+/** A blob's bytes as base64, without building the string a byte at a time. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.slice(url.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read the file"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
  * Recently read photos, as data URLs. Thumbnails in a scrolling diary are
  * re-read on every remount otherwise; a stored photo never changes under its
  * filename, so the only invalidation is deletion.

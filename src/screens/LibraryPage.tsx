@@ -293,6 +293,8 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   const [pages, setPages] = useState<{ dataUrl: string; base64: string }[]>([]);
   /** Pages a long PDF had beyond the cap, so the sheet can say they're gone. */
   const [dropped, setDropped] = useState(0);
+  /** The picked PDF itself, filed alongside its page images. */
+  const [originalPdf, setOriginalPdf] = useState<File | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
@@ -314,15 +316,18 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
         if (rendered.length === 0) throw new Error("It has no pages.");
         setPages(rendered);
         setDropped(totalPages - rendered.length);
+        setOriginalPdf(file);
       } else {
         // Documents are read for small print, so they keep more detail than a
         // meal photo needs.
         setPages([await compressImage(file, 2000, 0.9)]);
         setDropped(0);
+        setOriginalPdf(null);
       }
     } catch (err) {
       setPages([]);
       setDropped(0);
+      setOriginalPdf(null);
       setError(`Could not read that file: ${errMsg(err)}`);
     } finally {
       setReading(false);
@@ -337,7 +342,11 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
     setBusy(true);
     setError(null);
     try {
-      await addLibraryDocument({ pagesBase64: pages.map((p) => p.base64), note });
+      await addLibraryDocument({
+        pagesBase64: pages.map((p) => p.base64),
+        note,
+        originalPdf: originalPdf ?? undefined,
+      });
       onSaved();
     } catch (err) {
       setError(errMsg(err));
@@ -389,8 +398,8 @@ function AddSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
             />
             {dropped > 0 && (
               <p className="faint small" style={{ margin: "8px 2px 0" }}>
-                Only the first {MAX_PDF_PAGES} pages are kept; {dropped} more
-                weren&apos;t.
+                Only the first {MAX_PDF_PAGES} pages are shown and read; the
+                other {dropped} are saved with the original PDF.
               </p>
             )}
           </div>

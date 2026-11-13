@@ -22,7 +22,7 @@ import {
   updateDocument,
 } from "./db";
 import { analyzeDocument } from "./openrouter";
-import { readPhotoDataUrl, savePhoto } from "./photos";
+import { readPhotoDataUrl, saveOriginalPdf, savePhoto } from "./photos";
 import { withBackgroundTask } from "./background";
 import { onAppResume, wasSuspendedSince } from "./appLifecycle";
 import { cacheCoachPromptPrefix } from "./coach";
@@ -124,6 +124,11 @@ export interface AddDocumentOptions {
   pagesBase64: string[];
   /** Optional context the user typed — often the only clue to what it is. */
   note?: string | undefined;
+  /**
+   * The PDF the pages were rendered from, kept as-is so a longer document
+   * isn't limited to the pages rendered today (see `source_path`).
+   */
+  originalPdf?: Blob | undefined;
 }
 
 /**
@@ -134,11 +139,13 @@ export async function addLibraryDocument(opts: AddDocumentOptions): Promise<numb
   if (opts.pagesBase64.length === 0) throw new Error("Nothing to file");
   const pagePaths: string[] = [];
   for (const page of opts.pagesBase64) pagePaths.push(await savePhoto(page));
+  const sourcePath = opts.originalPdf ? await saveOriginalPdf(opts.originalPdf) : null;
   const id = await addDocument({
     // Replaced by the model's title once it's been read.
     title: opts.note?.trim() || "Untitled document",
     note: opts.note?.trim() || null,
     page_paths: pagePaths,
+    source_path: sourcePath,
   });
   notifyLibraryChanged();
   void processDocument(id);
@@ -152,10 +159,11 @@ export async function retryDocument(id: number): Promise<void> {
   void processDocument(id);
 }
 
-/** Remove a document and every page of it. */
+/** Remove a document, every page of it, and its original file. */
 export async function removeDocument(doc: LibraryDocument): Promise<void> {
   await deleteDocument(doc.id);
   for (const page of documentPages(doc)) await deletePhotoIfUnused(page);
+  await deletePhotoIfUnused(doc.source_path);
   notifyLibraryChanged();
   void cacheCoachPromptPrefix();
 }

@@ -402,6 +402,11 @@ export interface LibraryDocument {
    * (lib/documents.ts) rather than reading this directly.
    */
   page_paths: string[];
+  /**
+   * The original file as added (a PDF), as a filename in the `photos` table;
+   * null for photographs and for PDFs filed before originals were kept.
+   */
+  source_path: string | null;
   note: string | null;
   summary: string | null;
   extracted: DocumentValue[];

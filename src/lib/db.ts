@@ -1,7 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import {
   achievements,
   aiUsage,
@@ -825,7 +825,11 @@ export async function isPhotoReferenced(filename: string): Promise<boolean> {
     db.select({ id: foodEntries.id }).from(foodEntries).where(eq(foodEntries.photoPath, filename)).limit(1),
     db.select({ id: workouts.id }).from(workouts).where(eq(workouts.photoPath, filename)).limit(1),
     db.select({ id: captures.id }).from(captures).where(eq(captures.photoPath, filename)).limit(1),
-    db.select({ id: documents.id }).from(documents).where(eq(documents.photoPath, filename)).limit(1),
+    db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(or(eq(documents.photoPath, filename), eq(documents.sourcePath, filename)))
+      .limit(1),
     db.select({ id: bloodReadings.id }).from(bloodReadings).where(eq(bloodReadings.photoPath, filename)).limit(1),
     db.select({ id: performanceLogs.id }).from(performanceLogs).where(eq(performanceLogs.photoPath, filename)).limit(1),
     db.select({ id: progressPhotos.id }).from(progressPhotos).where(eq(progressPhotos.photoPath, filename)).limit(1),
@@ -1327,6 +1331,7 @@ function toDocument(r: DocumentRow): LibraryDocument {
     kind,
     photo_path: r.photoPath,
     page_paths: parseDocumentPages(r.pagePaths),
+    source_path: r.sourcePath,
     note: r.note,
     summary: r.summary,
     extracted: parseDocumentValues(r.extracted),
@@ -1375,6 +1380,8 @@ export async function addDocument(d: {
   note: string | null;
   /** Pages in order; the first doubles as the document's `photo_path`. */
   page_paths: string[];
+  /** The original file, when there is one (a PDF). */
+  source_path?: string | null;
 }): Promise<number> {
   const rows = await db
     .insert(documents)
@@ -1384,6 +1391,7 @@ export async function addDocument(d: {
       note: d.note,
       photoPath: d.page_paths[0] ?? null,
       pagePaths: d.page_paths,
+      sourcePath: d.source_path ?? null,
     })
     .returning({ id: documents.id });
   return rows[0]?.id ?? 0;
